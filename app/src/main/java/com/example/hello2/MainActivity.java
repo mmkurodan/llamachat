@@ -93,7 +93,7 @@ public class MainActivity extends Activity {
             // 使用するモデルを gemma3:1b に設定
             bodyJson.put("model", "gemma3:1b");
             JSONArray messages = new JSONArray();
-            messages.put(new JSONObject().put("role", "system").put("content", "You are a helpful assistant."));
+            messages.put(new JSONObject().put("role", "system").put("content", "あなたはユーザの若い女性秘書です"));
             messages.put(new JSONObject().put("role", "user").put("content", userMessage));
             bodyJson.put("messages", messages);
             bodyJson.put("stream", false);
