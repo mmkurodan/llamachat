@@ -83,8 +83,8 @@ public class MainActivity extends Activity {
     private void sendChatToOllama(String userMessage) {
         try {
             JSONObject bodyJson = new JSONObject();
-            // 使用するモデルを gemma3:270m に設定
-            bodyJson.put("model", "gemma3:270m");
+            // 使用するモデルを gemma3:1b に設定
+            bodyJson.put("model", "gemma3:1b");
             JSONArray messages = new JSONArray();
             messages.put(new JSONObject().put("role", "system").put("content", "You are a helpful assistant."));
             messages.put(new JSONObject().put("role", "user").put("content", userMessage));
