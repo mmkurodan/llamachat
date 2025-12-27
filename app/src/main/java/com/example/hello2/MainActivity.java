@@ -16,6 +16,7 @@ import java.io.BufferedReader;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -40,6 +41,9 @@ public class MainActivity extends Activity {
     
     // Conversation history: list of messages (system, user, assistant)
     private List<JSONObject> conversationHistory;
+    
+    // Maximum number of user/assistant message pairs to keep in history (plus system prompt)
+    private static final int MAX_USER_MESSAGE_PAIRS = 10;
 
     // 実機で Ollama が同じ端末��で動作している場合（adb reverse でフォワード済みなど）は localhost を使える
     // 例: "http://localhost:11434/api/chat"
@@ -124,8 +128,8 @@ public class MainActivity extends Activity {
             }
         }
         
-        // Remove oldest messages (user and possibly assistant) until we have <= 10 user messages
-        while (userCount > 10 && conversationHistory.size() > 1) {
+        // Remove oldest messages (user and possibly assistant) until we have <= MAX_USER_MESSAGE_PAIRS user messages
+        while (userCount > MAX_USER_MESSAGE_PAIRS && conversationHistory.size() > 1) {
             // Find and remove the first user message after system prompt
             for (int i = 1; i < conversationHistory.size(); i++) {
                 try {
@@ -201,12 +205,12 @@ public class MainActivity extends Activity {
                     boolean isFirstChunk = true;
                     boolean streamComplete = false;
                     
-                    try {
-                        // Use byteStream for true streaming instead of reading entire response
-                        InputStream inputStream = response.body().byteStream();
-                        BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
-                        String line;
+                    // Use try-with-resources to ensure proper cleanup
+                    try (InputStream inputStream = response.body().byteStream();
+                         InputStreamReader streamReader = new InputStreamReader(inputStream, StandardCharsets.UTF_8);
+                         BufferedReader reader = new BufferedReader(streamReader)) {
                         
+                        String line;
                         while ((line = reader.readLine()) != null) {
                             if (line.trim().isEmpty()) {
                                 continue;
