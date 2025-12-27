@@ -111,6 +111,22 @@ public class MainActivity extends Activity {
     }
     
     /**
+     * Save assistant response to conversation history
+     */
+    private void saveAssistantResponse(String content) {
+        if (content != null && content.length() > 0) {
+            try {
+                JSONObject assistantMsg = new JSONObject();
+                assistantMsg.put("role", "assistant");
+                assistantMsg.put("content", content);
+                conversationHistory.add(assistantMsg);
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+    }
+    
+    /**
      * Maintain conversation history with max 10 user/assistant pairs plus system prompt
      */
     private void trimConversationHistory() {
@@ -203,7 +219,6 @@ public class MainActivity extends Activity {
                     // Handle streaming response (NDJSON format)
                     final StringBuilder fullAssistantResponse = new StringBuilder();
                     boolean isFirstChunk = true;
-                    boolean streamComplete = false;
                     
                     // Use try-with-resources to ensure proper cleanup
                     try (InputStream inputStream = response.body().byteStream();
@@ -240,9 +255,8 @@ public class MainActivity extends Activity {
                                     }
                                 }
                                 
-                                // If done, mark as complete
+                                // If done, exit the loop
                                 if (done) {
-                                    streamComplete = true;
                                     break;
                                 }
                             } catch (Exception e) {
@@ -254,29 +268,11 @@ public class MainActivity extends Activity {
                         appendConversation("\n");
                         
                         // Save assistant response to history if any content was received
-                        if (fullAssistantResponse.length() > 0) {
-                            try {
-                                JSONObject assistantMsg = new JSONObject();
-                                assistantMsg.put("role", "assistant");
-                                assistantMsg.put("content", fullAssistantResponse.toString());
-                                conversationHistory.add(assistantMsg);
-                            } catch (Exception e) {
-                                e.printStackTrace();
-                            }
-                        }
+                        saveAssistantResponse(fullAssistantResponse.toString());
                     } catch (Exception e) {
                         appendConversation("Streaming error: " + e.getMessage() + "\n");
                         // Even on error, try to save partial response if any
-                        if (fullAssistantResponse.length() > 0) {
-                            try {
-                                JSONObject assistantMsg = new JSONObject();
-                                assistantMsg.put("role", "assistant");
-                                assistantMsg.put("content", fullAssistantResponse.toString());
-                                conversationHistory.add(assistantMsg);
-                            } catch (Exception ex) {
-                                ex.printStackTrace();
-                            }
-                        }
+                        saveAssistantResponse(fullAssistantResponse.toString());
                     }
                 }
             });
