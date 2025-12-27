@@ -14,7 +14,8 @@ import org.json.JSONObject;
 
 import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.StringReader;
+import java.io.InputStream;
+import java.io.InputStreamReader;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
@@ -109,31 +110,47 @@ public class MainActivity extends Activity {
      * Maintain conversation history with max 10 user/assistant pairs plus system prompt
      */
     private void trimConversationHistory() {
-        // Keep system message at index 0
-        // Count user/assistant pairs (starting from index 1)
-        int pairCount = 0;
+        // Keep system message at index 0, remove oldest user/assistant pairs
+        // Count only user messages to determine number of pairs
+        int userCount = 0;
         for (int i = 1; i < conversationHistory.size(); i++) {
             try {
                 String role = conversationHistory.get(i).getString("role");
                 if ("user".equals(role)) {
-                    pairCount++;
+                    userCount++;
                 }
             } catch (Exception e) {
                 e.printStackTrace();
             }
         }
         
-        // If we have more than 10 pairs, remove oldest messages
-        while (pairCount > 10) {
-            // Remove the oldest user message (index 1, right after system)
-            // and the following assistant message
-            if (conversationHistory.size() > 1) {
-                conversationHistory.remove(1);
+        // Remove oldest messages (user and possibly assistant) until we have <= 10 user messages
+        while (userCount > 10 && conversationHistory.size() > 1) {
+            // Find and remove the first user message after system prompt
+            for (int i = 1; i < conversationHistory.size(); i++) {
+                try {
+                    String role = conversationHistory.get(i).getString("role");
+                    if ("user".equals(role)) {
+                        conversationHistory.remove(i);
+                        userCount--;
+                        // Also remove the following assistant message if it exists
+                        if (i < conversationHistory.size()) {
+                            try {
+                                String nextRole = conversationHistory.get(i).getString("role");
+                                if ("assistant".equals(nextRole)) {
+                                    conversationHistory.remove(i);
+                                }
+                            } catch (Exception e) {
+                                e.printStackTrace();
+                            }
+                        }
+                        break;
+                    }
+                } catch (Exception e) {
+                    e.printStackTrace();
+                    break;
+                }
             }
-            if (conversationHistory.size() > 1) {
-                conversationHistory.remove(1);
-            }
-            pairCount--;
         }
     }
 
@@ -182,10 +199,12 @@ public class MainActivity extends Activity {
                     // Handle streaming response (NDJSON format)
                     final StringBuilder fullAssistantResponse = new StringBuilder();
                     boolean isFirstChunk = true;
+                    boolean streamComplete = false;
                     
                     try {
-                        String responseBody = response.body().string();
-                        BufferedReader reader = new BufferedReader(new StringReader(responseBody));
+                        // Use byteStream for true streaming instead of reading entire response
+                        InputStream inputStream = response.body().byteStream();
+                        BufferedReader reader = new BufferedReader(new InputStreamReader(inputStream));
                         String line;
                         
                         while ((line = reader.readLine()) != null) {
@@ -217,27 +236,46 @@ public class MainActivity extends Activity {
                                     }
                                 }
                                 
-                                // If done, add newline and save to history
+                                // If done, mark as complete
                                 if (done) {
-                                    appendConversation("\n");
-                                    
-                                    // Add assistant response to conversation history
-                                    try {
-                                        JSONObject assistantMsg = new JSONObject();
-                                        assistantMsg.put("role", "assistant");
-                                        assistantMsg.put("content", fullAssistantResponse.toString());
-                                        conversationHistory.add(assistantMsg);
-                                    } catch (Exception e) {
-                                        e.printStackTrace();
-                                    }
+                                    streamComplete = true;
                                     break;
                                 }
                             } catch (Exception e) {
                                 appendConversation("Parse error on line: " + e.getMessage() + "\n");
                             }
                         }
+                        
+                        // Always add newline at the end
+                        appendConversation("\n");
+                        
+                        // Save assistant response to history even if stream was interrupted
+                        if (fullAssistantResponse.length() > 0) {
+                            try {
+                                JSONObject assistantMsg = new JSONObject();
+                                assistantMsg.put("role", "assistant");
+                                assistantMsg.put("content", fullAssistantResponse.toString());
+                                conversationHistory.add(assistantMsg);
+                            } catch (Exception e) {
+                                e.printStackTrace();
+                            }
+                        } else if (!streamComplete) {
+                            // If no content received and stream didn't complete, add error message
+                            appendConversation("(Stream incomplete - no response received)\n");
+                        }
                     } catch (Exception e) {
                         appendConversation("Streaming error: " + e.getMessage() + "\n");
+                        // Even on error, try to save partial response if any
+                        if (fullAssistantResponse.length() > 0) {
+                            try {
+                                JSONObject assistantMsg = new JSONObject();
+                                assistantMsg.put("role", "assistant");
+                                assistantMsg.put("content", fullAssistantResponse.toString());
+                                conversationHistory.add(assistantMsg);
+                            } catch (Exception ex) {
+                                ex.printStackTrace();
+                            }
+                        }
                     }
                 }
             });
