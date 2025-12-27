@@ -31,7 +31,7 @@ import okhttp3.Response;
 
 /**
  * シンプルなチャット UI と Ollama ローカル /api/chat への連携例
- * モデル: gemma3:270m
+ * モデル: gemma3:1b
  */
 public class MainActivity extends Activity {
     private TextView tvConversation;
@@ -45,7 +45,7 @@ public class MainActivity extends Activity {
     // Maximum number of user/assistant message pairs to keep in history (plus system prompt)
     private static final int MAX_USER_MESSAGE_PAIRS = 10;
 
-    // 実機で Ollama が同じ端末��で動作している場合（adb reverse でフォワード済みなど）は localhost を使える
+    // 実機で Ollama が同じ端末上で動作している場合（adb reverse でフォワード済みなど）は localhost を使える
     // 例: "http://localhost:11434/api/chat"
     // もし Ollama が PC 上で動いて実機が Wi-Fi 接続の場合は PC のローカルIP に置き換えてください:
     // 例: "http://192.168.1.100:11434/api/chat"
@@ -253,7 +253,7 @@ public class MainActivity extends Activity {
                         // Always add newline at the end
                         appendConversation("\n");
                         
-                        // Save assistant response to history even if stream was interrupted
+                        // Save assistant response to history if any content was received
                         if (fullAssistantResponse.length() > 0) {
                             try {
                                 JSONObject assistantMsg = new JSONObject();
@@ -263,9 +263,6 @@ public class MainActivity extends Activity {
                             } catch (Exception e) {
                                 e.printStackTrace();
                             }
-                        } else if (!streamComplete) {
-                            // If no content received and stream didn't complete, add error message
-                            appendConversation("(Stream incomplete - no response received)\n");
                         }
                     } catch (Exception e) {
                         appendConversation("Streaming error: " + e.getMessage() + "\n");
