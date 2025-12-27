@@ -12,7 +12,11 @@ import android.widget.Toast;
 import org.json.JSONArray;
 import org.json.JSONObject;
 
+import java.io.BufferedReader;
 import java.io.IOException;
+import java.io.StringReader;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.Call;
@@ -32,6 +36,9 @@ public class MainActivity extends Activity {
     private EditText etInput;
     private Button btnSend;
     private ScrollView scrollView;
+    
+    // Conversation history: list of messages (system, user, assistant)
+    private List<JSONObject> conversationHistory;
 
     // 実機で Ollama が同じ端末��で動作している場合（adb reverse でフォワード済みなど）は localhost を使える
     // 例: "http://localhost:11434/api/chat"
@@ -56,6 +63,17 @@ public class MainActivity extends Activity {
         etInput = findViewById(R.id.etInput);
         btnSend = findViewById(R.id.btnSend);
         scrollView = findViewById(R.id.scrollView);
+        
+        // Initialize conversation history with system prompt
+        conversationHistory = new ArrayList<>();
+        try {
+            JSONObject systemMessage = new JSONObject();
+            systemMessage.put("role", "system");
+            systemMessage.put("content", "あなたはユーザの若い女性秘書です");
+            conversationHistory.add(systemMessage);
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
 
         btnSend.setOnClickListener(new View.OnClickListener() {
             @Override
@@ -86,17 +104,61 @@ public class MainActivity extends Activity {
             }
         });
     }
+    
+    /**
+     * Maintain conversation history with max 10 user/assistant pairs plus system prompt
+     */
+    private void trimConversationHistory() {
+        // Keep system message at index 0
+        // Count user/assistant pairs (starting from index 1)
+        int pairCount = 0;
+        for (int i = 1; i < conversationHistory.size(); i++) {
+            try {
+                String role = conversationHistory.get(i).getString("role");
+                if ("user".equals(role)) {
+                    pairCount++;
+                }
+            } catch (Exception e) {
+                e.printStackTrace();
+            }
+        }
+        
+        // If we have more than 10 pairs, remove oldest messages
+        while (pairCount > 10) {
+            // Remove the oldest user message (index 1, right after system)
+            // and the following assistant message
+            if (conversationHistory.size() > 1) {
+                conversationHistory.remove(1);
+            }
+            if (conversationHistory.size() > 1) {
+                conversationHistory.remove(1);
+            }
+            pairCount--;
+        }
+    }
 
     private void sendChatToOllama(String userMessage) {
         try {
+            // Add user message to history
+            JSONObject userMsg = new JSONObject();
+            userMsg.put("role", "user");
+            userMsg.put("content", userMessage);
+            conversationHistory.add(userMsg);
+            
+            // Trim history to maintain max 10 pairs
+            trimConversationHistory();
+            
             JSONObject bodyJson = new JSONObject();
             // 使用するモデルを gemma3:1b に設定
             bodyJson.put("model", "gemma3:1b");
+            
+            // Build messages array from conversation history
             JSONArray messages = new JSONArray();
-            messages.put(new JSONObject().put("role", "system").put("content", "あなたはユーザの若い女性秘書です"));
-            messages.put(new JSONObject().put("role", "user").put("content", userMessage));
+            for (JSONObject msg : conversationHistory) {
+                messages.put(msg);
+            }
             bodyJson.put("messages", messages);
-            bodyJson.put("stream", false);
+            bodyJson.put("stream", true);  // Enable streaming
 
             RequestBody requestBody = RequestBody.create(bodyJson.toString(), JSON);
             Request request = new Request.Builder()
@@ -116,58 +178,66 @@ public class MainActivity extends Activity {
                         appendConversation("HTTP error: " + response.code() + "\n");
                         return;
                     }
-                    String respBody = response.body().string();
+                    
+                    // Handle streaming response (NDJSON format)
+                    final StringBuilder fullAssistantResponse = new StringBuilder();
+                    boolean isFirstChunk = true;
+                    
                     try {
-                        JSONObject respJson = new JSONObject(respBody);
-
-                        // 新しい形式: top-level "message": { "role":"assistant", "content":"..." }
-                        if (respJson.has("message")) {
-                            JSONObject msg = respJson.optJSONObject("message");
-                            if (msg != null) {
-                                String role = msg.optString("role", "");
-                                String content = msg.optString("content", "");
-                                final String finalText = (content != null && !content.isEmpty())
-                                        ? content
-                                        : "(no assistant response)";
-                                if ("assistant".equals(role)) {
-                                    appendConversation("Assistant: " + finalText + "\n");
-                                } else if (!role.isEmpty()) {
-                                    appendConversation(role + ": " + finalText + "\n");
-                                } else {
-                                    // role が無い／空の場合でも content を出力
-                                    appendConversation("Assistant: " + finalText + "\n");
-                                }
-                                return;
-                            } else {
-                                appendConversation("Unexpected 'message' format: " + respBody + "\n");
-                                return;
+                        String responseBody = response.body().string();
+                        BufferedReader reader = new BufferedReader(new StringReader(responseBody));
+                        String line;
+                        
+                        while ((line = reader.readLine()) != null) {
+                            if (line.trim().isEmpty()) {
+                                continue;
                             }
-                        }
-
-                        // 旧形式: "messages": [ ... ]
-                        if (respJson.has("messages")) {
-                            JSONArray msgs = respJson.getJSONArray("messages");
-                            String assistantText = null;
-                            for (int i = msgs.length() - 1; i >= 0; i--) {
-                                JSONObject m = msgs.getJSONObject(i);
-                                if ("assistant".equals(m.optString("role"))) {
-                                    assistantText = m.optString("content");
+                            
+                            try {
+                                JSONObject jsonLine = new JSONObject(line);
+                                
+                                // Check if streaming is done
+                                boolean done = jsonLine.optBoolean("done", false);
+                                
+                                // Extract message content
+                                if (jsonLine.has("message")) {
+                                    JSONObject message = jsonLine.getJSONObject("message");
+                                    String content = message.optString("content", "");
+                                    
+                                    if (!content.isEmpty()) {
+                                        // Append "Assistant: " only for the first chunk
+                                        if (isFirstChunk) {
+                                            appendConversation("Assistant: ");
+                                            isFirstChunk = false;
+                                        }
+                                        
+                                        // Append the incremental content
+                                        fullAssistantResponse.append(content);
+                                        appendConversation(content);
+                                    }
+                                }
+                                
+                                // If done, add newline and save to history
+                                if (done) {
+                                    appendConversation("\n");
+                                    
+                                    // Add assistant response to conversation history
+                                    try {
+                                        JSONObject assistantMsg = new JSONObject();
+                                        assistantMsg.put("role", "assistant");
+                                        assistantMsg.put("content", fullAssistantResponse.toString());
+                                        conversationHistory.add(assistantMsg);
+                                    } catch (Exception e) {
+                                        e.printStackTrace();
+                                    }
                                     break;
                                 }
+                            } catch (Exception e) {
+                                appendConversation("Parse error on line: " + e.getMessage() + "\n");
                             }
-                            if (assistantText == null) {
-                                assistantText = respJson.optString("response", "");
-                            }
-                            final String finalText = (assistantText != null && !assistantText.isEmpty())
-                                    ? assistantText
-                                    : "(no assistant response)";
-                            appendConversation("Assistant: " + finalText + "\n");
-                        } else {
-                            // その他のケース: デバッグのため全体を表示
-                            appendConversation("Unexpected response: " + respBody + "\n");
                         }
                     } catch (Exception e) {
-                        appendConversation("Parse error: " + e.getMessage() + "\nResponse body: " + respBody + "\n");
+                        appendConversation("Streaming error: " + e.getMessage() + "\n");
                     }
                 }
             });
