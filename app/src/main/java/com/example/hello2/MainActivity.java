@@ -112,6 +112,32 @@ public class MainActivity extends Activity {
                     String respBody = response.body().string();
                     try {
                         JSONObject respJson = new JSONObject(respBody);
+
+                        // 新しい形式: top-level "message": { "role":"assistant", "content":"..." }
+                        if (respJson.has("message")) {
+                            JSONObject msg = respJson.optJSONObject("message");
+                            if (msg != null) {
+                                String role = msg.optString("role", "");
+                                String content = msg.optString("content", "");
+                                final String finalText = (content != null && !content.isEmpty())
+                                        ? content
+                                        : "(no assistant response)";
+                                if ("assistant".equals(role)) {
+                                    appendConversation("Assistant: " + finalText + "\n");
+                                } else if (!role.isEmpty()) {
+                                    appendConversation(role + ": " + finalText + "\n");
+                                } else {
+                                    // role が無い／空の場合でも content を出力
+                                    appendConversation("Assistant: " + finalText + "\n");
+                                }
+                                return;
+                            } else {
+                                appendConversation("Unexpected 'message' format: " + respBody + "\n");
+                                return;
+                            }
+                        }
+
+                        // 旧形式: "messages": [ ... ]
                         if (respJson.has("messages")) {
                             JSONArray msgs = respJson.getJSONArray("messages");
                             String assistantText = null;
@@ -130,6 +156,7 @@ public class MainActivity extends Activity {
                                     : "(no assistant response)";
                             appendConversation("Assistant: " + finalText + "\n");
                         } else {
+                            // その他のケース: デバッグのため全体を表示
                             appendConversation("Unexpected response: " + respBody + "\n");
                         }
                     } catch (Exception e) {
