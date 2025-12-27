@@ -13,6 +13,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.IOException;
+import java.util.concurrent.TimeUnit;
 
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -32,13 +33,19 @@ public class MainActivity extends Activity {
     private Button btnSend;
     private ScrollView scrollView;
 
-    // 実機で Ollama が同じ端末上で動作している場合（adb reverse でフォワード済みなど）は localhost を使える
+    // 実機で Ollama が同じ端末��で動作している場合（adb reverse でフォワード済みなど）は localhost を使える
     // 例: "http://localhost:11434/api/chat"
     // もし Ollama が PC 上で動いて実機が Wi-Fi 接続の場合は PC のローカルIP に置き換えてください:
     // 例: "http://192.168.1.100:11434/api/chat"
     private static final String OLLAMA_CHAT_URL = "http://localhost:11434/api/chat";
 
-    private final OkHttpClient client = new OkHttpClient();
+    // タイムアウトを 3600 秒 (1 時間) に設定
+    private final OkHttpClient client = new OkHttpClient.Builder()
+            .connectTimeout(3600, TimeUnit.SECONDS)
+            .writeTimeout(3600, TimeUnit.SECONDS)
+            .readTimeout(3600, TimeUnit.SECONDS)
+            .callTimeout(3600, TimeUnit.SECONDS)
+            .build();
     private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
 
     @Override
