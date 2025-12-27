@@ -1,6 +1,7 @@
 package com.example.hello2;
 
 import android.app.Activity;
+import android.app.AlertDialog;
 import android.os.Bundle;
 import android.view.View;
 import android.widget.Button;
@@ -37,11 +38,16 @@ import okhttp3.Response;
  * - 会話が 10 回を超過したら、超過分と既存の会話要約を Ollama に渡して要約を作成 -> 新しい会話要約として保持
  * - ユーザがメッセージを送る際には、会話履歴の古い方に要約を挿入しておく（system プロンプトの次）
  * - AI（アシスタント）からの応答を受信中、及び会話要約を受信するまで送信ボタンを無効化する
+ *
+ * 追加:
+ * - UI に「要約表示」ボタンを追加。クリックするとこれまでに作成された会話要約をポップアップ表示します。
+ * - 要約がまだない場合は、要約は会話が 10 回以上になったときに作成される旨をポップアップで通知します。
  */
 public class MainActivity extends Activity {
     private TextView tvConversation;
     private EditText etInput;
     private Button btnSend;
+    private Button btnShowSummary;
     private ScrollView scrollView;
 
     // Conversation history: list of messages (system, summary (optional), user, assistant, ...)
@@ -62,7 +68,7 @@ public class MainActivity extends Activity {
 
     // 実機で Ollama が同じ端末上で動作している場合（adb reverse でフォワード済みなど）は localhost を使える
     // 例: "http://localhost:11434/api/chat"
-    // もし Ollama が PC 上で動いて実機が Wi-Fi 接続の場合は PC のローカルIP に置き換えてください:
+    // もし Ollama が PC 上で実機が Wi-Fi 接続の場合は PC のローカルIP に置き換えてください:
     // 例: "http://192.168.1.100:11434/api/chat"
     private static final String OLLAMA_CHAT_URL = "http://localhost:11434/api/chat";
 
@@ -82,6 +88,7 @@ public class MainActivity extends Activity {
         tvConversation = findViewById(R.id.tvConversation);
         etInput = findViewById(R.id.etInput);
         btnSend = findViewById(R.id.btnSend);
+        btnShowSummary = findViewById(R.id.btnShowSummary);
         scrollView = findViewById(R.id.scrollView);
 
         // Initialize conversation history with system prompt
@@ -127,6 +134,45 @@ public class MainActivity extends Activity {
                 sendChatToOllama(userMsg);
             }
         });
+
+        // 要約表示ボタンの動作を追加
+        if (btnShowSummary != null) {
+            btnShowSummary.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    synchronized (historyLock) {
+                        if (conversationSummary != null) {
+                            final String summaryText = conversationSummary.optString("content", "");
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    new AlertDialog.Builder(MainActivity.this)
+                                            .setTitle("会話要約")
+                                            .setMessage(summaryText)
+                                            .setPositiveButton("閉じる", null)
+                                            .show();
+                                }
+                            });
+                        } else {
+                            // 要約がまだない場合は、要約は会話が MAX_USER_MESSAGE_PAIRS 回以上になったときに作成される旨を通知
+                            final int currentUserCount = countUserMessages();
+                            final String msg = "会話要約はまだ作成されていません。会話が " + MAX_USER_MESSAGE_PAIRS + " 回以上になると自動的に要約が作成されます。\n" +
+                                    "現在の会話数: " + currentUserCount;
+                            runOnUiThread(new Runnable() {
+                                @Override
+                                public void run() {
+                                    new AlertDialog.Builder(MainActivity.this)
+                                            .setTitle("要約はまだありません")
+                                            .setMessage(msg)
+                                            .setPositiveButton("OK", null)
+                                            .show();
+                                }
+                            });
+                        }
+                    }
+                }
+            });
+        }
     }
 
     private void appendConversation(final String text) {
@@ -504,7 +550,7 @@ public class MainActivity extends Activity {
             // System instruction guiding the summarizer
             JSONObject sys = new JSONObject();
             sys.put("role", "system");
-            sys.put("content", "あなたは与えられた会話を日本語で簡潔に要約するアシスタントです。重要な事実とコンテキストを残し、冗長な部分は省いてください。");
+            sys.put("content", "あなたは与えられた会話を日本語で簡潔に要約するアシスタントです。重要な事実とコンテキストを残し、冗長な部分は省い[...] ");
             messages.put(sys);
 
             // If there is an existing summary, include it so the model can merge/update it
