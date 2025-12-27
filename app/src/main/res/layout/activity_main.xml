@@ -26,9 +26,26 @@
         android:layout_height="wrap_content"
         android:hint="メッセージを入力" />
 
-    <Button
-        android:id="@+id/btnSend"
+    <!-- 送信ボタンと要約表示ボタンを横に並べる -->
+    <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:text="送信" />
+        android:orientation="horizontal"
+        android:layout_marginTop="8dp">
+
+        <Button
+            android:id="@+id/btnSend"
+            android:layout_width="0dp"
+            android:layout_weight="1"
+            android:layout_height="wrap_content"
+            android:text="送信" />
+
+        <Button
+            android:id="@+id/btnShowSummary"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="要約表示"
+            android:layout_marginStart="8dp" />
+    </LinearLayout>
+
 </LinearLayout>
