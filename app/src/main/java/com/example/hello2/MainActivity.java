@@ -114,7 +114,7 @@ public class MainActivity extends Activity {
      * Save assistant response to conversation history
      */
     private void saveAssistantResponse(String content) {
-        if (content != null && content.length() > 0) {
+        if (content != null && !content.isEmpty()) {
             try {
                 JSONObject assistantMsg = new JSONObject();
                 assistantMsg.put("role", "assistant");
