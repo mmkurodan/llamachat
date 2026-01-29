@@ -114,7 +114,7 @@ public class MainActivity extends Activity {
                 }
 
                 // Disable send button while sending/streaming/summarizing
-                etInput.setText(""
+                etInput.setText("");
                 appendConversation("You: " + userMsg + "\n");
 
                 // Add user's message and ensure summary is present as the oldest message (after system)
@@ -156,7 +156,7 @@ public class MainActivity extends Activity {
                         } else {
                             // 要約がまだない場合は、要約は会話が 10 回以上になったときに作成される旨を通知
                             final int currentUserCount = countUserMessages();
-                            final String msg = "会話要約はまだ作成されていません。会話が " + MAX_USER_MESSAGE_PAIRS + " 回以上になると自動的に要約が作成されます[...]\n                                    "現在の会話数: " + currentUserCount;
+                            final String msg = "会話要約はまだ作成されていません。会話が " + MAX_USER_MESSAGE_PAIRS + " 回以上になると自動的に要約が作成されます。\n現在の会話数: " + currentUserCount + " 回";
                             runOnUiThread(new Runnable() {
                                 @Override
                                 public void run() {
@@ -549,7 +549,7 @@ public class MainActivity extends Activity {
             // System instruction guiding the summarizer
             JSONObject sys = new JSONObject();
             sys.put("role", "system");
-            sys.put("content", "あなたは与えられた会話を日本語で簡潔に要約するアシスタントです。重要な事実とコンテキストを残し、冗長な部分は省い[...]"
+            sys.put("content", "あなたは与えられた会話を日本語で簡潔に要約するアシスタントです。重要な事実とコンテキストを残し、冗長な部分は省いてください。");
             messages.put(sys);
 
             // If there is an existing summary, include it so the model can merge/update it
