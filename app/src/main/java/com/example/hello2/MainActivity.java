@@ -32,7 +32,7 @@ import okhttp3.Response;
 
 /**
  * シンプルなチャット UI と Ollama ローカル /api/chat への連携例
- * モデル: gemma3:1b
+ * モデル: default
  *
  * 変更点（要約連携）:
  * - 会話が 10 回を超過したら、超過分と既存の会話要約を Ollama に渡して要約を作成 -> 新しい会話要約として保持
@@ -71,7 +71,7 @@ public class MainActivity extends Activity {
     // もし Ollama が PC 上で実機が Wi-Fi 接続の場合は PC のローカルIP に置き換えてください:
     // 例: "http://192.168.1.100:11434/api/chat"
     private static final String OLLAMA_CHAT_URL = "http://localhost:11434/api/chat";
-
+    
     // タイムアウトを 3600 秒 (1 時間) に設定
     private final OkHttpClient client = new OkHttpClient.Builder()
             .connectTimeout(3600, TimeUnit.SECONDS)
@@ -114,7 +114,7 @@ public class MainActivity extends Activity {
                 }
 
                 // Disable send button while sending/streaming/summarizing
-                etInput.setText("");
+                etInput.setText(""
                 appendConversation("You: " + userMsg + "\n");
 
                 // Add user's message and ensure summary is present as the oldest message (after system)
@@ -154,10 +154,9 @@ public class MainActivity extends Activity {
                                 }
                             });
                         } else {
-                            // 要約がまだない場合は、要約は会話が MAX_USER_MESSAGE_PAIRS 回以上になったときに作成される旨を通知
+                            // 要約がまだない場合は、要約は会話が 10 回以上になったときに作成される旨を通知
                             final int currentUserCount = countUserMessages();
-                            final String msg = "会話要約はまだ作成されていません。会話が " + MAX_USER_MESSAGE_PAIRS + " 回以上になると自動的に要約が作成されます。\n" +
-                                    "現在の会話数: " + currentUserCount;
+                            final String msg = "会話要約はまだ作成されていません。会話が " + MAX_USER_MESSAGE_PAIRS + " 回以上になると自動的に要約が作成されます[...]\n                                    "現在の会話数: " + currentUserCount;
                             runOnUiThread(new Runnable() {
                                 @Override
                                 public void run() {
@@ -418,7 +417,7 @@ public class MainActivity extends Activity {
             }
 
             JSONObject bodyJson = new JSONObject();
-            bodyJson.put("model", "gemma3:1b");
+            bodyJson.put("model", "default");
             bodyJson.put("messages", messages);
             bodyJson.put("stream", true);  // Enable streaming
 
@@ -550,7 +549,7 @@ public class MainActivity extends Activity {
             // System instruction guiding the summarizer
             JSONObject sys = new JSONObject();
             sys.put("role", "system");
-            sys.put("content", "あなたは与えられた会話を日本語で簡潔に要約するアシスタントです。重要な事実とコンテキストを残し、冗長な部分は省い[...] ");
+            sys.put("content", "あなたは与えられた会話を日本語で簡潔に要約するアシスタントです。重要な事実とコンテキストを残し、冗長な部分は省い[...]"
             messages.put(sys);
 
             // If there is an existing summary, include it so the model can merge/update it
@@ -581,7 +580,7 @@ public class MainActivity extends Activity {
             messages.put(finalInstruction);
 
             JSONObject bodyJson = new JSONObject();
-            bodyJson.put("model", "gemma3:1b");
+            bodyJson.put("model", "default");
             bodyJson.put("messages", messages);
             bodyJson.put("stream", true); // use streaming to receive incremental summary
 
