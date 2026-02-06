@@ -47,7 +47,6 @@ public class MainActivity extends Activity {
     private TextView tvConversation;
     private EditText etInput;
     private Button btnSend;
-    private Button btnShowSummary;
     private ScrollView scrollView;
 
     // Conversation history: list of messages (system, summary (optional), user, assistant, ...)
@@ -57,7 +56,7 @@ public class MainActivity extends Activity {
     private JSONObject conversationSummary = null;
 
     // Maximum number of user/assistant message pairs to keep in history (plus system prompt and optional summary)
-    private static final int MAX_USER_MESSAGE_PAIRS = 10;
+    private static final int MAX_USER_MESSAGE_PAIRS = Integer.MAX_VALUE;
 
     // Flags to control UI state
     private volatile boolean isStreamingInProgress = false;
@@ -88,7 +87,6 @@ public class MainActivity extends Activity {
         tvConversation = findViewById(R.id.tvConversation);
         etInput = findViewById(R.id.etInput);
         btnSend = findViewById(R.id.btnSend);
-        btnShowSummary = findViewById(R.id.btnShowSummary);
         scrollView = findViewById(R.id.scrollView);
 
         // Initialize conversation history with system prompt
@@ -119,7 +117,7 @@ public class MainActivity extends Activity {
 
                 // Add user's message and ensure summary is present as the oldest message (after system)
                 synchronized (historyLock) {
-                    insertSummaryIfNeededIntoHistory();
+
                     try {
                         JSONObject userMsgObj = new JSONObject();
                         userMsgObj.put("role", "user");
@@ -135,43 +133,7 @@ public class MainActivity extends Activity {
             }
         });
 
-        // 要約表示ボタンの動作を追加
-        if (btnShowSummary != null) {
-            btnShowSummary.setOnClickListener(new View.OnClickListener() {
-                @Override
-                public void onClick(View v) {
-                    synchronized (historyLock) {
-                        if (conversationSummary != null) {
-                            final String summaryText = conversationSummary.optString("content", "");
-                            runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    new AlertDialog.Builder(MainActivity.this)
-                                            .setTitle("会話要約")
-                                            .setMessage(summaryText)
-                                            .setPositiveButton("閉じる", null)
-                                            .show();
-                                }
-                            });
-                        } else {
-                            // 要約がまだない場合は、要約は会話が 10 回以上になったときに作成される旨を通知
-                            final int currentUserCount = countUserMessages();
-                            final String msg = "会話要約はまだ作成されていません。会話が " + MAX_USER_MESSAGE_PAIRS + " 回以上になると自動的に要約が作成されます。\n現在の会話数: " + currentUserCount + " 回";
-                            runOnUiThread(new Runnable() {
-                                @Override
-                                public void run() {
-                                    new AlertDialog.Builder(MainActivity.this)
-                                            .setTitle("要約はまだありません")
-                                            .setMessage(msg)
-                                            .setPositiveButton("OK", null)
-                                            .show();
-                                }
-                            });
-                        }
-                    }
-                }
-            });
-        }
+
     }
 
     private void appendConversation(final String text) {
