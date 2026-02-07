@@ -5,6 +5,8 @@ import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.os.Handler;
+import android.os.Looper;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -17,6 +19,7 @@ import android.view.WindowManager;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.ImageView;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.Switch;
@@ -37,6 +40,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -63,6 +67,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final String SETTINGS_FILE = "chat_settings.json";
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
     private static final int REQ_RECORD_AUDIO = 1001;
+    private static final int AVATAR_TALK_FRAME_MS = 160;
+    private static final int AVATAR_BLINK_MIN_MS = 3000;
+    private static final int AVATAR_BLINK_MAX_MS = 7000;
+    private static final int AVATAR_BLINK_DURATION_MS = 120;
 
     // --- UI ---
     private TextView tvConversation;
@@ -73,6 +81,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private Spinner spinnerModel;
     private Switch switchStreaming, switchTts, switchVoiceInput;
     private EditText etOllamaUrl, etSpeechLang, etSpeechRate, etSpeechPitch, etSystemPrompt;
+    private ImageView ivAvatar;
 
     // --- 設定（デフォルト値） ---
     private String ollamaBaseUrl = "http://localhost:11434";
@@ -90,6 +99,40 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private boolean ttsReady = false;
     private final StringBuilder sentenceBuffer = new StringBuilder();
     private final AtomicInteger pendingUtterances = new AtomicInteger(0);
+
+    private enum AvatarMode { IDLE, TALKING }
+
+    // --- アバター ---
+    private final Handler avatarHandler = new Handler(Looper.getMainLooper());
+    private final Random avatarRandom = new Random();
+    private final int[] talkFrames = new int[]{
+            R.drawable.c1, R.drawable.c3, R.drawable.c4, R.drawable.c3, R.drawable.c1
+    };
+    private int talkFrameIndex = 0;
+    private boolean isStreamingResponse = false;
+    private AvatarMode avatarMode = AvatarMode.IDLE;
+    private final Runnable blinkRunnable = new Runnable() {
+        @Override
+        public void run() {
+            setAvatarFrame(R.drawable.c2);
+            avatarHandler.postDelayed(blinkResetRunnable, AVATAR_BLINK_DURATION_MS);
+        }
+    };
+    private final Runnable blinkResetRunnable = new Runnable() {
+        @Override
+        public void run() {
+            setAvatarFrame(R.drawable.c1);
+            scheduleNextBlink();
+        }
+    };
+    private final Runnable talkRunnable = new Runnable() {
+        @Override
+        public void run() {
+            setAvatarFrame(talkFrames[talkFrameIndex]);
+            talkFrameIndex = (talkFrameIndex + 1) % talkFrames.length;
+            avatarHandler.postDelayed(this, AVATAR_TALK_FRAME_MS);
+        }
+    };
 
     // --- モデル一覧 ---
     private final List<String> modelList = new ArrayList<>();
@@ -124,6 +167,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         setContentView(R.layout.activity_main);
 
         initViews();
+        initAvatarAnimation();
         loadSettings();
         applySettingsToUi();
         initTts();
@@ -139,6 +183,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         etInput = findViewById(R.id.etInput);
         btnSend = findViewById(R.id.btnSend);
         btnSettings = findViewById(R.id.btnSettings);
+        ivAvatar = findViewById(R.id.ivAvatar);
         scrollView = findViewById(R.id.scrollView);
         settingsPanel = findViewById(R.id.settingsPanel);
         spinnerModel = findViewById(R.id.spinnerModel);
@@ -181,6 +226,75 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             }
             submitUserMessage(userMsg);
         });
+    }
+
+    // ========== アバター ==========
+
+    private void initAvatarAnimation() {
+        avatarMode = AvatarMode.IDLE;
+        setAvatarFrame(R.drawable.c1);
+        scheduleNextBlink();
+    }
+
+    private void setAvatarFrame(int resId) {
+        if (ivAvatar != null) {
+            ivAvatar.setImageResource(resId);
+        }
+    }
+
+    private void scheduleNextBlink() {
+        avatarHandler.removeCallbacks(blinkRunnable);
+        avatarHandler.removeCallbacks(blinkResetRunnable);
+        int delay = AVATAR_BLINK_MIN_MS
+                + avatarRandom.nextInt(AVATAR_BLINK_MAX_MS - AVATAR_BLINK_MIN_MS + 1);
+        avatarHandler.postDelayed(blinkRunnable, delay);
+    }
+
+    private void startIdleAnimation() {
+        stopTalkAnimation();
+        setAvatarFrame(R.drawable.c1);
+        scheduleNextBlink();
+    }
+
+    private void stopIdleAnimation() {
+        avatarHandler.removeCallbacks(blinkRunnable);
+        avatarHandler.removeCallbacks(blinkResetRunnable);
+    }
+
+    private void startTalkAnimation() {
+        stopIdleAnimation();
+        talkFrameIndex = 0;
+        avatarHandler.removeCallbacks(talkRunnable);
+        avatarHandler.post(talkRunnable);
+    }
+
+    private void stopTalkAnimation() {
+        avatarHandler.removeCallbacks(talkRunnable);
+    }
+
+    private void stopAvatarAnimation() {
+        stopIdleAnimation();
+        stopTalkAnimation();
+    }
+
+    private void updateAvatarAnimation() {
+        boolean shouldTalk = isStreamingResponse || pendingUtterances.get() > 0;
+        runOnUiThread(() -> {
+            if (shouldTalk) {
+                if (avatarMode != AvatarMode.TALKING) {
+                    avatarMode = AvatarMode.TALKING;
+                    startTalkAnimation();
+                }
+            } else if (avatarMode != AvatarMode.IDLE) {
+                avatarMode = AvatarMode.IDLE;
+                startIdleAnimation();
+            }
+        });
+    }
+
+    private void setStreamingResponse(boolean active) {
+        isStreamingResponse = active;
+        updateAvatarAnimation();
     }
 
     // ========== 設定 I/O（JSONファイル） ==========
@@ -285,9 +399,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 @Override public void onStart(String utteranceId) {}
                 @Override public void onDone(String utteranceId) {
                     pendingUtterances.decrementAndGet();
+                    updateAvatarAnimation();
                 }
                 @Override public void onError(String utteranceId) {
                     pendingUtterances.decrementAndGet();
+                    updateAvatarAnimation();
                 }
             });
         } else {
@@ -322,6 +438,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
         applyTtsSettings();
         pendingUtterances.incrementAndGet();
+        updateAvatarAnimation();
         tts.speak(clean, TextToSpeech.QUEUE_ADD, null, "utt_" + System.currentTimeMillis());
     }
 
@@ -366,6 +483,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (tts != null) tts.stop();
         sentenceBuffer.setLength(0);
         pendingUtterances.set(0);
+        updateAvatarAnimation();
     }
 
     // ========== 会話履歴 ==========
@@ -557,6 +675,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         isProcessing = true;
         updateSendButton();
         stopTts();
+        setStreamingResponse(false);
 
         try {
             JSONArray messages = new JSONArray();
@@ -595,6 +714,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             @Override
             public void onFailure(Call call, IOException e) {
                 appendConversation("Error: " + e.getMessage() + "\n");
+                setStreamingResponse(false);
                 isProcessing = false;
                 updateSendButton();
             }
@@ -603,11 +723,13 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             public void onResponse(Call call, Response response) throws IOException {
                 if (!response.isSuccessful()) {
                     appendConversation("HTTP error: " + response.code() + "\n");
+                    setStreamingResponse(false);
                     isProcessing = false;
                     updateSendButton();
                     return;
                 }
 
+                setStreamingResponse(true);
                 StringBuilder fullResponse = new StringBuilder();
                 boolean first = true;
 
@@ -657,6 +779,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 } catch (Exception e) {
                     appendConversation("Stream error: " + e.getMessage() + "\n");
                 } finally {
+                    setStreamingResponse(false);
                     isProcessing = false;
                     updateSendButton();
                 }
@@ -758,6 +881,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     @Override
     protected void onDestroy() {
+        stopAvatarAnimation();
         if (tts != null) {
             tts.stop();
             tts.shutdown();

@@ -101,6 +101,14 @@
         </LinearLayout>
     </ScrollView>
 
+    <ImageView
+        android:id="@+id/ivAvatar"
+        android:layout_width="match_parent"
+        android:layout_height="220dp"
+        android:contentDescription="@string/avatar_description"
+        android:scaleType="centerCrop"
+        android:src="@drawable/c1" />
+
     <!-- チャットメッセージ -->
     <ScrollView
         android:id="@+id/scrollView"
