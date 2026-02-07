@@ -4,6 +4,15 @@
     android:layout_height="match_parent">
 
     <ImageView
+        android:id="@+id/ivAvatarBackground"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:importantForAccessibility="no"
+        android:scaleType="centerCrop"
+        android:src="@drawable/c0" />
+
+    <ImageView
         android:id="@+id/ivAvatar"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
@@ -150,6 +159,26 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
+                            android:text="c0 背景"/>
+                        <Button
+                            android:id="@+id/btnPickC0"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="選択"
+                            android:minWidth="0dp"
+                            android:minHeight="0dp"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="4dp">
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
                             android:text="c1 ベース"/>
                         <Button
                             android:id="@+id/btnPickC1"
@@ -190,29 +219,9 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="c3 会話（途中）"/>
+                            android:text="c3 会話"/>
                         <Button
                             android:id="@+id/btnPickC3"
-                            android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:text="選択"
-                            android:minWidth="0dp"
-                            android:minHeight="0dp"/>
-                    </LinearLayout>
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="4dp">
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="c4 会話（終了）"/>
-                        <Button
-                            android:id="@+id/btnPickC4"
                             android:layout_width="wrap_content"
                             android:layout_height="36dp"
                             android:text="選択"

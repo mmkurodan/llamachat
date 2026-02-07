@@ -71,16 +71,16 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final String SETTINGS_FILE = "chat_settings.json";
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
     private static final int REQ_RECORD_AUDIO = 1001;
+    private static final int REQ_PICK_C0 = 2000;
     private static final int REQ_PICK_C1 = 2001;
     private static final int REQ_PICK_C2 = 2002;
     private static final int REQ_PICK_C3 = 2003;
-    private static final int REQ_PICK_C4 = 2004;
+    private static final String AVATAR_C0_FILE = "avatar_c0.jpg";
     private static final String AVATAR_C1_FILE = "avatar_c1.jpg";
     private static final String AVATAR_C2_FILE = "avatar_c2.jpg";
     private static final String AVATAR_C3_FILE = "avatar_c3.jpg";
-    private static final String AVATAR_C4_FILE = "avatar_c4.jpg";
     private static final int TTS_WARMUP_MS = 120;
-    private static final int AVATAR_TALK_FRAME_MS = 40;
+    private static final int AVATAR_TALK_FRAME_MS = 120;
     private static final int AVATAR_BLINK_MIN_MS = 3000;
     private static final int AVATAR_BLINK_MAX_MS = 7000;
     private static final int AVATAR_BLINK_DURATION_MS = 120;
@@ -88,13 +88,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     // --- UI ---
     private TextView tvConversation;
     private EditText etInput;
-    private Button btnSend, btnSettings, btnPickC1, btnPickC2, btnPickC3, btnPickC4;
+    private Button btnSend, btnSettings, btnPickC0, btnPickC1, btnPickC2, btnPickC3;
     private ScrollView scrollView;
     private View settingsPanel;
     private Spinner spinnerModel;
     private Switch switchStreaming, switchTts, switchVoiceInput, switchAutoChatter, switchAutoVoiceInput;
     private EditText etOllamaUrl, etSpeechLang, etSpeechRate, etSpeechPitch, etSystemPrompt;
     private EditText etHistoryLimit, etAutoChatterSeconds;
+    private ImageView ivAvatarBackground;
     private ImageView ivAvatar;
 
     // --- 設定（デフォルト値） ---
@@ -116,6 +117,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private TextToSpeech tts;
     private boolean ttsReady = false;
     private boolean ttsNeedsWarmup = true;
+    private boolean isTtsSpeaking = false;
     private final StringBuilder sentenceBuffer = new StringBuilder();
     private final AtomicInteger pendingUtterances = new AtomicInteger(0);
     private final List<String> pendingTtsQueue = new ArrayList<>();
@@ -128,16 +130,16 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private final Handler autoHandler = new Handler(Looper.getMainLooper());
     private final Random avatarRandom = new Random();
     private final int[] talkFrames = new int[]{
-            R.drawable.c1, R.drawable.c3, R.drawable.c4, R.drawable.c3, R.drawable.c1
+            R.drawable.c1, R.drawable.c3
     };
+    private File avatarC0File;
     private File avatarC1File;
     private File avatarC2File;
     private File avatarC3File;
-    private File avatarC4File;
+    private Bitmap avatarC0Bitmap;
     private Bitmap avatarC1Bitmap;
     private Bitmap avatarC2Bitmap;
     private Bitmap avatarC3Bitmap;
-    private Bitmap avatarC4Bitmap;
     private int talkFrameIndex = 0;
     private boolean isStreamingResponse = false;
     private AvatarMode avatarMode = AvatarMode.IDLE;
@@ -226,10 +228,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         etInput = findViewById(R.id.etInput);
         btnSend = findViewById(R.id.btnSend);
         btnSettings = findViewById(R.id.btnSettings);
+        btnPickC0 = findViewById(R.id.btnPickC0);
         btnPickC1 = findViewById(R.id.btnPickC1);
         btnPickC2 = findViewById(R.id.btnPickC2);
         btnPickC3 = findViewById(R.id.btnPickC3);
-        btnPickC4 = findViewById(R.id.btnPickC4);
+        ivAvatarBackground = findViewById(R.id.ivAvatarBackground);
         ivAvatar = findViewById(R.id.ivAvatar);
         scrollView = findViewById(R.id.scrollView);
         settingsPanel = findViewById(R.id.settingsPanel);
@@ -278,10 +281,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             submitUserMessage(userMsg);
         });
 
+        btnPickC0.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C0));
         btnPickC1.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C1));
         btnPickC2.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C2));
         btnPickC3.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C3));
-        btnPickC4.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C4));
     }
 
     // ========== アバター ==========
@@ -292,18 +295,18 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             Log.w(TAG, "External files dir unavailable");
             return;
         }
+        avatarC0File = new File(dir, AVATAR_C0_FILE);
         avatarC1File = new File(dir, AVATAR_C1_FILE);
         avatarC2File = new File(dir, AVATAR_C2_FILE);
         avatarC3File = new File(dir, AVATAR_C3_FILE);
-        avatarC4File = new File(dir, AVATAR_C4_FILE);
         reloadAvatarBitmaps();
     }
 
     private void reloadAvatarBitmaps() {
+        avatarC0Bitmap = loadAvatarBitmap(avatarC0File);
         avatarC1Bitmap = loadAvatarBitmap(avatarC1File);
         avatarC2Bitmap = loadAvatarBitmap(avatarC2File);
         avatarC3Bitmap = loadAvatarBitmap(avatarC3File);
-        avatarC4Bitmap = loadAvatarBitmap(avatarC4File);
     }
 
     private Bitmap loadAvatarBitmap(File file) {
@@ -316,7 +319,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     private void pickAvatarImage(int requestCode) {
-        if (avatarC1File == null) {
+        if (avatarC0File == null) {
             Toast.makeText(this, "外部ファイルフォルダが利用できません", Toast.LENGTH_SHORT).show();
             return;
         }
@@ -328,14 +331,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private File getAvatarFileForRequest(int requestCode) {
         switch (requestCode) {
+            case REQ_PICK_C0:
+                return avatarC0File;
             case REQ_PICK_C1:
                 return avatarC1File;
             case REQ_PICK_C2:
                 return avatarC2File;
             case REQ_PICK_C3:
                 return avatarC3File;
-            case REQ_PICK_C4:
-                return avatarC4File;
             default:
                 return null;
         }
@@ -343,16 +346,26 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private int getAvatarResIdForRequest(int requestCode) {
         switch (requestCode) {
+            case REQ_PICK_C0:
+                return R.drawable.c0;
             case REQ_PICK_C1:
                 return R.drawable.c1;
             case REQ_PICK_C2:
                 return R.drawable.c2;
             case REQ_PICK_C3:
                 return R.drawable.c3;
-            case REQ_PICK_C4:
-                return R.drawable.c4;
             default:
                 return 0;
+        }
+    }
+
+    private void applyAvatarSelection(int requestCode) {
+        int resId = getAvatarResIdForRequest(requestCode);
+        if (resId == 0) return;
+        if (requestCode == REQ_PICK_C0) {
+            setAvatarBackground(resId);
+        } else {
+            setAvatarFrame(resId);
         }
     }
 
@@ -375,8 +388,22 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private void initAvatarAnimation() {
         avatarMode = AvatarMode.IDLE;
-        setAvatarFrame(R.drawable.c1);
-        scheduleNextBlink();
+        setAvatarBackground(R.drawable.c0);
+        startIdleAnimation();
+    }
+
+    private void setAvatarBackground(int resId) {
+        if (ivAvatarBackground != null) {
+            Bitmap custom = null;
+            if (resId == R.drawable.c0) {
+                custom = avatarC0Bitmap;
+            }
+            if (custom != null) {
+                ivAvatarBackground.setImageBitmap(custom);
+            } else {
+                ivAvatarBackground.setImageResource(resId);
+            }
+        }
     }
 
     private void setAvatarFrame(int resId) {
@@ -388,8 +415,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 custom = avatarC2Bitmap;
             } else if (resId == R.drawable.c3) {
                 custom = avatarC3Bitmap;
-            } else if (resId == R.drawable.c4) {
-                custom = avatarC4Bitmap;
             }
             if (custom != null) {
                 ivAvatar.setImageBitmap(custom);
@@ -435,7 +460,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     private void updateAvatarAnimation() {
-        boolean shouldTalk = isStreamingResponse || pendingUtterances.get() > 0;
+        boolean shouldTalk = ttsEnabled ? isTtsSpeaking : isStreamingResponse;
         runOnUiThread(() -> {
             if (shouldTalk) {
                 if (avatarMode != AvatarMode.TALKING) {
@@ -619,14 +644,26 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             ttsNeedsWarmup = true;
             applyTtsSettings();
             tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
-                @Override public void onStart(String utteranceId) {}
+                @Override
+                public void onStart(String utteranceId) {
+                    if (!isWarmupUtterance(utteranceId)) {
+                        isTtsSpeaking = true;
+                        updateAvatarAnimation();
+                    }
+                }
                 @Override public void onDone(String utteranceId) {
                     decrementPendingUtterances();
+                    if (!isWarmupUtterance(utteranceId)) {
+                        isTtsSpeaking = false;
+                    }
                     updateAvatarAnimation();
                     checkAutoVoiceAfterTts();
                 }
                 @Override public void onError(String utteranceId) {
                     decrementPendingUtterances();
+                    if (!isWarmupUtterance(utteranceId)) {
+                        isTtsSpeaking = false;
+                    }
                     updateAvatarAnimation();
                     checkAutoVoiceAfterTts();
                 }
@@ -643,6 +680,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             current = pendingUtterances.get();
             if (current <= 0) return;
         } while (!pendingUtterances.compareAndSet(current, current - 1));
+    }
+
+    private boolean isWarmupUtterance(String utteranceId) {
+        return utteranceId != null && utteranceId.startsWith("warmup_");
     }
 
     private void applyTtsSettings() {
@@ -754,6 +795,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
         pendingUtterances.set(0);
         ttsNeedsWarmup = true;
+        isTtsSpeaking = false;
         updateAvatarAnimation();
     }
 
@@ -1178,10 +1220,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             return;
         }
         reloadAvatarBitmaps();
-        int resId = getAvatarResIdForRequest(requestCode);
-        if (resId != 0) {
-            setAvatarFrame(resId);
-        }
+        applyAvatarSelection(requestCode);
     }
 
     @Override
