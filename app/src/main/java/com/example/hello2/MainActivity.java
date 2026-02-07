@@ -1,11 +1,19 @@
 package com.example.hello2;
 
 import android.app.Activity;
+import android.Manifest;
+import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.util.Log;
 import android.view.View;
+import android.view.Window;
+import android.view.WindowManager;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -54,6 +62,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final String TAG = "OllamaChat";
     private static final String SETTINGS_FILE = "chat_settings.json";
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
+    private static final int REQ_RECORD_AUDIO = 1001;
 
     // --- UI ---
     private TextView tvConversation;
@@ -62,7 +71,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private ScrollView scrollView;
     private View settingsPanel;
     private Spinner spinnerModel;
-    private Switch switchStreaming, switchTts;
+    private Switch switchStreaming, switchTts, switchVoiceInput;
     private EditText etOllamaUrl, etSpeechLang, etSpeechRate, etSpeechPitch, etSystemPrompt;
 
     // --- 設定（デフォルト値） ---
@@ -70,6 +79,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private String selectedModel = "default";
     private boolean streamingEnabled = true;
     private boolean ttsEnabled = false;
+    private boolean voiceInputEnabled = true;
     private String speechLang = "ja-JP";
     private float speechRate = 1.0f;
     private float speechPitch = 1.0f;
@@ -88,7 +98,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     // --- チャット ---
     private final List<JSONObject> conversationHistory = new ArrayList<>();
     private volatile boolean isProcessing = false;
+    private volatile boolean isListening = false;
     private final Object historyLock = new Object();
+
+    // --- 音声認識 ---
+    private SpeechRecognizer speechRecognizer;
+    private boolean pendingVoiceStart = false;
+    private boolean triedOnlineFallback = false;
+    private boolean currentPreferOffline = true;
 
     // --- ネットワーク ---
     private final OkHttpClient client = new OkHttpClient.Builder()
@@ -101,6 +118,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        requestWindowFeature(Window.FEATURE_NO_TITLE);
+        getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
+                WindowManager.LayoutParams.FLAG_FULLSCREEN);
         setContentView(R.layout.activity_main);
 
         initViews();
@@ -124,6 +144,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         spinnerModel = findViewById(R.id.spinnerModel);
         switchStreaming = findViewById(R.id.switchStreaming);
         switchTts = findViewById(R.id.switchTts);
+        switchVoiceInput = findViewById(R.id.switchVoiceInput);
         etOllamaUrl = findViewById(R.id.etOllamaUrl);
         etSpeechLang = findViewById(R.id.etSpeechLang);
         etSpeechRate = findViewById(R.id.etSpeechRate);
@@ -151,13 +172,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         btnSend.setOnClickListener(v -> {
             String userMsg = etInput.getText().toString().trim();
             if (userMsg.isEmpty()) {
-                Toast.makeText(this, "入力してください", Toast.LENGTH_SHORT).show();
+                if (voiceInputEnabled) {
+                    startVoiceRecognition(true);
+                } else {
+                    Toast.makeText(this, "入力してください", Toast.LENGTH_SHORT).show();
+                }
                 return;
             }
-            etInput.setText("");
-            appendConversation("You: " + userMsg + "\n");
-            addToHistory("user", userMsg);
-            sendChat();
+            submitUserMessage(userMsg);
         });
     }
 
@@ -177,6 +199,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             selectedModel = s.optString("selectedModel", selectedModel);
             streamingEnabled = s.optBoolean("streamingEnabled", streamingEnabled);
             ttsEnabled = s.optBoolean("ttsEnabled", ttsEnabled);
+            voiceInputEnabled = s.optBoolean("voiceInputEnabled", voiceInputEnabled);
             speechLang = s.optString("speechLang", speechLang);
             speechRate = (float) s.optDouble("speechRate", speechRate);
             speechPitch = (float) s.optDouble("speechPitch", speechPitch);
@@ -195,6 +218,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             s.put("selectedModel", selectedModel);
             s.put("streamingEnabled", streamingEnabled);
             s.put("ttsEnabled", ttsEnabled);
+            s.put("voiceInputEnabled", voiceInputEnabled);
             s.put("speechLang", speechLang);
             s.put("speechRate", speechRate);
             s.put("speechPitch", speechPitch);
@@ -213,6 +237,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (ollamaBaseUrl.isEmpty()) ollamaBaseUrl = "http://localhost:11434";
         streamingEnabled = switchStreaming.isChecked();
         ttsEnabled = switchTts.isChecked();
+        voiceInputEnabled = switchVoiceInput.isChecked();
         speechLang = etSpeechLang.getText().toString().trim();
         if (speechLang.isEmpty()) speechLang = "ja-JP";
         try {
@@ -235,6 +260,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         etOllamaUrl.setText(ollamaBaseUrl);
         switchStreaming.setChecked(streamingEnabled);
         switchTts.setChecked(ttsEnabled);
+        switchVoiceInput.setChecked(voiceInputEnabled);
         etSpeechLang.setText(speechLang);
         etSpeechRate.setText(String.valueOf(speechRate));
         etSpeechPitch.setText(String.valueOf(speechPitch));
@@ -427,7 +453,98 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     // ========== チャット送信 ==========
 
     private void updateSendButton() {
-        runOnUiThread(() -> btnSend.setEnabled(!isProcessing));
+        runOnUiThread(() -> btnSend.setEnabled(!isProcessing && !isListening));
+    }
+
+    private void submitUserMessage(String userMsg) {
+        if (userMsg == null || userMsg.trim().isEmpty()) return;
+        etInput.setText("");
+        appendConversation("You: " + userMsg + "\n");
+        addToHistory("user", userMsg);
+        sendChat();
+    }
+
+    private Intent buildRecognizerIntent(boolean preferOffline) {
+        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        String lang = (speechLang != null && !speechLang.isEmpty())
+                ? speechLang
+                : Locale.getDefault().toLanguageTag();
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang);
+        intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
+        intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, preferOffline);
+        return intent;
+    }
+
+    private void startVoiceRecognition(boolean preferOffline) {
+        if (isProcessing || isListening) return;
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            Toast.makeText(this, "音声認識が利用できません", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            pendingVoiceStart = true;
+            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_RECORD_AUDIO);
+            return;
+        }
+
+        isListening = true;
+        updateSendButton();
+        currentPreferOffline = preferOffline;
+        triedOnlineFallback = !preferOffline;
+
+        if (speechRecognizer == null) {
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+        } else {
+            speechRecognizer.cancel();
+        }
+
+        speechRecognizer.setRecognitionListener(new RecognitionListener() {
+            @Override public void onReadyForSpeech(Bundle params) {}
+            @Override public void onBeginningOfSpeech() {}
+            @Override public void onRmsChanged(float rmsdB) {}
+            @Override public void onBufferReceived(byte[] buffer) {}
+            @Override public void onEndOfSpeech() {}
+
+            @Override
+            public void onError(int error) {
+                isListening = false;
+                updateSendButton();
+                boolean shouldFallback = currentPreferOffline && !triedOnlineFallback
+                        && (error == SpeechRecognizer.ERROR_NETWORK
+                        || error == SpeechRecognizer.ERROR_SERVER
+                        || error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED
+                        || error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE);
+                if (shouldFallback) {
+                    triedOnlineFallback = true;
+                    Toast.makeText(MainActivity.this,
+                            "オフライン音声認識に失敗したためオンラインに切り替えます",
+                            Toast.LENGTH_SHORT).show();
+                    startVoiceRecognition(false);
+                    return;
+                }
+                Toast.makeText(MainActivity.this, "音声認識に失敗しました", Toast.LENGTH_SHORT).show();
+            }
+
+            @Override
+            public void onResults(Bundle results) {
+                isListening = false;
+                updateSendButton();
+                ArrayList<String> matches = results.getStringArrayList(
+                        SpeechRecognizer.RESULTS_RECOGNITION);
+                String best = (matches != null && !matches.isEmpty()) ? matches.get(0).trim() : "";
+                if (best.isEmpty()) {
+                    Toast.makeText(MainActivity.this, "音声認識結果が空でした", Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                submitUserMessage(best);
+            }
+
+            @Override public void onPartialResults(Bundle partialResults) {}
+            @Override public void onEvent(int eventType, Bundle params) {}
+        });
+
+        speechRecognizer.startListening(buildRecognizerIntent(preferOffline));
     }
 
     private void sendChat() {
@@ -612,8 +729,29 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     // ========== ライフサイクル ==========
 
     @Override
+    public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode == REQ_RECORD_AUDIO) {
+            boolean granted = grantResults.length > 0
+                    && grantResults[0] == PackageManager.PERMISSION_GRANTED;
+            if (granted && pendingVoiceStart) {
+                pendingVoiceStart = false;
+                startVoiceRecognition(true);
+            } else {
+                pendingVoiceStart = false;
+                Toast.makeText(this, "マイクの権限が必要です", Toast.LENGTH_SHORT).show();
+            }
+        }
+    }
+
+    @Override
     protected void onPause() {
         super.onPause();
+        if (speechRecognizer != null) {
+            speechRecognizer.cancel();
+        }
+        isListening = false;
+        updateSendButton();
         readSettingsFromUi();
         saveSettings();
     }
@@ -623,6 +761,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (tts != null) {
             tts.stop();
             tts.shutdown();
+        }
+        if (speechRecognizer != null) {
+            speechRecognizer.destroy();
+            speechRecognizer = null;
         }
         super.onDestroy();
     }

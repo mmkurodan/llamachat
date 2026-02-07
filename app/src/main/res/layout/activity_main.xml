@@ -17,7 +17,7 @@
             android:layout_width="0dp"
             android:layout_height="wrap_content"
             android:layout_weight="1"
-            android:text="💬 Ollama Chat"
+            android:text="💬 llama chat"
             android:textColor="#FFFFFF"
             android:textSize="18sp"
             android:textStyle="bold"/>
@@ -69,6 +69,10 @@
             <Switch android:id="@+id/switchTts"
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:text="音声読み上げ" android:layout_marginTop="4dp"/>
+
+            <Switch android:id="@+id/switchVoiceInput"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:text="音声認識（空欄送信時）" android:layout_marginTop="4dp"/>
 
             <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                 android:text="読み上げ言語" android:layout_marginTop="4dp"/>
