@@ -67,7 +67,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final String SETTINGS_FILE = "chat_settings.json";
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
     private static final int REQ_RECORD_AUDIO = 1001;
-    private static final int AVATAR_TALK_FRAME_MS = 160;
+    private static final int AVATAR_TALK_FRAME_MS = 80;
     private static final int AVATAR_BLINK_MIN_MS = 3000;
     private static final int AVATAR_BLINK_MAX_MS = 7000;
     private static final int AVATAR_BLINK_DURATION_MS = 120;

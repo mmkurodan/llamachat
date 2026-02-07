@@ -1,151 +1,166 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
-    android:orientation="vertical"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent">
-
-    <!-- ヘッダー -->
-    <LinearLayout
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:background="#4a90e2"
-        android:padding="10dp"
-        android:gravity="center_vertical">
-
-        <TextView
-            android:layout_width="0dp"
-            android:layout_height="wrap_content"
-            android:layout_weight="1"
-            android:text="💬 llama chat"
-            android:textColor="#FFFFFF"
-            android:textSize="18sp"
-            android:textStyle="bold"/>
-
-        <Button
-            android:id="@+id/btnSettings"
-            android:layout_width="wrap_content"
-            android:layout_height="36dp"
-            android:text="⚙️ 設定"
-            android:textColor="#FFFFFF"
-            android:background="@android:color/transparent"
-            android:minWidth="0dp"
-            android:minHeight="0dp"/>
-    </LinearLayout>
-
-    <!-- 設定パネル（折りたたみ） -->
-    <ScrollView
-        android:id="@+id/settingsPanel"
-        android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:visibility="gone"
-        android:background="#F5F5F5">
-
-        <LinearLayout
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:orientation="vertical"
-            android:padding="12dp">
-
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="⚙️ 設定" android:textSize="16sp" android:textStyle="bold"
-                android:layout_marginBottom="8dp"/>
-
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="Ollama URL"/>
-            <EditText android:id="@+id/etOllamaUrl"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:inputType="textUri" android:singleLine="true"/>
-
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="モデル" android:layout_marginTop="4dp"/>
-            <Spinner android:id="@+id/spinnerModel"
-                android:layout_width="match_parent" android:layout_height="wrap_content"/>
-
-            <Switch android:id="@+id/switchStreaming"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="ストリーミング" android:checked="true" android:layout_marginTop="8dp"/>
-
-            <Switch android:id="@+id/switchTts"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="音声読み上げ" android:layout_marginTop="4dp"/>
-
-            <Switch android:id="@+id/switchVoiceInput"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:text="音声認識（空欄送信時）" android:layout_marginTop="4dp"/>
-
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="読み上げ言語" android:layout_marginTop="4dp"/>
-            <EditText android:id="@+id/etSpeechLang"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:inputType="text" android:singleLine="true"/>
-
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="速度" android:layout_marginTop="4dp"/>
-            <EditText android:id="@+id/etSpeechRate"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:inputType="numberDecimal" android:singleLine="true"/>
-
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="ピッチ" android:layout_marginTop="4dp"/>
-            <EditText android:id="@+id/etSpeechPitch"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:inputType="numberDecimal" android:singleLine="true"/>
-
-            <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                android:text="システムプロンプト" android:layout_marginTop="4dp"/>
-            <EditText android:id="@+id/etSystemPrompt"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:inputType="textMultiLine" android:minLines="2"/>
-
-        </LinearLayout>
-    </ScrollView>
 
     <ImageView
         android:id="@+id/ivAvatar"
         android:layout_width="match_parent"
-        android:layout_height="220dp"
+        android:layout_height="match_parent"
         android:contentDescription="@string/avatar_description"
         android:scaleType="centerCrop"
         android:src="@drawable/c1" />
 
-    <!-- チャットメッセージ -->
-    <ScrollView
-        android:id="@+id/scrollView"
-        android:layout_width="match_parent"
-        android:layout_height="0dp"
-        android:layout_weight="1"
-        android:fillViewport="true"
-        android:padding="12dp">
-
-        <TextView
-            android:id="@+id/tvConversation"
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:text=""
-            android:textSize="16sp"/>
-    </ScrollView>
-
-    <!-- 入力エリア -->
     <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="horizontal"
-        android:padding="8dp">
+        android:layout_height="match_parent"
+        android:orientation="vertical">
 
-        <EditText
-            android:id="@+id/etInput"
-            android:layout_width="0dp"
+        <!-- ヘッダー -->
+        <LinearLayout
+            android:layout_width="match_parent"
             android:layout_height="wrap_content"
+            android:orientation="horizontal"
+            android:background="#4a90e2"
+            android:padding="10dp"
+            android:gravity="center_vertical">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:text="💬 llama chat"
+                android:textColor="#FFFFFF"
+                android:textSize="18sp"
+                android:textStyle="bold"/>
+
+            <Button
+                android:id="@+id/btnSettings"
+                android:layout_width="wrap_content"
+                android:layout_height="36dp"
+                android:text="⚙️ 設定"
+                android:textColor="#FFFFFF"
+                android:background="@android:color/transparent"
+                android:minWidth="0dp"
+                android:minHeight="0dp"/>
+        </LinearLayout>
+
+        <!-- 設定パネル（折りたたみ） -->
+        <ScrollView
+            android:id="@+id/settingsPanel"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:visibility="gone"
+            android:background="#F5F5F5">
+
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical"
+                android:padding="12dp">
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="⚙️ 設定" android:textSize="16sp" android:textStyle="bold"
+                    android:layout_marginBottom="8dp"/>
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="Ollama URL"/>
+                <EditText android:id="@+id/etOllamaUrl"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:inputType="textUri" android:singleLine="true"/>
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="モデル" android:layout_marginTop="4dp"/>
+                <Spinner android:id="@+id/spinnerModel"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"/>
+
+                <Switch android:id="@+id/switchStreaming"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="ストリーミング" android:checked="true" android:layout_marginTop="8dp"/>
+
+                <Switch android:id="@+id/switchTts"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="音声読み上げ" android:layout_marginTop="4dp"/>
+
+                <Switch android:id="@+id/switchVoiceInput"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:text="音声認識（空欄送信時）" android:layout_marginTop="4dp"/>
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="読み上げ言語" android:layout_marginTop="4dp"/>
+                <EditText android:id="@+id/etSpeechLang"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:inputType="text" android:singleLine="true"/>
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="速度" android:layout_marginTop="4dp"/>
+                <EditText android:id="@+id/etSpeechRate"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:inputType="numberDecimal" android:singleLine="true"/>
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="ピッチ" android:layout_marginTop="4dp"/>
+                <EditText android:id="@+id/etSpeechPitch"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:inputType="numberDecimal" android:singleLine="true"/>
+
+                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    android:text="システムプロンプト" android:layout_marginTop="4dp"/>
+                <EditText android:id="@+id/etSystemPrompt"
+                    android:layout_width="match_parent" android:layout_height="wrap_content"
+                    android:inputType="textMultiLine" android:minLines="2"/>
+
+            </LinearLayout>
+        </ScrollView>
+
+        <LinearLayout
+            android:id="@+id/chatPanel"
+            android:layout_width="match_parent"
+            android:layout_height="0dp"
             android:layout_weight="1"
-            android:hint="メッセージを入力"/>
+            android:orientation="vertical"
+            android:layout_margin="12dp"
+            android:background="@drawable/chat_panel_bg"
+            android:padding="12dp">
 
-        <Button
-            android:id="@+id/btnSend"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:text="送信"
-            android:layout_marginStart="4dp"/>
+            <!-- チャットメッセージ -->
+            <ScrollView
+                android:id="@+id/scrollView"
+                android:layout_width="match_parent"
+                android:layout_height="0dp"
+                android:layout_weight="1"
+                android:fillViewport="true">
+
+                <TextView
+                    android:id="@+id/tvConversation"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:text=""
+                    android:textSize="16sp"/>
+            </ScrollView>
+
+            <!-- 入力エリア -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="horizontal"
+                android:paddingTop="8dp">
+
+                <EditText
+                    android:id="@+id/etInput"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:hint="メッセージを入力"/>
+
+                <Button
+                    android:id="@+id/btnSend"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="送信"
+                    android:layout_marginStart="4dp"/>
+            </LinearLayout>
+        </LinearLayout>
     </LinearLayout>
 
-</LinearLayout>
+</FrameLayout>
