@@ -67,7 +67,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final String SETTINGS_FILE = "chat_settings.json";
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
     private static final int REQ_RECORD_AUDIO = 1001;
-    private static final int AVATAR_TALK_FRAME_MS = 80;
+    private static final int AVATAR_TALK_FRAME_MS = 40;
     private static final int AVATAR_BLINK_MIN_MS = 3000;
     private static final int AVATAR_BLINK_MAX_MS = 7000;
     private static final int AVATAR_BLINK_DURATION_MS = 120;
@@ -79,8 +79,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private ScrollView scrollView;
     private View settingsPanel;
     private Spinner spinnerModel;
-    private Switch switchStreaming, switchTts, switchVoiceInput;
+    private Switch switchStreaming, switchTts, switchVoiceInput, switchAutoChatter, switchAutoVoiceInput;
     private EditText etOllamaUrl, etSpeechLang, etSpeechRate, etSpeechPitch, etSystemPrompt;
+    private EditText etHistoryLimit, etAutoChatterSeconds;
     private ImageView ivAvatar;
 
     // --- 設定（デフォルト値） ---
@@ -89,21 +90,27 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private boolean streamingEnabled = true;
     private boolean ttsEnabled = false;
     private boolean voiceInputEnabled = true;
+    private boolean autoChatterEnabled = false;
+    private boolean autoVoiceInputEnabled = false;
     private String speechLang = "ja-JP";
     private float speechRate = 1.0f;
     private float speechPitch = 1.0f;
     private String systemPromptText = "あなたはユーザの若い女性秘書です";
+    private int historyLimit = 10;
+    private int autoChatterSeconds = 30;
 
     // --- TTS ---
     private TextToSpeech tts;
     private boolean ttsReady = false;
     private final StringBuilder sentenceBuffer = new StringBuilder();
     private final AtomicInteger pendingUtterances = new AtomicInteger(0);
+    private boolean pendingAutoVoiceStart = false;
 
     private enum AvatarMode { IDLE, TALKING }
 
     // --- アバター ---
     private final Handler avatarHandler = new Handler(Looper.getMainLooper());
+    private final Handler autoHandler = new Handler(Looper.getMainLooper());
     private final Random avatarRandom = new Random();
     private final int[] talkFrames = new int[]{
             R.drawable.c1, R.drawable.c3, R.drawable.c4, R.drawable.c3, R.drawable.c1
@@ -131,6 +138,18 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             setAvatarFrame(talkFrames[talkFrameIndex]);
             talkFrameIndex = (talkFrameIndex + 1) % talkFrames.length;
             avatarHandler.postDelayed(this, AVATAR_TALK_FRAME_MS);
+        }
+    };
+
+    private final Runnable autoChatterRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (!autoChatterEnabled) return;
+            if (isProcessing || isListening) {
+                autoHandler.postDelayed(this, 1000);
+                return;
+            }
+            sendChat("さらに続けて");
         }
     };
 
@@ -190,11 +209,15 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         switchStreaming = findViewById(R.id.switchStreaming);
         switchTts = findViewById(R.id.switchTts);
         switchVoiceInput = findViewById(R.id.switchVoiceInput);
+        switchAutoChatter = findViewById(R.id.switchAutoChatter);
+        switchAutoVoiceInput = findViewById(R.id.switchAutoVoiceInput);
         etOllamaUrl = findViewById(R.id.etOllamaUrl);
         etSpeechLang = findViewById(R.id.etSpeechLang);
         etSpeechRate = findViewById(R.id.etSpeechRate);
         etSpeechPitch = findViewById(R.id.etSpeechPitch);
         etSystemPrompt = findViewById(R.id.etSystemPrompt);
+        etHistoryLimit = findViewById(R.id.etHistoryLimit);
+        etAutoChatterSeconds = findViewById(R.id.etAutoChatterSeconds);
 
         modelList.add("default");
         modelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
@@ -297,6 +320,37 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         updateAvatarAnimation();
     }
 
+    private void cancelAutoChatter() {
+        autoHandler.removeCallbacks(autoChatterRunnable);
+    }
+
+    private void scheduleAutoChatter() {
+        cancelAutoChatter();
+        if (!autoChatterEnabled || autoChatterSeconds <= 0) return;
+        autoHandler.postDelayed(autoChatterRunnable, autoChatterSeconds * 1000L);
+    }
+
+    private void handleAssistantResponseComplete() {
+        runOnUiThread(() -> {
+            if (autoVoiceInputEnabled) {
+                if (ttsEnabled && pendingUtterances.get() > 0) {
+                    pendingAutoVoiceStart = true;
+                } else {
+                    startVoiceRecognition(true);
+                }
+            } else {
+                scheduleAutoChatter();
+            }
+        });
+    }
+
+    private void checkAutoVoiceAfterTts() {
+        if (pendingAutoVoiceStart && pendingUtterances.get() <= 0) {
+            pendingAutoVoiceStart = false;
+            runOnUiThread(() -> startVoiceRecognition(true));
+        }
+    }
+
     // ========== 設定 I/O（JSONファイル） ==========
 
     private void loadSettings() {
@@ -314,10 +368,16 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             streamingEnabled = s.optBoolean("streamingEnabled", streamingEnabled);
             ttsEnabled = s.optBoolean("ttsEnabled", ttsEnabled);
             voiceInputEnabled = s.optBoolean("voiceInputEnabled", voiceInputEnabled);
+            autoChatterEnabled = s.optBoolean("autoChatterEnabled", autoChatterEnabled);
+            autoVoiceInputEnabled = s.optBoolean("autoVoiceInputEnabled", autoVoiceInputEnabled);
             speechLang = s.optString("speechLang", speechLang);
             speechRate = (float) s.optDouble("speechRate", speechRate);
             speechPitch = (float) s.optDouble("speechPitch", speechPitch);
             systemPromptText = s.optString("systemPrompt", systemPromptText);
+            historyLimit = s.optInt("historyLimit", historyLimit);
+            autoChatterSeconds = s.optInt("autoChatterSeconds", autoChatterSeconds);
+            if (historyLimit < 0) historyLimit = 0;
+            if (autoChatterSeconds < 0) autoChatterSeconds = 0;
         } catch (FileNotFoundException e) {
             // 初回起動時: デフォルト値を使用
         } catch (Exception e) {
@@ -333,10 +393,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             s.put("streamingEnabled", streamingEnabled);
             s.put("ttsEnabled", ttsEnabled);
             s.put("voiceInputEnabled", voiceInputEnabled);
+            s.put("autoChatterEnabled", autoChatterEnabled);
+            s.put("autoVoiceInputEnabled", autoVoiceInputEnabled);
             s.put("speechLang", speechLang);
             s.put("speechRate", speechRate);
             s.put("speechPitch", speechPitch);
             s.put("systemPrompt", systemPromptText);
+            s.put("historyLimit", historyLimit);
+            s.put("autoChatterSeconds", autoChatterSeconds);
 
             FileOutputStream fos = openFileOutput(SETTINGS_FILE, MODE_PRIVATE);
             fos.write(s.toString(2).getBytes(StandardCharsets.UTF_8));
@@ -352,6 +416,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         streamingEnabled = switchStreaming.isChecked();
         ttsEnabled = switchTts.isChecked();
         voiceInputEnabled = switchVoiceInput.isChecked();
+        autoChatterEnabled = switchAutoChatter.isChecked();
+        autoVoiceInputEnabled = switchAutoVoiceInput.isChecked();
         speechLang = etSpeechLang.getText().toString().trim();
         if (speechLang.isEmpty()) speechLang = "ja-JP";
         try {
@@ -365,6 +431,24 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             speechPitch = 1.0f;
         }
         systemPromptText = etSystemPrompt.getText().toString().trim();
+        try {
+            historyLimit = Integer.parseInt(etHistoryLimit.getText().toString());
+        } catch (Exception e) {
+            historyLimit = 10;
+        }
+        if (historyLimit < 0) historyLimit = 0;
+        try {
+            autoChatterSeconds = Integer.parseInt(etAutoChatterSeconds.getText().toString());
+        } catch (Exception e) {
+            autoChatterSeconds = 30;
+        }
+        if (autoChatterSeconds < 0) autoChatterSeconds = 0;
+        if (!autoChatterEnabled) {
+            cancelAutoChatter();
+        }
+        if (!autoVoiceInputEnabled) {
+            pendingAutoVoiceStart = false;
+        }
         if (spinnerModel.getSelectedItem() != null) {
             selectedModel = spinnerModel.getSelectedItem().toString();
         }
@@ -375,10 +459,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         switchStreaming.setChecked(streamingEnabled);
         switchTts.setChecked(ttsEnabled);
         switchVoiceInput.setChecked(voiceInputEnabled);
+        switchAutoChatter.setChecked(autoChatterEnabled);
+        switchAutoVoiceInput.setChecked(autoVoiceInputEnabled);
         etSpeechLang.setText(speechLang);
         etSpeechRate.setText(String.valueOf(speechRate));
         etSpeechPitch.setText(String.valueOf(speechPitch));
         etSystemPrompt.setText(systemPromptText);
+        etHistoryLimit.setText(String.valueOf(historyLimit));
+        etAutoChatterSeconds.setText(String.valueOf(autoChatterSeconds));
 
         int idx = modelList.indexOf(selectedModel);
         if (idx >= 0) spinnerModel.setSelection(idx);
@@ -400,10 +488,12 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 @Override public void onDone(String utteranceId) {
                     pendingUtterances.decrementAndGet();
                     updateAvatarAnimation();
+                    checkAutoVoiceAfterTts();
                 }
                 @Override public void onError(String utteranceId) {
                     pendingUtterances.decrementAndGet();
                     updateAvatarAnimation();
+                    checkAutoVoiceAfterTts();
                 }
             });
         } else {
@@ -576,10 +666,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private void submitUserMessage(String userMsg) {
         if (userMsg == null || userMsg.trim().isEmpty()) return;
+        cancelAutoChatter();
         etInput.setText("");
         appendConversation("You: " + userMsg + "\n");
         addToHistory("user", userMsg);
-        sendChat();
+        sendChat(null);
     }
 
     private Intent buildRecognizerIntent(boolean preferOffline) {
@@ -596,6 +687,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private void startVoiceRecognition(boolean preferOffline) {
         if (isProcessing || isListening) return;
+        cancelAutoChatter();
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
             Toast.makeText(this, "音声認識が利用できません", Toast.LENGTH_SHORT).show();
             return;
@@ -626,8 +718,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
             @Override
             public void onError(int error) {
-                isListening = false;
-                updateSendButton();
                 boolean shouldFallback = currentPreferOffline && !triedOnlineFallback
                         && (error == SpeechRecognizer.ERROR_NETWORK
                         || error == SpeechRecognizer.ERROR_SERVER
@@ -635,6 +725,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                         || error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE);
                 if (shouldFallback) {
                     triedOnlineFallback = true;
+                    isListening = false;
+                    updateSendButton();
                     Toast.makeText(MainActivity.this,
                             "オフライン音声認識に失敗したためオンラインに切り替えます",
                             Toast.LENGTH_SHORT).show();
@@ -642,19 +734,20 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     return;
                 }
                 Toast.makeText(MainActivity.this, "音声認識に失敗しました", Toast.LENGTH_SHORT).show();
+                handleVoiceRecognitionFinished();
             }
 
             @Override
             public void onResults(Bundle results) {
-                isListening = false;
-                updateSendButton();
                 ArrayList<String> matches = results.getStringArrayList(
                         SpeechRecognizer.RESULTS_RECOGNITION);
                 String best = (matches != null && !matches.isEmpty()) ? matches.get(0).trim() : "";
                 if (best.isEmpty()) {
                     Toast.makeText(MainActivity.this, "音声認識結果が空でした", Toast.LENGTH_SHORT).show();
+                    handleVoiceRecognitionFinished();
                     return;
                 }
+                handleVoiceRecognitionFinished();
                 submitUserMessage(best);
             }
 
@@ -665,7 +758,15 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         speechRecognizer.startListening(buildRecognizerIntent(preferOffline));
     }
 
-    private void sendChat() {
+    private void handleVoiceRecognitionFinished() {
+        isListening = false;
+        updateSendButton();
+        if (autoChatterEnabled) {
+            scheduleAutoChatter();
+        }
+    }
+
+    private void sendChat(String transientUserMessage) {
         if (spinnerModel.getSelectedItem() != null) {
             selectedModel = spinnerModel.getSelectedItem().toString();
         }
@@ -676,13 +777,29 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         updateSendButton();
         stopTts();
         setStreamingResponse(false);
+        cancelAutoChatter();
+        pendingAutoVoiceStart = false;
 
         try {
             JSONArray messages = new JSONArray();
             synchronized (historyLock) {
-                for (JSONObject msg : conversationHistory) {
-                    messages.put(msg);
+                if (!conversationHistory.isEmpty()) {
+                    JSONObject first = conversationHistory.get(0);
+                    if ("system".equals(first.optString("role"))) {
+                        messages.put(first);
+                    }
                 }
+                int size = conversationHistory.size();
+                int start = Math.max(1, size - Math.max(0, historyLimit));
+                for (int i = start; i < size; i++) {
+                    messages.put(conversationHistory.get(i));
+                }
+            }
+            if (transientUserMessage != null) {
+                JSONObject extra = new JSONObject();
+                extra.put("role", "user");
+                extra.put("content", transientUserMessage);
+                messages.put(extra);
             }
 
             JSONObject body = new JSONObject();
@@ -732,10 +849,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 setStreamingResponse(true);
                 StringBuilder fullResponse = new StringBuilder();
                 boolean first = true;
+                boolean completed = false;
 
                 try (InputStream is = response.body().byteStream();
                      BufferedReader reader = new BufferedReader(
-                             new InputStreamReader(is, StandardCharsets.UTF_8))) {
+                              new InputStreamReader(is, StandardCharsets.UTF_8))) {
 
                     String line;
                     while ((line = reader.readLine()) != null) {
@@ -776,12 +894,16 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     if (!text.isEmpty()) {
                         addToHistory("assistant", text);
                     }
+                    completed = true;
                 } catch (Exception e) {
                     appendConversation("Stream error: " + e.getMessage() + "\n");
                 } finally {
                     setStreamingResponse(false);
                     isProcessing = false;
                     updateSendButton();
+                    if (completed) {
+                        handleAssistantResponseComplete();
+                    }
                 }
             }
         });
@@ -806,6 +928,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     return;
                 }
 
+                boolean completed = false;
                 try {
                     String body = response.body().string();
                     JSONObject json = new JSONObject(body);
@@ -830,11 +953,15 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     } else {
                         appendConversation("Assistant: （応答なし）\n");
                     }
+                    completed = true;
                 } catch (Exception e) {
                     appendConversation("Parse error: " + e.getMessage() + "\n");
                 } finally {
                     isProcessing = false;
                     updateSendButton();
+                    if (completed) {
+                        handleAssistantResponseComplete();
+                    }
                 }
             }
         });
@@ -882,6 +1009,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     @Override
     protected void onDestroy() {
         stopAvatarAnimation();
+        autoHandler.removeCallbacksAndMessages(null);
         if (tts != null) {
             tts.stop();
             tts.shutdown();
