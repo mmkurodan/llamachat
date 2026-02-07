@@ -137,6 +137,89 @@
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:inputType="textMultiLine" android:minLines="2"/>
 
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="アバター画像" android:textStyle="bold" android:layout_marginTop="8dp"/>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="4dp">
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="c1 ベース"/>
+                        <Button
+                            android:id="@+id/btnPickC1"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="選択"
+                            android:minWidth="0dp"
+                            android:minHeight="0dp"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="4dp">
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="c2 まばたき"/>
+                        <Button
+                            android:id="@+id/btnPickC2"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="選択"
+                            android:minWidth="0dp"
+                            android:minHeight="0dp"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="4dp">
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="c3 会話（途中）"/>
+                        <Button
+                            android:id="@+id/btnPickC3"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="選択"
+                            android:minWidth="0dp"
+                            android:minHeight="0dp"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:gravity="center_vertical"
+                        android:layout_marginTop="4dp">
+                        <TextView
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="c4 会話（終了）"/>
+                        <Button
+                            android:id="@+id/btnPickC4"
+                            android:layout_width="wrap_content"
+                            android:layout_height="36dp"
+                            android:text="選択"
+                            android:minWidth="0dp"
+                            android:minHeight="0dp"/>
+                    </LinearLayout>
+
                 </LinearLayout>
             </ScrollView>
         </LinearLayout>

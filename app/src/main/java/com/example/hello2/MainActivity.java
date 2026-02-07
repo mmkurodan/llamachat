@@ -4,6 +4,9 @@ import android.app.Activity;
 import android.Manifest;
 import android.content.Intent;
 import android.content.pm.PackageManager;
+import android.graphics.Bitmap;
+import android.graphics.BitmapFactory;
+import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -30,6 +33,7 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
@@ -67,6 +71,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final String SETTINGS_FILE = "chat_settings.json";
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
     private static final int REQ_RECORD_AUDIO = 1001;
+    private static final int REQ_PICK_C1 = 2001;
+    private static final int REQ_PICK_C2 = 2002;
+    private static final int REQ_PICK_C3 = 2003;
+    private static final int REQ_PICK_C4 = 2004;
+    private static final String AVATAR_C1_FILE = "avatar_c1.jpg";
+    private static final String AVATAR_C2_FILE = "avatar_c2.jpg";
+    private static final String AVATAR_C3_FILE = "avatar_c3.jpg";
+    private static final String AVATAR_C4_FILE = "avatar_c4.jpg";
     private static final int TTS_WARMUP_MS = 120;
     private static final int AVATAR_TALK_FRAME_MS = 40;
     private static final int AVATAR_BLINK_MIN_MS = 3000;
@@ -76,7 +88,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     // --- UI ---
     private TextView tvConversation;
     private EditText etInput;
-    private Button btnSend, btnSettings;
+    private Button btnSend, btnSettings, btnPickC1, btnPickC2, btnPickC3, btnPickC4;
     private ScrollView scrollView;
     private View settingsPanel;
     private Spinner spinnerModel;
@@ -118,6 +130,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private final int[] talkFrames = new int[]{
             R.drawable.c1, R.drawable.c3, R.drawable.c4, R.drawable.c3, R.drawable.c1
     };
+    private File avatarC1File;
+    private File avatarC2File;
+    private File avatarC3File;
+    private File avatarC4File;
+    private Bitmap avatarC1Bitmap;
+    private Bitmap avatarC2Bitmap;
+    private Bitmap avatarC3Bitmap;
+    private Bitmap avatarC4Bitmap;
     private int talkFrameIndex = 0;
     private boolean isStreamingResponse = false;
     private AvatarMode avatarMode = AvatarMode.IDLE;
@@ -189,6 +209,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         setContentView(R.layout.activity_main);
 
         initViews();
+        initAvatarAssets();
         initAvatarAnimation();
         loadSettings();
         applySettingsToUi();
@@ -205,6 +226,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         etInput = findViewById(R.id.etInput);
         btnSend = findViewById(R.id.btnSend);
         btnSettings = findViewById(R.id.btnSettings);
+        btnPickC1 = findViewById(R.id.btnPickC1);
+        btnPickC2 = findViewById(R.id.btnPickC2);
+        btnPickC3 = findViewById(R.id.btnPickC3);
+        btnPickC4 = findViewById(R.id.btnPickC4);
         ivAvatar = findViewById(R.id.ivAvatar);
         scrollView = findViewById(R.id.scrollView);
         settingsPanel = findViewById(R.id.settingsPanel);
@@ -252,9 +277,101 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             }
             submitUserMessage(userMsg);
         });
+
+        btnPickC1.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C1));
+        btnPickC2.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C2));
+        btnPickC3.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C3));
+        btnPickC4.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C4));
     }
 
     // ========== アバター ==========
+
+    private void initAvatarAssets() {
+        File dir = getExternalFilesDir(null);
+        if (dir == null) {
+            Log.w(TAG, "External files dir unavailable");
+            return;
+        }
+        avatarC1File = new File(dir, AVATAR_C1_FILE);
+        avatarC2File = new File(dir, AVATAR_C2_FILE);
+        avatarC3File = new File(dir, AVATAR_C3_FILE);
+        avatarC4File = new File(dir, AVATAR_C4_FILE);
+        reloadAvatarBitmaps();
+    }
+
+    private void reloadAvatarBitmaps() {
+        avatarC1Bitmap = loadAvatarBitmap(avatarC1File);
+        avatarC2Bitmap = loadAvatarBitmap(avatarC2File);
+        avatarC3Bitmap = loadAvatarBitmap(avatarC3File);
+        avatarC4Bitmap = loadAvatarBitmap(avatarC4File);
+    }
+
+    private Bitmap loadAvatarBitmap(File file) {
+        if (file == null || !file.exists()) return null;
+        Bitmap bitmap = BitmapFactory.decodeFile(file.getAbsolutePath());
+        if (bitmap == null) {
+            Log.w(TAG, "Failed to decode avatar image: " + file.getAbsolutePath());
+        }
+        return bitmap;
+    }
+
+    private void pickAvatarImage(int requestCode) {
+        if (avatarC1File == null) {
+            Toast.makeText(this, "外部ファイルフォルダが利用できません", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+        intent.addCategory(Intent.CATEGORY_OPENABLE);
+        intent.setType("image/*");
+        startActivityForResult(intent, requestCode);
+    }
+
+    private File getAvatarFileForRequest(int requestCode) {
+        switch (requestCode) {
+            case REQ_PICK_C1:
+                return avatarC1File;
+            case REQ_PICK_C2:
+                return avatarC2File;
+            case REQ_PICK_C3:
+                return avatarC3File;
+            case REQ_PICK_C4:
+                return avatarC4File;
+            default:
+                return null;
+        }
+    }
+
+    private int getAvatarResIdForRequest(int requestCode) {
+        switch (requestCode) {
+            case REQ_PICK_C1:
+                return R.drawable.c1;
+            case REQ_PICK_C2:
+                return R.drawable.c2;
+            case REQ_PICK_C3:
+                return R.drawable.c3;
+            case REQ_PICK_C4:
+                return R.drawable.c4;
+            default:
+                return 0;
+        }
+    }
+
+    private boolean copyAvatarUriToFile(Uri uri, File target) {
+        try (InputStream in = getContentResolver().openInputStream(uri);
+             FileOutputStream out = new FileOutputStream(target)) {
+            if (in == null) return false;
+            byte[] buffer = new byte[8192];
+            int len;
+            while ((len = in.read(buffer)) != -1) {
+                out.write(buffer, 0, len);
+            }
+            out.flush();
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "copyAvatar error", e);
+            return false;
+        }
+    }
 
     private void initAvatarAnimation() {
         avatarMode = AvatarMode.IDLE;
@@ -264,7 +381,21 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private void setAvatarFrame(int resId) {
         if (ivAvatar != null) {
-            ivAvatar.setImageResource(resId);
+            Bitmap custom = null;
+            if (resId == R.drawable.c1) {
+                custom = avatarC1Bitmap;
+            } else if (resId == R.drawable.c2) {
+                custom = avatarC2Bitmap;
+            } else if (resId == R.drawable.c3) {
+                custom = avatarC3Bitmap;
+            } else if (resId == R.drawable.c4) {
+                custom = avatarC4Bitmap;
+            }
+            if (custom != null) {
+                ivAvatar.setImageBitmap(custom);
+            } else {
+                ivAvatar.setImageResource(resId);
+            }
         }
     }
 
@@ -898,9 +1029,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     return;
                 }
 
-                setStreamingResponse(true);
                 StringBuilder fullResponse = new StringBuilder();
                 boolean first = true;
+                boolean streamingStarted = false;
                 boolean completed = false;
 
                 try (InputStream is = response.body().byteStream();
@@ -924,6 +1055,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                                     }
                                     fullResponse.append(content);
                                     appendConversation(content);
+                                    if (!streamingStarted) {
+                                        setStreamingResponse(true);
+                                        streamingStarted = true;
+                                    }
 
                                     if (ttsEnabled) {
                                         processChunkForTts(content);
@@ -1029,6 +1164,25 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     // ========== ライフサイクル ==========
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (resultCode != RESULT_OK || data == null) return;
+        Uri uri = data.getData();
+        if (uri == null) return;
+        File target = getAvatarFileForRequest(requestCode);
+        if (target == null) return;
+        if (!copyAvatarUriToFile(uri, target)) {
+            Toast.makeText(this, "画像の保存に失敗しました", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        reloadAvatarBitmaps();
+        int resId = getAvatarResIdForRequest(requestCode);
+        if (resId != 0) {
+            setAvatarFrame(resId);
+        }
+    }
 
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
