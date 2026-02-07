@@ -1,12 +1,17 @@
 package com.example.hello2;
 
 import android.app.Activity;
-import android.app.AlertDialog;
 import android.os.Bundle;
+import android.speech.tts.TextToSpeech;
+import android.speech.tts.UtteranceProgressListener;
+import android.util.Log;
 import android.view.View;
+import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ScrollView;
+import android.widget.Spinner;
+import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -14,13 +19,18 @@ import org.json.JSONArray;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
+import java.io.FileInputStream;
+import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -31,346 +41,407 @@ import okhttp3.RequestBody;
 import okhttp3.Response;
 
 /**
- * シンプルなチャット UI と Ollama ローカル /api/chat への連携例
- * モデル: default
+ * Ollama Chat — ollama-chat (React) のチャット機能を移植した Android 版
  *
- * 変更点（要約連携）:
- * - 会話が 10 回を超過したら、超過分と既存の会話要約を Ollama に渡して要約を作成 -> 新しい会話要約として保持
- * - ユーザがメッセージを送る際には、会話履歴の古い方に要約を挿入しておく（system プロンプトの次）
- * - AI（アシスタント）からの応答を受信中、及び会話要約を受信するまで送信ボタンを無効化する
- *
- * 追加:
- * - UI に「要約表示」ボタンを追加。クリックするとこれまでに作成された会話要約をポップアップ表示します。
- * - 要約がまだない場合は、要約は会話が 10 回以上になったときに作成される旨をポップアップで通知します。
+ * 機能:
+ * - /api/chat によるチャット（Streaming ON/OFF 切替可能）
+ * - /api/tags からモデル一覧を取得し選択（初期値: default）
+ * - Streaming 有効時はセンテンス単位で TTS 読み上げ
+ * - 設定は JSON ファイル (chat_settings.json) に保存
  */
-public class MainActivity extends Activity {
+public class MainActivity extends Activity implements TextToSpeech.OnInitListener {
+
+    private static final String TAG = "OllamaChat";
+    private static final String SETTINGS_FILE = "chat_settings.json";
+    private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
+
+    // --- UI ---
     private TextView tvConversation;
     private EditText etInput;
-    private Button btnSend;
+    private Button btnSend, btnSettings;
     private ScrollView scrollView;
+    private View settingsPanel;
+    private Spinner spinnerModel;
+    private Switch switchStreaming, switchTts;
+    private EditText etOllamaUrl, etSpeechLang, etSpeechRate, etSpeechPitch, etSystemPrompt;
 
-    // Conversation history: list of messages (system, summary (optional), user, assistant, ...)
-    private List<JSONObject> conversationHistory;
+    // --- 設定（デフォルト値） ---
+    private String ollamaBaseUrl = "http://localhost:11434";
+    private String selectedModel = "default";
+    private boolean streamingEnabled = true;
+    private boolean ttsEnabled = false;
+    private String speechLang = "ja-JP";
+    private float speechRate = 1.0f;
+    private float speechPitch = 1.0f;
+    private String systemPromptText = "あなたはユーザの若い女性秘書です";
 
-    // Conversation summary stored separately (inserted into history as a system message at index 1 when present)
-    private JSONObject conversationSummary = null;
+    // --- TTS ---
+    private TextToSpeech tts;
+    private boolean ttsReady = false;
+    private final StringBuilder sentenceBuffer = new StringBuilder();
+    private final AtomicInteger pendingUtterances = new AtomicInteger(0);
 
-    // Maximum number of user/assistant message pairs to keep in history (plus system prompt and optional summary)
-    private static final int MAX_USER_MESSAGE_PAIRS = Integer.MAX_VALUE;
+    // --- モデル一覧 ---
+    private final List<String> modelList = new ArrayList<>();
+    private ArrayAdapter<String> modelAdapter;
 
-    // Flags to control UI state
-    private volatile boolean isStreamingInProgress = false;
-    private volatile boolean isSummarizationInProgress = false;
-
-    // Lock for conversation history modifications
+    // --- チャット ---
+    private final List<JSONObject> conversationHistory = new ArrayList<>();
+    private volatile boolean isProcessing = false;
     private final Object historyLock = new Object();
 
-    // 実機で Ollama が同じ端末上で動作している場合（adb reverse でフォワード済みなど）は localhost を使える
-    // 例: "http://localhost:11434/api/chat"
-    // もし Ollama が PC 上で実機が Wi-Fi 接続の場合は PC のローカルIP に置き換えてください:
-    // 例: "http://192.168.1.100:11434/api/chat"
-    private static final String OLLAMA_CHAT_URL = "http://localhost:11434/api/chat";
-    
-    // タイムアウトを 3600 秒 (1 時間) に設定
+    // --- ネットワーク ---
     private final OkHttpClient client = new OkHttpClient.Builder()
             .connectTimeout(3600, TimeUnit.SECONDS)
             .writeTimeout(3600, TimeUnit.SECONDS)
             .readTimeout(3600, TimeUnit.SECONDS)
             .callTimeout(3600, TimeUnit.SECONDS)
             .build();
-    private static final MediaType JSON = MediaType.get("application/json; charset=utf-8");
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+
+        initViews();
+        loadSettings();
+        applySettingsToUi();
+        initTts();
+        initConversationHistory();
+        setupListeners();
+        fetchModels();
+    }
+
+    // ========== UI初期化 ==========
+
+    private void initViews() {
         tvConversation = findViewById(R.id.tvConversation);
         etInput = findViewById(R.id.etInput);
         btnSend = findViewById(R.id.btnSend);
+        btnSettings = findViewById(R.id.btnSettings);
         scrollView = findViewById(R.id.scrollView);
+        settingsPanel = findViewById(R.id.settingsPanel);
+        spinnerModel = findViewById(R.id.spinnerModel);
+        switchStreaming = findViewById(R.id.switchStreaming);
+        switchTts = findViewById(R.id.switchTts);
+        etOllamaUrl = findViewById(R.id.etOllamaUrl);
+        etSpeechLang = findViewById(R.id.etSpeechLang);
+        etSpeechRate = findViewById(R.id.etSpeechRate);
+        etSpeechPitch = findViewById(R.id.etSpeechPitch);
+        etSystemPrompt = findViewById(R.id.etSystemPrompt);
 
-        // Initialize conversation history with system prompt
-        conversationHistory = new ArrayList<>();
+        modelList.add("default");
+        modelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
+        modelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerModel.setAdapter(modelAdapter);
+    }
+
+    private void setupListeners() {
+        btnSettings.setOnClickListener(v -> {
+            if (settingsPanel.getVisibility() == View.VISIBLE) {
+                readSettingsFromUi();
+                saveSettings();
+                settingsPanel.setVisibility(View.GONE);
+                reinitSystemPrompt();
+            } else {
+                settingsPanel.setVisibility(View.VISIBLE);
+            }
+        });
+
+        btnSend.setOnClickListener(v -> {
+            String userMsg = etInput.getText().toString().trim();
+            if (userMsg.isEmpty()) {
+                Toast.makeText(this, "入力してください", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            etInput.setText("");
+            appendConversation("You: " + userMsg + "\n");
+            addToHistory("user", userMsg);
+            sendChat();
+        });
+    }
+
+    // ========== 設定 I/O（JSONファイル） ==========
+
+    private void loadSettings() {
         try {
-            JSONObject systemMessage = new JSONObject();
-            systemMessage.put("role", "system");
-            systemMessage.put("content", "あなたはユーザの若い女性秘書です");
-            conversationHistory.add(systemMessage);
+            FileInputStream fis = openFileInput(SETTINGS_FILE);
+            BufferedReader reader = new BufferedReader(new InputStreamReader(fis, StandardCharsets.UTF_8));
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) sb.append(line);
+            reader.close();
+
+            JSONObject s = new JSONObject(sb.toString());
+            ollamaBaseUrl = s.optString("ollamaBaseUrl", ollamaBaseUrl);
+            selectedModel = s.optString("selectedModel", selectedModel);
+            streamingEnabled = s.optBoolean("streamingEnabled", streamingEnabled);
+            ttsEnabled = s.optBoolean("ttsEnabled", ttsEnabled);
+            speechLang = s.optString("speechLang", speechLang);
+            speechRate = (float) s.optDouble("speechRate", speechRate);
+            speechPitch = (float) s.optDouble("speechPitch", speechPitch);
+            systemPromptText = s.optString("systemPrompt", systemPromptText);
+        } catch (FileNotFoundException e) {
+            // 初回起動時: デフォルト値を使用
         } catch (Exception e) {
-            e.printStackTrace();
-        }
-
-        updateSendButtonState();
-
-        btnSend.setOnClickListener(new View.OnClickListener() {
-            @Override
-            public void onClick(View view) {
-                final String userMsg = etInput.getText().toString().trim();
-                if (userMsg.isEmpty()) {
-                    Toast.makeText(MainActivity.this, "入力してください", Toast.LENGTH_SHORT).show();
-                    return;
-                }
-
-                // Disable send button while sending/streaming/summarizing
-                etInput.setText("");
-                appendConversation("You: " + userMsg + "\n");
-
-                // Add user's message and ensure summary is present as the oldest message (after system)
-                synchronized (historyLock) {
-
-                    try {
-                        JSONObject userMsgObj = new JSONObject();
-                        userMsgObj.put("role", "user");
-                        userMsgObj.put("content", userMsg);
-                        conversationHistory.add(userMsgObj);
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                }
-
-                // Start chat request (this will set streaming flag and disable the button)
-                sendChatToOllama(userMsg);
-            }
-        });
-
-
-    }
-
-    private void appendConversation(final String text) {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                tvConversation.append(text);
-                scrollView.post(new Runnable() {
-                    @Override
-                    public void run() {
-                        scrollView.fullScroll(View.FOCUS_DOWN);
-                    }
-                });
-            }
-        });
-    }
-
-    /**
-     * Save assistant response to conversation history
-     */
-    private void saveAssistantResponse(String content) {
-        if (content != null && !content.isEmpty()) {
-            try {
-                JSONObject assistantMsg = new JSONObject();
-                assistantMsg.put("role", "assistant");
-                assistantMsg.put("content", content);
-                synchronized (historyLock) {
-                    conversationHistory.add(assistantMsg);
-                }
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
+            Log.e(TAG, "loadSettings error", e);
         }
     }
 
-    /**
-     * Insert conversationSummary into conversationHistory as the oldest message after system prompt,
-     * if a summary exists and it's not already inserted.
-     */
-    private void insertSummaryIfNeededIntoHistory() {
-        synchronized (historyLock) {
-            if (conversationSummary == null) return;
-
-            // Ensure system prompt is at index 0
-            if (conversationHistory.isEmpty()) return;
-
-            // If index 1 exists and matches summary content, do nothing
-            if (conversationHistory.size() > 1) {
-                try {
-                    JSONObject possible = conversationHistory.get(1);
-                    String role = possible.optString("role", "");
-                    String content = possible.optString("content", "");
-                    if ("system".equals(role) && content.equals(conversationSummary.optString("content", ""))) {
-                        return; // already inserted
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-
-            // Insert summary at index 1
-            conversationHistory.add(1, conversationSummary);
-        }
-    }
-
-    /**
-     * Count the number of user messages in conversation history (excluding system/summary).
-     */
-    private int countUserMessages() {
-        int userCount = 0;
-        synchronized (historyLock) {
-            for (int i = 0; i < conversationHistory.size(); i++) {
-                try {
-                    String role = conversationHistory.get(i).getString("role");
-                    if ("user".equals(role)) userCount++;
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        }
-        return userCount;
-    }
-
-    /**
-     * Build a list of oldest messages that should be summarized because user pairs exceed MAX_USER_MESSAGE_PAIRS.
-     * We return a copy list of JSONObjects to avoid concurrent modification.
-     */
-    private List<JSONObject> collectOldMessagesToSummarize() {
-        List<JSONObject> toSummarize = new ArrayList<>();
-        synchronized (historyLock) {
-            // Skip index 0 (system prompt). If summary is at index 1, keep it out (we send it separately).
-            // Count user messages from the end backwards to find the boundary to keep last MAX_USER_MESSAGE_PAIRS pairs.
-            int totalUser = 0;
-            for (int i = conversationHistory.size() - 1; i >= 0; i--) {
-                try {
-                    String role = conversationHistory.get(i).getString("role");
-                    if ("user".equals(role)) {
-                        totalUser++;
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-            // If totalUser <= MAX_USER_MESSAGE_PAIRS then nothing to summarize
-            if (totalUser <= MAX_USER_MESSAGE_PAIRS) {
-                return toSummarize;
-            }
-
-            // We will keep the last MAX_USER_MESSAGE_PAIRS user messages + their following assistant messages.
-            // Find the index (from start) where the kept messages begin.
-            int userSeen = 0;
-            int keepStartIndex = conversationHistory.size(); // default to end
-            for (int i = conversationHistory.size() - 1; i >= 0; i--) {
-                try {
-                    String role = conversationHistory.get(i).getString("role");
-                    if ("user".equals(role)) {
-                        userSeen++;
-                        if (userSeen == MAX_USER_MESSAGE_PAIRS) {
-                            // We want to keep from this user message (and everything after it)
-                            keepStartIndex = i;
-                            break;
-                        }
-                    }
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-
-            // Collect everything from index 1 (or 2 if index 1 is summary) up to keepStartIndex (exclusive)
-            int startCollect = 1;
-            if (conversationSummary != null && conversationHistory.size() > 1) {
-                // If the summary exists, it should be at index 1. We don't collect the summary here.
-                startCollect = 2;
-            }
-            for (int i = startCollect; i < keepStartIndex; i++) {
-                try {
-                    // shallow copy: new JSONObject(original.toString()) to decouple
-                    JSONObject copy = new JSONObject(conversationHistory.get(i).toString());
-                    toSummarize.add(copy);
-                } catch (Exception e) {
-                    e.printStackTrace();
-                }
-            }
-        }
-        return toSummarize;
-    }
-
-    /**
-     * After obtaining a new summary string, prune the conversationHistory:
-     * - keep system prompt at index 0
-     * - insert summary at index 1 (if not null)
-     * - keep last MAX_USER_MESSAGE_PAIRS user messages (and their assistant messages)
-     */
-    private void pruneHistoryAfterSummary(String summaryText) {
-        synchronized (historyLock) {
-            List<JSONObject> newHistory = new ArrayList<>();
-            try {
-                // system prompt (original at index 0)
-                if (!conversationHistory.isEmpty()) {
-                    newHistory.add(conversationHistory.get(0));
-                } else {
-                    // fallback: default system
-                    JSONObject systemMessage = new JSONObject();
-                    systemMessage.put("role", "system");
-                    systemMessage.put("content", "あなたはユーザの若い女性秘書です");
-                    newHistory.add(systemMessage);
-                }
-
-                // add new summary as system message if provided
-                if (summaryText != null && !summaryText.isEmpty()) {
-                    JSONObject summaryMsg = new JSONObject();
-                    summaryMsg.put("role", "system");
-                    summaryMsg.put("content", summaryText);
-                    newHistory.add(summaryMsg);
-                    // update local conversationSummary reference
-                    conversationSummary = summaryMsg;
-                } else {
-                    // if no summaryText provided, keep existing conversationSummary if present
-                    if (conversationSummary != null) {
-                        newHistory.add(conversationSummary);
-                    }
-                }
-
-                // Now collect the last MAX_USER_MESSAGE_PAIRS user messages and their assistant replies from existing history
-                List<JSONObject> tail = new ArrayList<>();
-                int userSeen = 0;
-                // iterate from end to start and collect until we have MAX_USER_MESSAGE_PAIRS user messages
-                for (int i = conversationHistory.size() - 1; i >= 0; i--) {
-                    try {
-                        JSONObject msg = conversationHistory.get(i);
-                        String role = msg.optString("role", "");
-                        // skip the summary that might have been in the old history to avoid duplication
-                        if ("system".equals(role) && conversationSummary != null
-                                && msg.optString("content", "").equals(conversationSummary.optString("content", ""))) {
-                            continue;
-                        }
-                        tail.add(0, new JSONObject(msg.toString())); // prepend to maintain order
-                        if ("user".equals(role)) {
-                            userSeen++;
-                            if (userSeen >= MAX_USER_MESSAGE_PAIRS) {
-                                // we have enough user messages; but keep assistant after last user too (already included)
-                                // stop collecting earlier messages
-                                break;
-                            }
-                        }
-                    } catch (Exception e) {
-                        e.printStackTrace();
-                    }
-                }
-
-                // append tail to newHistory
-                newHistory.addAll(tail);
-
-                // replace conversationHistory
-                conversationHistory = newHistory;
-            } catch (Exception e) {
-                e.printStackTrace();
-            }
-        }
-    }
-
-    /**
-     * Update the enabled state of the send button based on current flags.
-     */
-    private void updateSendButtonState() {
-        runOnUiThread(new Runnable() {
-            @Override
-            public void run() {
-                boolean enabled = !isStreamingInProgress && !isSummarizationInProgress;
-                btnSend.setEnabled(enabled);
-            }
-        });
-    }
-
-    private void sendChatToOllama(String userMessage) {
+    private void saveSettings() {
         try {
-            // Build request body from conversationHistory snapshot
+            JSONObject s = new JSONObject();
+            s.put("ollamaBaseUrl", ollamaBaseUrl);
+            s.put("selectedModel", selectedModel);
+            s.put("streamingEnabled", streamingEnabled);
+            s.put("ttsEnabled", ttsEnabled);
+            s.put("speechLang", speechLang);
+            s.put("speechRate", speechRate);
+            s.put("speechPitch", speechPitch);
+            s.put("systemPrompt", systemPromptText);
+
+            FileOutputStream fos = openFileOutput(SETTINGS_FILE, MODE_PRIVATE);
+            fos.write(s.toString(2).getBytes(StandardCharsets.UTF_8));
+            fos.close();
+        } catch (Exception e) {
+            Log.e(TAG, "saveSettings error", e);
+        }
+    }
+
+    private void readSettingsFromUi() {
+        ollamaBaseUrl = etOllamaUrl.getText().toString().trim();
+        if (ollamaBaseUrl.isEmpty()) ollamaBaseUrl = "http://localhost:11434";
+        streamingEnabled = switchStreaming.isChecked();
+        ttsEnabled = switchTts.isChecked();
+        speechLang = etSpeechLang.getText().toString().trim();
+        if (speechLang.isEmpty()) speechLang = "ja-JP";
+        try {
+            speechRate = Float.parseFloat(etSpeechRate.getText().toString());
+        } catch (Exception e) {
+            speechRate = 1.0f;
+        }
+        try {
+            speechPitch = Float.parseFloat(etSpeechPitch.getText().toString());
+        } catch (Exception e) {
+            speechPitch = 1.0f;
+        }
+        systemPromptText = etSystemPrompt.getText().toString().trim();
+        if (spinnerModel.getSelectedItem() != null) {
+            selectedModel = spinnerModel.getSelectedItem().toString();
+        }
+    }
+
+    private void applySettingsToUi() {
+        etOllamaUrl.setText(ollamaBaseUrl);
+        switchStreaming.setChecked(streamingEnabled);
+        switchTts.setChecked(ttsEnabled);
+        etSpeechLang.setText(speechLang);
+        etSpeechRate.setText(String.valueOf(speechRate));
+        etSpeechPitch.setText(String.valueOf(speechPitch));
+        etSystemPrompt.setText(systemPromptText);
+
+        int idx = modelList.indexOf(selectedModel);
+        if (idx >= 0) spinnerModel.setSelection(idx);
+    }
+
+    // ========== TTS ==========
+
+    private void initTts() {
+        tts = new TextToSpeech(this, this);
+    }
+
+    @Override
+    public void onInit(int status) {
+        if (status == TextToSpeech.SUCCESS) {
+            ttsReady = true;
+            applyTtsSettings();
+            tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
+                @Override public void onStart(String utteranceId) {}
+                @Override public void onDone(String utteranceId) {
+                    pendingUtterances.decrementAndGet();
+                }
+                @Override public void onError(String utteranceId) {
+                    pendingUtterances.decrementAndGet();
+                }
+            });
+        } else {
+            Log.w(TAG, "TTS init failed");
+        }
+    }
+
+    private void applyTtsSettings() {
+        if (!ttsReady) return;
+        try {
+            String[] parts = speechLang.split("-");
+            Locale locale = parts.length >= 2 ? new Locale(parts[0], parts[1]) : new Locale(parts[0]);
+            tts.setLanguage(locale);
+        } catch (Exception e) {
+            tts.setLanguage(Locale.JAPAN);
+        }
+        tts.setSpeechRate(speechRate);
+        tts.setPitch(speechPitch);
+    }
+
+    private void speakSentence(String text) {
+        if (!ttsEnabled || !ttsReady) return;
+        // テキスト正規化（ollama-chat の speak() と同等）
+        String clean = text
+                .replaceAll("[\\n\\r\\t]", "、")
+                .replaceAll("[!@#$%^&*()_+={}\\[\\]|\\\\:;<>.?/]", "、")
+                .replaceAll("[,\u201c\u201d]", " ")
+                .replaceAll("、+", "、")
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (clean.isEmpty()) return;
+
+        applyTtsSettings();
+        pendingUtterances.incrementAndGet();
+        tts.speak(clean, TextToSpeech.QUEUE_ADD, null, "utt_" + System.currentTimeMillis());
+    }
+
+    /** ストリーミング中のチャンク処理: 文末で区切って逐次読み上げ */
+    private void processChunkForTts(String chunk) {
+        sentenceBuffer.append(chunk);
+        String text = sentenceBuffer.toString();
+
+        // 最後の文末文字を探す
+        int lastBoundary = -1;
+        for (int i = 0; i < text.length(); i++) {
+            char c = text.charAt(i);
+            if ("。！？.!?\n".indexOf(c) >= 0) {
+                lastBoundary = i;
+            }
+        }
+
+        if (lastBoundary >= 0) {
+            String completePart = text.substring(0, lastBoundary + 1);
+            sentenceBuffer.setLength(0);
+            sentenceBuffer.append(text.substring(lastBoundary + 1));
+
+            for (String sentence : completePart.split("(?<=[。！？.!?\\n])")) {
+                String trimmed = sentence.trim();
+                if (!trimmed.isEmpty()) {
+                    speakSentence(trimmed);
+                }
+            }
+        }
+    }
+
+    /** バッファに残ったテキストを読み上げ */
+    private void flushSentenceBuffer() {
+        String remaining = sentenceBuffer.toString().trim();
+        sentenceBuffer.setLength(0);
+        if (!remaining.isEmpty()) {
+            speakSentence(remaining);
+        }
+    }
+
+    private void stopTts() {
+        if (tts != null) tts.stop();
+        sentenceBuffer.setLength(0);
+        pendingUtterances.set(0);
+    }
+
+    // ========== 会話履歴 ==========
+
+    private void initConversationHistory() {
+        synchronized (historyLock) {
+            conversationHistory.clear();
+            try {
+                JSONObject sys = new JSONObject();
+                sys.put("role", "system");
+                sys.put("content", systemPromptText);
+                conversationHistory.add(sys);
+            } catch (Exception e) {
+                Log.e(TAG, "initHistory error", e);
+            }
+        }
+    }
+
+    private void reinitSystemPrompt() {
+        synchronized (historyLock) {
+            if (!conversationHistory.isEmpty()) {
+                try {
+                    JSONObject sys = conversationHistory.get(0);
+                    if ("system".equals(sys.optString("role"))) {
+                        sys.put("content", systemPromptText);
+                    }
+                } catch (Exception e) {
+                    Log.e(TAG, "reinitSystemPrompt error", e);
+                }
+            }
+        }
+    }
+
+    private void addToHistory(String role, String content) {
+        try {
+            JSONObject msg = new JSONObject();
+            msg.put("role", role);
+            msg.put("content", content);
+            synchronized (historyLock) {
+                conversationHistory.add(msg);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "addToHistory error", e);
+        }
+    }
+
+    // ========== モデル取得 (/api/tags) ==========
+
+    private void fetchModels() {
+        String url = ollamaBaseUrl + "/api/tags";
+        Request request = new Request.Builder().url(url).get().build();
+
+        client.newCall(request).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call call, IOException e) {
+                Log.w(TAG, "fetchModels failed: " + e.getMessage());
+            }
+
+            @Override
+            public void onResponse(Call call, Response response) throws IOException {
+                try {
+                    String body = response.body().string();
+                    JSONObject json = new JSONObject(body);
+                    JSONArray models = json.getJSONArray("models");
+                    List<String> names = new ArrayList<>();
+                    names.add("default");
+                    for (int i = 0; i < models.length(); i++) {
+                        String name = models.getJSONObject(i).getString("name");
+                        if (!names.contains(name)) names.add(name);
+                    }
+                    runOnUiThread(() -> {
+                        modelList.clear();
+                        modelList.addAll(names);
+                        modelAdapter.notifyDataSetChanged();
+                        int idx = modelList.indexOf(selectedModel);
+                        if (idx >= 0) spinnerModel.setSelection(idx);
+                    });
+                } catch (Exception e) {
+                    Log.w(TAG, "fetchModels parse error", e);
+                }
+            }
+        });
+    }
+
+    // ========== チャット送信 ==========
+
+    private void updateSendButton() {
+        runOnUiThread(() -> btnSend.setEnabled(!isProcessing));
+    }
+
+    private void sendChat() {
+        if (spinnerModel.getSelectedItem() != null) {
+            selectedModel = spinnerModel.getSelectedItem().toString();
+        }
+        // 設定パネルが開いていたら最新値を反映
+        readSettingsFromUi();
+
+        isProcessing = true;
+        updateSendButton();
+        stopTts();
+
+        try {
             JSONArray messages = new JSONArray();
             synchronized (historyLock) {
                 for (JSONObject msg : conversationHistory) {
@@ -378,259 +449,181 @@ public class MainActivity extends Activity {
                 }
             }
 
-            JSONObject bodyJson = new JSONObject();
-            bodyJson.put("model", "default");
-            bodyJson.put("messages", messages);
-            bodyJson.put("stream", true);  // Enable streaming
+            JSONObject body = new JSONObject();
+            body.put("model", selectedModel);
+            body.put("messages", messages);
+            body.put("stream", streamingEnabled);
 
-            RequestBody requestBody = RequestBody.create(bodyJson.toString(), JSON);
+            RequestBody requestBody = RequestBody.create(body.toString(), JSON_MEDIA);
             Request request = new Request.Builder()
-                    .url(OLLAMA_CHAT_URL)
+                    .url(ollamaBaseUrl + "/api/chat")
                     .post(requestBody)
                     .build();
 
-            // Set streaming flag and update UI
-            isStreamingInProgress = true;
-            updateSendButtonState();
-
-            client.newCall(request).enqueue(new Callback() {
-                @Override
-                public void onFailure(Call call, IOException e) {
-                    appendConversation("Error: " + e.getMessage() + "\n");
-                    isStreamingInProgress = false;
-                    updateSendButtonState();
-                }
-
-                @Override
-                public void onResponse(Call call, Response response) throws IOException {
-                    if (!response.isSuccessful()) {
-                        appendConversation("HTTP error: " + response.code() + "\n");
-                        isStreamingInProgress = false;
-                        updateSendButtonState();
-                        return;
-                    }
-
-                    // Handle streaming response (NDJSON format)
-                    final StringBuilder fullAssistantResponse = new StringBuilder();
-                    boolean isFirstChunk = true;
-
-                    // Use try-with-resources to ensure proper cleanup
-                    try (InputStream inputStream = response.body().byteStream();
-                         InputStreamReader streamReader = new InputStreamReader(inputStream, StandardCharsets.UTF_8);
-                         BufferedReader reader = new BufferedReader(streamReader)) {
-
-                        String line;
-                        while ((line = reader.readLine()) != null) {
-                            if (line.trim().isEmpty()) {
-                                continue;
-                            }
-
-                            try {
-                                JSONObject jsonLine = new JSONObject(line);
-
-                                // Check if streaming is done
-                                boolean done = jsonLine.optBoolean("done", false);
-
-                                // Extract message content
-                                if (jsonLine.has("message")) {
-                                    JSONObject message = jsonLine.getJSONObject("message");
-                                    String content = message.optString("content", "");
-
-                                    if (!content.isEmpty()) {
-                                        // Append "Assistant: " only for the first chunk
-                                        if (isFirstChunk) {
-                                            appendConversation("Assistant: ");
-                                            isFirstChunk = false;
-                                        }
-
-                                        // Append the incremental content
-                                        fullAssistantResponse.append(content);
-                                        appendConversation(content);
-                                    }
-                                }
-
-                                // If done, exit the loop
-                                if (done) {
-                                    break;
-                                }
-                            } catch (Exception e) {
-                                appendConversation("Parse error on line: " + e.getMessage() + "\n");
-                            }
-                        }
-
-                        // Always add newline at the end
-                        appendConversation("\n");
-
-                        // Save assistant response to history if any content was received
-                        String assistantText = fullAssistantResponse.toString();
-                        if (!assistantText.isEmpty()) {
-                            saveAssistantResponse(assistantText);
-                        }
-                    } catch (Exception e) {
-                        appendConversation("Streaming error: " + e.getMessage() + "\n");
-                        // Even on error, try to save partial response if any
-                        saveAssistantResponse(fullAssistantResponse.toString());
-                    } finally {
-                        // Streaming finished
-                        isStreamingInProgress = false;
-                        updateSendButtonState();
-
-                        // After receiving assistant response, check whether we exceed MAX pairs and if so, summarize the old messages
-                        int userCountAfter = countUserMessages();
-                        if (userCountAfter > MAX_USER_MESSAGE_PAIRS) {
-                            // collect old messages to summarize
-                            List<JSONObject> oldMessages = collectOldMessagesToSummarize();
-                            if (!oldMessages.isEmpty()) {
-                                isSummarizationInProgress = true;
-                                updateSendButtonState();
-                                requestSummarizeOldConversations(oldMessages, conversationSummary != null ? conversationSummary.optString("content", "") : "");
-                            }
-                        }
-                    }
-                }
-            });
-
+            if (streamingEnabled) {
+                sendStreaming(request);
+            } else {
+                sendNonStreaming(request);
+            }
         } catch (Exception e) {
-            appendConversation("Request build error: " + e.getMessage() + "\n");
-            isStreamingInProgress = false;
-            updateSendButtonState();
+            appendConversation("Error: " + e.getMessage() + "\n");
+            isProcessing = false;
+            updateSendButton();
         }
     }
 
-    /**
-     * Send the old messages + existing summary to Ollama to produce a new summary.
-     * The summarization result will be used to replace the old messages in history with the summary.
-     *
-     * This runs asynchronously. While summarization is in progress, the send button stays disabled.
-     */
-    private void requestSummarizeOldConversations(List<JSONObject> oldMessages, String existingSummary) {
-        try {
-            // Build a conversation payload that asks the model to summarize the provided messages.
-            JSONArray messages = new JSONArray();
-
-            // System instruction guiding the summarizer
-            JSONObject sys = new JSONObject();
-            sys.put("role", "system");
-            sys.put("content", "あなたは与えられた会話を日本語で簡潔に要約するアシスタントです。重要な事実とコンテキストを残し、冗長な部分は省いてください。");
-            messages.put(sys);
-
-            // If there is an existing summary, include it so the model can merge/update it
-            if (existingSummary != null && !existingSummary.isEmpty()) {
-                JSONObject prevSummaryMsg = new JSONObject();
-                prevSummaryMsg.put("role", "user");
-                prevSummaryMsg.put("content", "既存の会話要約:\n" + existingSummary);
-                messages.put(prevSummaryMsg);
+    /** ストリーミングモード: チャンクごとに表示＋センテンス単位TTS */
+    private void sendStreaming(Request request) {
+        client.newCall(request).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call call, IOException e) {
+                appendConversation("Error: " + e.getMessage() + "\n");
+                isProcessing = false;
+                updateSendButton();
             }
 
-            // Include the old messages to summarize
-            // We'll present them in a "user" message block to be summarized
-            StringBuilder convoBuilder = new StringBuilder();
-            for (JSONObject msg : oldMessages) {
-                String role = msg.optString("role", "");
-                String content = msg.optString("content", "");
-                convoBuilder.append(role.toUpperCase()).append(": ").append(content).append("\n");
-            }
-            JSONObject convoMsg = new JSONObject();
-            convoMsg.put("role", "user");
-            convoMsg.put("content", "以下の会話を簡潔に要約してください。可能なら箇条書きで重要点をまとめてください:\n" + convoBuilder.toString());
-            messages.put(convoMsg);
-
-            // Ask explicitly for a single concise summary
-            JSONObject finalInstruction = new JSONObject();
-            finalInstruction.put("role", "user");
-            finalInstruction.put("content", "上の会話を1つの要約にまとめ、会話の主要なコンテキストと決定事項を含めてください。");
-            messages.put(finalInstruction);
-
-            JSONObject bodyJson = new JSONObject();
-            bodyJson.put("model", "default");
-            bodyJson.put("messages", messages);
-            bodyJson.put("stream", true); // use streaming to receive incremental summary
-
-            RequestBody requestBody = RequestBody.create(bodyJson.toString(), JSON);
-            Request request = new Request.Builder()
-                    .url(OLLAMA_CHAT_URL)
-                    .post(requestBody)
-                    .build();
-
-            client.newCall(request).enqueue(new Callback() {
-                @Override
-                public void onFailure(Call call, IOException e) {
-                    appendConversation("Summary request failed: " + e.getMessage() + "\n");
-                    // Fallback: if summarization fails, prune history without summary to avoid unbounded growth
-                    pruneHistoryAfterSummary(null);
-                    isSummarizationInProgress = false;
-                    updateSendButtonState();
+            @Override
+            public void onResponse(Call call, Response response) throws IOException {
+                if (!response.isSuccessful()) {
+                    appendConversation("HTTP error: " + response.code() + "\n");
+                    isProcessing = false;
+                    updateSendButton();
+                    return;
                 }
 
-                @Override
-                public void onResponse(Call call, Response response) throws IOException {
-                    if (!response.isSuccessful()) {
-                        appendConversation("Summary HTTP error: " + response.code() + "\n");
-                        pruneHistoryAfterSummary(null);
-                        isSummarizationInProgress = false;
-                        updateSendButtonState();
-                        return;
-                    }
+                StringBuilder fullResponse = new StringBuilder();
+                boolean first = true;
 
-                    final StringBuilder fullSummary = new StringBuilder();
-                    boolean isFirstChunk = true;
+                try (InputStream is = response.body().byteStream();
+                     BufferedReader reader = new BufferedReader(
+                             new InputStreamReader(is, StandardCharsets.UTF_8))) {
 
-                    try (InputStream inputStream = response.body().byteStream();
-                         InputStreamReader streamReader = new InputStreamReader(inputStream, StandardCharsets.UTF_8);
-                         BufferedReader reader = new BufferedReader(streamReader)) {
+                    String line;
+                    while ((line = reader.readLine()) != null) {
+                        if (line.trim().isEmpty()) continue;
+                        try {
+                            JSONObject json = new JSONObject(line);
+                            boolean done = json.optBoolean("done", false);
 
-                        String line;
-                        while ((line = reader.readLine()) != null) {
-                            if (line.trim().isEmpty()) continue;
+                            if (json.has("message")) {
+                                String content = json.getJSONObject("message")
+                                        .optString("content", "");
+                                if (!content.isEmpty()) {
+                                    if (first) {
+                                        appendConversation("Assistant: ");
+                                        first = false;
+                                    }
+                                    fullResponse.append(content);
+                                    appendConversation(content);
 
-                            try {
-                                JSONObject jsonLine = new JSONObject(line);
-                                boolean done = jsonLine.optBoolean("done", false);
-
-                                if (jsonLine.has("message")) {
-                                    JSONObject message = jsonLine.getJSONObject("message");
-                                    String content = message.optString("content", "");
-                                    if (!content.isEmpty()) {
-                                        if (isFirstChunk) {
-                                            appendConversation("System: (updating conversation summary)\n");
-                                            isFirstChunk = false;
-                                        }
-                                        fullSummary.append(content);
-                                        appendConversation(content);
+                                    if (ttsEnabled) {
+                                        processChunkForTts(content);
                                     }
                                 }
+                            }
+                            if (done) break;
+                        } catch (Exception e) {
+                            Log.e(TAG, "Stream parse error", e);
+                        }
+                    }
 
-                                if (done) break;
-                            } catch (Exception e) {
-                                appendConversation("Summary parse error: " + e.getMessage() + "\n");
+                    appendConversation("\n");
+
+                    if (ttsEnabled) {
+                        flushSentenceBuffer();
+                    }
+
+                    String text = fullResponse.toString();
+                    if (!text.isEmpty()) {
+                        addToHistory("assistant", text);
+                    }
+                } catch (Exception e) {
+                    appendConversation("Stream error: " + e.getMessage() + "\n");
+                } finally {
+                    isProcessing = false;
+                    updateSendButton();
+                }
+            }
+        });
+    }
+
+    /** 非ストリーミングモード: 完全なレスポンスを受信後に表示＋TTS */
+    private void sendNonStreaming(Request request) {
+        client.newCall(request).enqueue(new Callback() {
+            @Override
+            public void onFailure(Call call, IOException e) {
+                appendConversation("Error: " + e.getMessage() + "\n");
+                isProcessing = false;
+                updateSendButton();
+            }
+
+            @Override
+            public void onResponse(Call call, Response response) throws IOException {
+                if (!response.isSuccessful()) {
+                    appendConversation("HTTP error: " + response.code() + "\n");
+                    isProcessing = false;
+                    updateSendButton();
+                    return;
+                }
+
+                try {
+                    String body = response.body().string();
+                    JSONObject json = new JSONObject(body);
+                    String content = "";
+                    if (json.has("message")) {
+                        content = json.getJSONObject("message").optString("content", "");
+                    }
+
+                    if (!content.isEmpty()) {
+                        appendConversation("Assistant: " + content + "\n");
+                        addToHistory("assistant", content);
+
+                        if (ttsEnabled) {
+                            // センテンス単位で読み上げ
+                            for (String sentence : content.split("(?<=[。！？.!?\\n])")) {
+                                String trimmed = sentence.trim();
+                                if (!trimmed.isEmpty()) {
+                                    speakSentence(trimmed);
+                                }
                             }
                         }
-
-                        appendConversation("\n");
-
-                        String summaryText = fullSummary.toString().trim();
-
-                        // If we got a summary, prune history and set conversationSummary accordingly
-                        if (!summaryText.isEmpty()) {
-                            pruneHistoryAfterSummary(summaryText);
-                        } else {
-                            // no summary produced => prune without summary to keep history bounded
-                            pruneHistoryAfterSummary(null);
-                        }
-                    } catch (Exception e) {
-                        appendConversation("Summary streaming error: " + e.getMessage() + "\n");
-                        pruneHistoryAfterSummary(null);
-                    } finally {
-                        isSummarizationInProgress = false;
-                        updateSendButtonState();
+                    } else {
+                        appendConversation("Assistant: （応答なし）\n");
                     }
+                } catch (Exception e) {
+                    appendConversation("Parse error: " + e.getMessage() + "\n");
+                } finally {
+                    isProcessing = false;
+                    updateSendButton();
                 }
-            });
-        } catch (Exception e) {
-            appendConversation("Summary request build error: " + e.getMessage() + "\n");
-            pruneHistoryAfterSummary(null);
-            isSummarizationInProgress = false;
-            updateSendButtonState();
+            }
+        });
+    }
+
+    // ========== UI ヘルパー ==========
+
+    private void appendConversation(String text) {
+        runOnUiThread(() -> {
+            tvConversation.append(text);
+            scrollView.post(() -> scrollView.fullScroll(View.FOCUS_DOWN));
+        });
+    }
+
+    // ========== ライフサイクル ==========
+
+    @Override
+    protected void onPause() {
+        super.onPause();
+        readSettingsFromUi();
+        saveSettings();
+    }
+
+    @Override
+    protected void onDestroy() {
+        if (tts != null) {
+            tts.stop();
+            tts.shutdown();
         }
+        super.onDestroy();
     }
 }
