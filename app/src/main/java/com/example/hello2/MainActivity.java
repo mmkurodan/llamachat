@@ -67,6 +67,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final String SETTINGS_FILE = "chat_settings.json";
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
     private static final int REQ_RECORD_AUDIO = 1001;
+    private static final int TTS_WARMUP_MS = 120;
     private static final int AVATAR_TALK_FRAME_MS = 40;
     private static final int AVATAR_BLINK_MIN_MS = 3000;
     private static final int AVATAR_BLINK_MAX_MS = 7000;
@@ -102,8 +103,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     // --- TTS ---
     private TextToSpeech tts;
     private boolean ttsReady = false;
+    private boolean ttsNeedsWarmup = true;
     private final StringBuilder sentenceBuffer = new StringBuilder();
     private final AtomicInteger pendingUtterances = new AtomicInteger(0);
+    private final List<String> pendingTtsQueue = new ArrayList<>();
     private boolean pendingAutoVoiceStart = false;
 
     private enum AvatarMode { IDLE, TALKING }
@@ -482,23 +485,33 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     public void onInit(int status) {
         if (status == TextToSpeech.SUCCESS) {
             ttsReady = true;
+            ttsNeedsWarmup = true;
             applyTtsSettings();
             tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                 @Override public void onStart(String utteranceId) {}
                 @Override public void onDone(String utteranceId) {
-                    pendingUtterances.decrementAndGet();
+                    decrementPendingUtterances();
                     updateAvatarAnimation();
                     checkAutoVoiceAfterTts();
                 }
                 @Override public void onError(String utteranceId) {
-                    pendingUtterances.decrementAndGet();
+                    decrementPendingUtterances();
                     updateAvatarAnimation();
                     checkAutoVoiceAfterTts();
                 }
             });
+            drainPendingTtsQueue();
         } else {
             Log.w(TAG, "TTS init failed");
         }
+    }
+
+    private void decrementPendingUtterances() {
+        int current;
+        do {
+            current = pendingUtterances.get();
+            if (current <= 0) return;
+        } while (!pendingUtterances.compareAndSet(current, current - 1));
     }
 
     private void applyTtsSettings() {
@@ -514,8 +527,40 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         tts.setPitch(speechPitch);
     }
 
+    private void playTtsWarmupIfNeeded() {
+        if (!ttsNeedsWarmup) return;
+        ttsNeedsWarmup = false;
+        if (tts != null) {
+            int result = tts.playSilentUtterance(
+                    TTS_WARMUP_MS,
+                    TextToSpeech.QUEUE_FLUSH,
+                    "warmup_" + System.currentTimeMillis());
+            if (result == TextToSpeech.SUCCESS) {
+                pendingUtterances.incrementAndGet();
+            }
+        }
+    }
+
+    private void drainPendingTtsQueue() {
+        List<String> queued;
+        synchronized (pendingTtsQueue) {
+            if (pendingTtsQueue.isEmpty()) return;
+            queued = new ArrayList<>(pendingTtsQueue);
+            pendingTtsQueue.clear();
+        }
+        for (String sentence : queued) {
+            speakSentence(sentence);
+        }
+    }
+
     private void speakSentence(String text) {
-        if (!ttsEnabled || !ttsReady) return;
+        if (!ttsEnabled) return;
+        if (!ttsReady) {
+            synchronized (pendingTtsQueue) {
+                pendingTtsQueue.add(text);
+            }
+            return;
+        }
         // テキスト正規化（ollama-chat の speak() と同等）
         String clean = text
                 .replaceAll("[\\n\\r\\t]", "、")
@@ -527,6 +572,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (clean.isEmpty()) return;
 
         applyTtsSettings();
+        playTtsWarmupIfNeeded();
         pendingUtterances.incrementAndGet();
         updateAvatarAnimation();
         tts.speak(clean, TextToSpeech.QUEUE_ADD, null, "utt_" + System.currentTimeMillis());
@@ -572,7 +618,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private void stopTts() {
         if (tts != null) tts.stop();
         sentenceBuffer.setLength(0);
+        synchronized (pendingTtsQueue) {
+            pendingTtsQueue.clear();
+        }
         pendingUtterances.set(0);
+        ttsNeedsWarmup = true;
         updateAvatarAnimation();
     }
 
@@ -733,7 +783,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     startVoiceRecognition(false);
                     return;
                 }
-                Toast.makeText(MainActivity.this, "音声認識に失敗しました", Toast.LENGTH_SHORT).show();
+                if (error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+                        && error != SpeechRecognizer.ERROR_NO_MATCH) {
+                    Toast.makeText(MainActivity.this, "音声認識に失敗しました", Toast.LENGTH_SHORT).show();
+                }
                 handleVoiceRecognitionFinished();
             }
 
@@ -743,7 +796,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                         SpeechRecognizer.RESULTS_RECOGNITION);
                 String best = (matches != null && !matches.isEmpty()) ? matches.get(0).trim() : "";
                 if (best.isEmpty()) {
-                    Toast.makeText(MainActivity.this, "音声認識結果が空でした", Toast.LENGTH_SHORT).show();
                     handleVoiceRecognitionFinished();
                     return;
                 }
