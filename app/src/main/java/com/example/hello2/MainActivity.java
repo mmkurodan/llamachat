@@ -92,7 +92,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private ScrollView scrollView;
     private View settingsPanel;
     private Spinner spinnerModel;
-    private Switch switchStreaming, switchTts, switchVoiceInput, switchAutoChatter, switchAutoVoiceInput, switchWebSearch;
+    private Switch switchStreaming, switchTts, switchVoiceInput, switchAutoChatter, switchAutoVoiceInput, switchWebSearch, switchDebug;
     private EditText etOllamaUrl, etSpeechLang, etSpeechRate, etSpeechPitch, etSystemPrompt;
     private EditText etHistoryLimit, etAutoChatterSeconds;
     private EditText etWebSearchUrl, etWebSearchApiKey;
@@ -108,6 +108,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private boolean autoChatterEnabled = false;
     private boolean autoVoiceInputEnabled = false;
     private boolean webSearchEnabled = false;
+    private boolean debugEnabled = false;
     private String webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
     private String webSearchApiKey = "";
     private String speechLang = "ja-JP";
@@ -254,6 +255,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         etHistoryLimit = findViewById(R.id.etHistoryLimit);
         etAutoChatterSeconds = findViewById(R.id.etAutoChatterSeconds);
         switchWebSearch = findViewById(R.id.switchWebSearch);
+        switchDebug = findViewById(R.id.switchDebug);
         etWebSearchUrl = findViewById(R.id.etWebSearchUrl);
         etWebSearchApiKey = findViewById(R.id.etWebSearchApiKey);
 
@@ -543,6 +545,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             historyLimit = s.optInt("historyLimit", historyLimit);
             autoChatterSeconds = s.optInt("autoChatterSeconds", autoChatterSeconds);
             webSearchEnabled = s.optBoolean("webSearchEnabled", webSearchEnabled);
+            debugEnabled = s.optBoolean("debugEnabled", debugEnabled);
             webSearchUrl = s.optString("webSearchUrl", webSearchUrl);
             webSearchApiKey = s.optString("webSearchApiKey", webSearchApiKey);
             if (historyLimit < 0) historyLimit = 0;
@@ -571,6 +574,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             s.put("historyLimit", historyLimit);
             s.put("autoChatterSeconds", autoChatterSeconds);
             s.put("webSearchEnabled", webSearchEnabled);
+            s.put("debugEnabled", debugEnabled);
             s.put("webSearchUrl", webSearchUrl);
             s.put("webSearchApiKey", webSearchApiKey);
 
@@ -616,6 +620,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
         if (autoChatterSeconds < 0) autoChatterSeconds = 0;
         webSearchEnabled = switchWebSearch.isChecked();
+        debugEnabled = switchDebug.isChecked();
         webSearchUrl = etWebSearchUrl.getText().toString().trim();
         if (webSearchUrl.isEmpty()) webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
         webSearchApiKey = etWebSearchApiKey.getText().toString().trim();
@@ -644,6 +649,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         etHistoryLimit.setText(String.valueOf(historyLimit));
         etAutoChatterSeconds.setText(String.valueOf(autoChatterSeconds));
         switchWebSearch.setChecked(webSearchEnabled);
+        switchDebug.setChecked(debugEnabled);
         etWebSearchUrl.setText(webSearchUrl);
         etWebSearchApiKey.setText(webSearchApiKey);
 
@@ -986,13 +992,19 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     .url(ollamaBaseUrl + "/api/generate")
                     .post(requestBody)
                     .build();
+            if (debugEnabled) {
+                appendDebug("/api/generate 送信", buildRequestDebugText(request, body.toString()));
+            }
 
             Response response = client.newCall(request).execute();
+            String respBody = response.body() != null ? response.body().string() : "";
+            if (debugEnabled) {
+                appendDebug("/api/generate 返信", buildResponseDebugText(response, respBody));
+            }
             if (!response.isSuccessful()) {
                 Log.w(TAG, "extractSearchKeywords HTTP error: " + response.code());
                 return null;
             }
-            String respBody = response.body().string();
             JSONObject json = new JSONObject(respBody);
             String result = json.optString("response", "").trim();
 
@@ -1027,12 +1039,18 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             }
 
             Request request = reqBuilder.build();
+            if (debugEnabled) {
+                appendDebug("Web API 送信", buildRequestDebugText(request, null));
+            }
             Response response = client.newCall(request).execute();
+            String respBody = response.body() != null ? response.body().string() : "";
+            if (debugEnabled) {
+                appendDebug("Web API 返信", buildResponseDebugText(response, respBody));
+            }
             if (!response.isSuccessful()) {
                 Log.w(TAG, "callWebSearchApi HTTP error: " + response.code());
                 return null;
             }
-            String respBody = response.body().string();
             JSONObject json = new JSONObject(respBody);
 
             // Brave Search API format
@@ -1197,11 +1215,15 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             body.put("messages", messages);
             body.put("stream", streamingEnabled);
 
-            RequestBody requestBody = RequestBody.create(body.toString(), JSON_MEDIA);
+            String requestJson = body.toString();
+            RequestBody requestBody = RequestBody.create(requestJson, JSON_MEDIA);
             Request request = new Request.Builder()
                     .url(ollamaBaseUrl + "/api/chat")
                     .post(requestBody)
                     .build();
+            if (debugEnabled) {
+                appendDebug("/api/chat 送信", buildRequestDebugText(request, requestJson));
+            }
 
             if (streamingEnabled) {
                 sendStreaming(request);
@@ -1221,6 +1243,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             @Override
             public void onFailure(Call call, IOException e) {
                 appendConversation("Error: " + e.getMessage() + "\n");
+                appendDebug("/api/chat 返信（失敗）", e.toString());
                 setStreamingResponse(false);
                 isProcessing = false;
                 updateSendButton();
@@ -1229,6 +1252,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             @Override
             public void onResponse(Call call, Response response) throws IOException {
                 if (!response.isSuccessful()) {
+                    String errorBody = response.body() != null ? response.body().string() : "";
+                    if (debugEnabled) {
+                        appendDebug("/api/chat 返信", buildResponseDebugText(response, errorBody));
+                    }
                     appendConversation("HTTP error: " + response.code() + "\n");
                     setStreamingResponse(false);
                     isProcessing = false;
@@ -1240,6 +1267,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 boolean first = true;
                 boolean streamingStarted = false;
                 boolean completed = false;
+                StringBuilder debugRaw = debugEnabled ? new StringBuilder() : null;
 
                 try (InputStream is = response.body().byteStream();
                      BufferedReader reader = new BufferedReader(
@@ -1248,6 +1276,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     String line;
                     while ((line = reader.readLine()) != null) {
                         if (line.trim().isEmpty()) continue;
+                        if (debugRaw != null) {
+                            debugRaw.append(line).append("\n");
+                        }
                         try {
                             JSONObject json = new JSONObject(line);
                             boolean done = json.optBoolean("done", false);
@@ -1278,6 +1309,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                         }
                     }
 
+                    if (debugRaw != null) {
+                        appendDebug("/api/chat 返信", buildResponseDebugText(response, debugRaw.toString()));
+                    }
                     appendConversation("\n");
 
                     if (ttsEnabled) {
@@ -1309,12 +1343,17 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             @Override
             public void onFailure(Call call, IOException e) {
                 appendConversation("Error: " + e.getMessage() + "\n");
+                appendDebug("/api/chat 返信（失敗）", e.toString());
                 isProcessing = false;
                 updateSendButton();
             }
 
             @Override
             public void onResponse(Call call, Response response) throws IOException {
+                String body = response.body() != null ? response.body().string() : "";
+                if (debugEnabled) {
+                    appendDebug("/api/chat 返信", buildResponseDebugText(response, body));
+                }
                 if (!response.isSuccessful()) {
                     appendConversation("HTTP error: " + response.code() + "\n");
                     isProcessing = false;
@@ -1324,7 +1363,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
                 boolean completed = false;
                 try {
-                    String body = response.body().string();
                     JSONObject json = new JSONObject(body);
                     String content = "";
                     if (json.has("message")) {
@@ -1362,6 +1400,49 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     // ========== UI ヘルパー ==========
+
+    private void appendDebug(String title, String detail) {
+        if (!debugEnabled) return;
+        StringBuilder sb = new StringBuilder();
+        sb.append("【DEBUG】").append(title).append("\n");
+        if (detail != null && !detail.isEmpty()) {
+            sb.append(detail);
+            if (!detail.endsWith("\n")) sb.append("\n");
+        }
+        sb.append("\n");
+        appendConversation(sb.toString());
+    }
+
+    private String buildRequestDebugText(Request request, String body) {
+        StringBuilder sb = new StringBuilder();
+        sb.append(request.method()).append(" ").append(request.url()).append("\n");
+        String headers = request.headers().toString();
+        sb.append("Headers:\n").append(headers.isEmpty() ? "(none)\n" : headers);
+        if (body != null) {
+            sb.append("Body:\n").append(body).append("\n");
+        } else {
+            sb.append("Body: (none)\n");
+        }
+        return sb.toString();
+    }
+
+    private String buildResponseDebugText(Response response, String body) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("HTTP ").append(response.code());
+        String message = response.message();
+        if (message != null && !message.isEmpty()) {
+            sb.append(" ").append(message);
+        }
+        sb.append("\n");
+        String headers = response.headers().toString();
+        sb.append("Headers:\n").append(headers.isEmpty() ? "(none)\n" : headers);
+        if (body != null) {
+            sb.append("Body:\n").append(body).append("\n");
+        } else {
+            sb.append("Body: (none)\n");
+        }
+        return sb.toString();
+    }
 
     private void appendConversation(String text) {
         runOnUiThread(() -> {
