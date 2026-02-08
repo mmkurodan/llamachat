@@ -69,6 +69,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private static final String TAG = "OllamaChat";
     private static final String SETTINGS_FILE = "chat_settings.json";
+    private static final String SEARCH_SYSTEM_PROMPT =
+            "You are a search-augmented assistant. When the user provides SEARCH_RESULTS, you must read them and base your answer strictly on that information.";
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
     private static final int REQ_RECORD_AUDIO = 1001;
     private static final int REQ_PICK_C0 = 2000;
@@ -948,7 +950,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                             if (conversationHistory.size() > 0) {
                                 JSONObject lastMsg = conversationHistory.get(conversationHistory.size() - 1);
                                 if ("user".equals(lastMsg.optString("role"))) {
-                                    lastMsg.put("content", userMsg + "\n（検索結果: " + searchResults + "）");
+                                    lastMsg.put("content", buildSearchAugmentedUserMessage(userMsg, searchResults));
                                 }
                             }
                         }
@@ -1022,7 +1024,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
     }
 
-    /** Web検索APIを呼び出して結果のタイトル＋説明文を取得 */
+    /** Web検索APIを呼び出して結果を構造化して取得 */
     private String callWebSearchApi(String keywords) {
         try {
             String url = webSearchUrl + "?q=" + java.net.URLEncoder.encode(keywords, "UTF-8") + "&count=5";
@@ -1059,24 +1061,36 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             JSONArray results = webObj.optJSONArray("results");
             if (results == null || results.length() == 0) return null;
 
-            StringBuilder sb = new StringBuilder();
+            JSONArray formatted = new JSONArray();
             for (int i = 0; i < results.length(); i++) {
                 JSONObject item = results.getJSONObject(i);
                 String title = item.optString("title", "");
+                String url = item.optString("url", "");
                 String description = item.optString("description", "");
-                if (!title.isEmpty()) {
-                    sb.append(title);
-                    if (!description.isEmpty()) sb.append(" - ").append(description);
-                    sb.append("; ");
-                }
+                if (title.isEmpty() && url.isEmpty() && description.isEmpty()) continue;
+                JSONObject entry = new JSONObject();
+                entry.put("id", formatted.length() + 1);
+                if (!title.isEmpty()) entry.put("title", title);
+                if (!url.isEmpty()) entry.put("url", url);
+                if (!description.isEmpty()) entry.put("snippet", description);
+                formatted.put(entry);
             }
-            String result = sb.toString().trim();
+            if (formatted.length() == 0) return null;
+            String result = "SEARCH_RESULTS:\n" + formatted.toString(2);
             Log.d(TAG, "Web search results: " + result);
             return result;
         } catch (Exception e) {
             Log.e(TAG, "callWebSearchApi error", e);
             return null;
         }
+    }
+
+    private String buildSearchAugmentedUserMessage(String userMsg, String searchResultsBlock) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("以下はWeb検索結果です。SEARCH_RESULTSとして扱ってください。\n");
+        sb.append(searchResultsBlock);
+        sb.append("\n\n質問: ").append(userMsg);
+        return sb.toString();
     }
 
     private Intent buildRecognizerIntent(boolean preferOffline) {
@@ -1194,7 +1208,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 if (!conversationHistory.isEmpty()) {
                     JSONObject first = conversationHistory.get(0);
                     if ("system".equals(first.optString("role"))) {
-                        messages.put(first);
+                        String systemContent = first.optString("content", "");
+                        if (webSearchEnabled && !systemContent.contains(SEARCH_SYSTEM_PROMPT)) {
+                            systemContent = systemContent + "\n" + SEARCH_SYSTEM_PROMPT;
+                        }
+                        JSONObject sys = new JSONObject();
+                        sys.put("role", "system");
+                        sys.put("content", systemContent);
+                        messages.put(sys);
                     }
                 }
                 int size = conversationHistory.size();
