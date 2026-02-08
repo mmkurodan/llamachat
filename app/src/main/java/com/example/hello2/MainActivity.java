@@ -939,21 +939,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         isProcessing = true;
         updateSendButton();
 
+        final String[] augmentedMessageHolder = new String[1];
         new Thread(() -> {
             try {
                 String keywords = extractSearchKeywords(userMsg);
                 if (keywords != null) {
                     String searchResults = callWebSearchApi(keywords);
                     if (searchResults != null && !searchResults.isEmpty()) {
-                        // 最後に追加したuserメッセージを検索結果付きに差し替え
-                        synchronized (historyLock) {
-                            if (conversationHistory.size() > 0) {
-                                JSONObject lastMsg = conversationHistory.get(conversationHistory.size() - 1);
-                                if ("user".equals(lastMsg.optString("role"))) {
-                                    lastMsg.put("content", buildSearchAugmentedUserMessage(userMsg, searchResults));
-                                }
-                            }
-                        }
+                        augmentedMessageHolder[0] = buildSearchAugmentedUserMessage(userMsg, searchResults);
                     }
                 }
             } catch (Exception e) {
@@ -961,7 +954,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             } finally {
                 isProcessing = false;
                 updateSendButton();
-                runOnUiThread(() -> sendChat(null));
+                String augmentedMessage = augmentedMessageHolder[0];
+                runOnUiThread(() -> {
+                    if (augmentedMessage != null) {
+                        sendChat(augmentedMessage, true);
+                    } else {
+                        sendChat(null);
+                    }
+                });
             }
         }).start();
     }
@@ -1189,6 +1189,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     private void sendChat(String transientUserMessage) {
+        sendChat(transientUserMessage, false);
+    }
+
+    private void sendChat(String transientUserMessage, boolean replaceLastUserMessage) {
         if (spinnerModel.getSelectedItem() != null) {
             selectedModel = spinnerModel.getSelectedItem().toString();
         }
@@ -1204,6 +1208,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
         try {
             JSONArray messages = new JSONArray();
+            boolean shouldReplaceLastUser = replaceLastUserMessage && transientUserMessage != null;
             synchronized (historyLock) {
                 if (!conversationHistory.isEmpty()) {
                     JSONObject first = conversationHistory.get(0);
@@ -1221,10 +1226,17 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 int size = conversationHistory.size();
                 int start = Math.max(1, size - Math.max(0, historyLimit));
                 for (int i = start; i < size; i++) {
-                    messages.put(conversationHistory.get(i));
+                    JSONObject msg = conversationHistory.get(i);
+                    if (shouldReplaceLastUser && i == size - 1 && "user".equals(msg.optString("role"))) {
+                        JSONObject replaced = new JSONObject(msg.toString());
+                        replaced.put("content", transientUserMessage);
+                        messages.put(replaced);
+                    } else {
+                        messages.put(msg);
+                    }
                 }
             }
-            if (transientUserMessage != null) {
+            if (transientUserMessage != null && !shouldReplaceLastUser) {
                 JSONObject extra = new JSONObject();
                 extra.put("role", "user");
                 extra.put("content", transientUserMessage);
