@@ -116,6 +116,22 @@
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:text="自動おしゃべりモード" android:layout_marginTop="4dp"/>
 
+                    <Switch android:id="@+id/switchWebSearch"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="Web検索" android:layout_marginTop="4dp"/>
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Web検索API URL" android:layout_marginTop="4dp"/>
+                    <EditText android:id="@+id/etWebSearchUrl"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="textUri" android:singleLine="true"/>
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Web検索APIキー" android:layout_marginTop="4dp"/>
+                    <EditText android:id="@+id/etWebSearchApiKey"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="textPassword" android:singleLine="true"/>
+
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="おしゃべり間隔（秒）" android:layout_marginTop="4dp"/>
                     <EditText android:id="@+id/etAutoChatterSeconds"

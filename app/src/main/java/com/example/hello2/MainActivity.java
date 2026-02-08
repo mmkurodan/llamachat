@@ -92,9 +92,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private ScrollView scrollView;
     private View settingsPanel;
     private Spinner spinnerModel;
-    private Switch switchStreaming, switchTts, switchVoiceInput, switchAutoChatter, switchAutoVoiceInput;
+    private Switch switchStreaming, switchTts, switchVoiceInput, switchAutoChatter, switchAutoVoiceInput, switchWebSearch;
     private EditText etOllamaUrl, etSpeechLang, etSpeechRate, etSpeechPitch, etSystemPrompt;
     private EditText etHistoryLimit, etAutoChatterSeconds;
+    private EditText etWebSearchUrl, etWebSearchApiKey;
     private ImageView ivAvatarBackground;
     private ImageView ivAvatar;
 
@@ -106,6 +107,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private boolean voiceInputEnabled = true;
     private boolean autoChatterEnabled = false;
     private boolean autoVoiceInputEnabled = false;
+    private boolean webSearchEnabled = false;
+    private String webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
+    private String webSearchApiKey = "";
     private String speechLang = "ja-JP";
     private float speechRate = 1.0f;
     private float speechPitch = 1.0f;
@@ -249,6 +253,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         etSystemPrompt = findViewById(R.id.etSystemPrompt);
         etHistoryLimit = findViewById(R.id.etHistoryLimit);
         etAutoChatterSeconds = findViewById(R.id.etAutoChatterSeconds);
+        switchWebSearch = findViewById(R.id.switchWebSearch);
+        etWebSearchUrl = findViewById(R.id.etWebSearchUrl);
+        etWebSearchApiKey = findViewById(R.id.etWebSearchApiKey);
 
         modelList.add("default");
         modelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
@@ -535,6 +542,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             systemPromptText = s.optString("systemPrompt", systemPromptText);
             historyLimit = s.optInt("historyLimit", historyLimit);
             autoChatterSeconds = s.optInt("autoChatterSeconds", autoChatterSeconds);
+            webSearchEnabled = s.optBoolean("webSearchEnabled", webSearchEnabled);
+            webSearchUrl = s.optString("webSearchUrl", webSearchUrl);
+            webSearchApiKey = s.optString("webSearchApiKey", webSearchApiKey);
             if (historyLimit < 0) historyLimit = 0;
             if (autoChatterSeconds < 0) autoChatterSeconds = 0;
         } catch (FileNotFoundException e) {
@@ -560,6 +570,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             s.put("systemPrompt", systemPromptText);
             s.put("historyLimit", historyLimit);
             s.put("autoChatterSeconds", autoChatterSeconds);
+            s.put("webSearchEnabled", webSearchEnabled);
+            s.put("webSearchUrl", webSearchUrl);
+            s.put("webSearchApiKey", webSearchApiKey);
 
             FileOutputStream fos = openFileOutput(SETTINGS_FILE, MODE_PRIVATE);
             fos.write(s.toString(2).getBytes(StandardCharsets.UTF_8));
@@ -602,6 +615,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             autoChatterSeconds = 30;
         }
         if (autoChatterSeconds < 0) autoChatterSeconds = 0;
+        webSearchEnabled = switchWebSearch.isChecked();
+        webSearchUrl = etWebSearchUrl.getText().toString().trim();
+        if (webSearchUrl.isEmpty()) webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
+        webSearchApiKey = etWebSearchApiKey.getText().toString().trim();
         if (!autoChatterEnabled) {
             cancelAutoChatter();
         }
@@ -626,6 +643,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         etSystemPrompt.setText(systemPromptText);
         etHistoryLimit.setText(String.valueOf(historyLimit));
         etAutoChatterSeconds.setText(String.valueOf(autoChatterSeconds));
+        switchWebSearch.setChecked(webSearchEnabled);
+        etWebSearchUrl.setText(webSearchUrl);
+        etWebSearchApiKey.setText(webSearchApiKey);
 
         int idx = modelList.indexOf(selectedModel);
         if (idx >= 0) spinnerModel.setSelection(idx);
@@ -893,7 +913,152 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         etInput.setText("");
         appendConversation("You: " + userMsg + "\n");
         addToHistory("user", userMsg);
-        sendChat(null);
+
+        if (webSearchEnabled && !webSearchApiKey.isEmpty()) {
+            performWebSearchFlow(userMsg);
+        } else {
+            sendChat(null);
+        }
+    }
+
+    /**
+     * Web検索フロー:
+     * 1. api/generate でユーザメッセージから検索キーワードを抽出
+     * 2. SEARCH: が返れば Web検索APIを呼び出す
+     * 3. 検索結果をユーザメッセージに付与して api/chat に渡す
+     */
+    private void performWebSearchFlow(String userMsg) {
+        isProcessing = true;
+        updateSendButton();
+
+        new Thread(() -> {
+            try {
+                String keywords = extractSearchKeywords(userMsg);
+                if (keywords != null) {
+                    String searchResults = callWebSearchApi(keywords);
+                    if (searchResults != null && !searchResults.isEmpty()) {
+                        // 最後に追加したuserメッセージを検索結果付きに差し替え
+                        synchronized (historyLock) {
+                            if (conversationHistory.size() > 0) {
+                                JSONObject lastMsg = conversationHistory.get(conversationHistory.size() - 1);
+                                if ("user".equals(lastMsg.optString("role"))) {
+                                    lastMsg.put("content", userMsg + "\n（検索結果: " + searchResults + "）");
+                                }
+                            }
+                        }
+                    }
+                }
+            } catch (Exception e) {
+                Log.e(TAG, "Web search flow error", e);
+            } finally {
+                isProcessing = false;
+                updateSendButton();
+                runOnUiThread(() -> sendChat(null));
+            }
+        }).start();
+    }
+
+    /** api/generate を使って検索キーワードを抽出。NONE なら null を返す */
+    private String extractSearchKeywords(String userMsg) {
+        try {
+            if (spinnerModel.getSelectedItem() != null) {
+                selectedModel = spinnerModel.getSelectedItem().toString();
+            }
+            String prompt = "あなたの役割は「ユーザーの質問がインターネット検索を必要とするか判定し、必要なら検索キーワードを抽出する」ことです。\n\n"
+                    + "出力は必ず次のどちらか一つだけにしてください：\n\n"
+                    + "1. 検索が必要な場合：\nSEARCH: <検索キーワード>\n\n"
+                    + "2. 検索が不要な場合：\nNONE\n\n"
+                    + "制約：\n"
+                    + "- 説明文や理由を書かない\n"
+                    + "- 箇条書きや追加情報を含めない\n"
+                    + "- キーワードは短く、検索エンジンで使える語句のみ\n"
+                    + "- 複数キーワードが必要な場合はスペース区切りで1行にまとめる\n"
+                    + "- 出力形式を絶対に変えない\n\n"
+                    + "ユーザーの質問：\n「" + userMsg + "」";
+
+            JSONObject body = new JSONObject();
+            body.put("model", selectedModel);
+            body.put("prompt", prompt);
+            body.put("stream", false);
+
+            RequestBody requestBody = RequestBody.create(body.toString(), JSON_MEDIA);
+            Request request = new Request.Builder()
+                    .url(ollamaBaseUrl + "/api/generate")
+                    .post(requestBody)
+                    .build();
+
+            Response response = client.newCall(request).execute();
+            if (!response.isSuccessful()) {
+                Log.w(TAG, "extractSearchKeywords HTTP error: " + response.code());
+                return null;
+            }
+            String respBody = response.body().string();
+            JSONObject json = new JSONObject(respBody);
+            String result = json.optString("response", "").trim();
+
+            if (result.startsWith("SEARCH:")) {
+                String keywords = result.substring("SEARCH:".length()).trim();
+                if (!keywords.isEmpty()) {
+                    Log.d(TAG, "Web search keywords: " + keywords);
+                    return keywords;
+                }
+            }
+            return null;
+        } catch (Exception e) {
+            Log.e(TAG, "extractSearchKeywords error", e);
+            return null;
+        }
+    }
+
+    /** Web検索APIを呼び出して結果のタイトル＋説明文を取得 */
+    private String callWebSearchApi(String keywords) {
+        try {
+            String url = webSearchUrl + "?q=" + java.net.URLEncoder.encode(keywords, "UTF-8") + "&count=5";
+
+            Request.Builder reqBuilder = new Request.Builder()
+                    .url(url)
+                    .get()
+                    .addHeader("Accept", "application/json")
+                    .addHeader("Accept-Language", "ja-JP");
+
+            // Brave Search API uses x-subscription-token header
+            if (!webSearchApiKey.isEmpty()) {
+                reqBuilder.addHeader("X-Subscription-Token", webSearchApiKey);
+            }
+
+            Request request = reqBuilder.build();
+            Response response = client.newCall(request).execute();
+            if (!response.isSuccessful()) {
+                Log.w(TAG, "callWebSearchApi HTTP error: " + response.code());
+                return null;
+            }
+            String respBody = response.body().string();
+            JSONObject json = new JSONObject(respBody);
+
+            // Brave Search API format
+            JSONObject webObj = json.optJSONObject("web");
+            if (webObj == null) return null;
+            JSONArray results = webObj.optJSONArray("results");
+            if (results == null || results.length() == 0) return null;
+
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < results.length(); i++) {
+                JSONObject item = results.getJSONObject(i);
+                String title = item.optString("title", "");
+                String description = item.optString("description", "");
+                if (!title.isEmpty()) {
+                    sb.append(title);
+                    if (!description.isEmpty()) sb.append(" - ").append(description);
+                    sb.append("; ");
+                }
+            }
+            String result = sb.toString().trim();
+            Log.d(TAG, "Web search results: " + result);
+            return result;
+        } catch (Exception e) {
+            Log.e(TAG, "callWebSearchApi error", e);
+            return null;
+        }
     }
 
     private Intent buildRecognizerIntent(boolean preferOffline) {
