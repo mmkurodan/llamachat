@@ -129,6 +129,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private final AtomicInteger pendingUtterances = new AtomicInteger(0);
     private final List<String> pendingTtsQueue = new ArrayList<>();
     private boolean pendingAutoVoiceStart = false;
+    private boolean pendingAutoChatterAfterTts = false;
 
     private enum AvatarMode { IDLE, TALKING }
 
@@ -502,22 +503,31 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private void handleAssistantResponseComplete() {
         runOnUiThread(() -> {
-            if (autoVoiceInputEnabled) {
-                if (ttsEnabled && pendingUtterances.get() > 0) {
-                    pendingAutoVoiceStart = true;
-                } else {
-                    startVoiceRecognition(true);
-                }
+            if (ttsEnabled && pendingUtterances.get() > 0) {
+                // TTS is playing; defer actions until TTS (and optional voice input) finish.
+                pendingAutoVoiceStart = autoVoiceInputEnabled;
+                pendingAutoChatterAfterTts = !autoVoiceInputEnabled && autoChatterEnabled;
             } else {
-                scheduleAutoChatter();
+                if (autoVoiceInputEnabled) {
+                    startVoiceRecognition(true);
+                } else {
+                    scheduleAutoChatter();
+                }
             }
         });
     }
 
     private void checkAutoVoiceAfterTts() {
-        if (pendingAutoVoiceStart && pendingUtterances.get() <= 0) {
-            pendingAutoVoiceStart = false;
-            runOnUiThread(() -> startVoiceRecognition(true));
+        if (pendingUtterances.get() <= 0) {
+            if (pendingAutoVoiceStart) {
+                pendingAutoVoiceStart = false;
+                runOnUiThread(() -> startVoiceRecognition(true));
+            } else if (pendingAutoChatterAfterTts) {
+                pendingAutoChatterAfterTts = false;
+                runOnUiThread(() -> {
+                    if (autoChatterEnabled) scheduleAutoChatter();
+                });
+            }
         }
     }
 
