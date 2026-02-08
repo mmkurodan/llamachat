@@ -1065,13 +1065,13 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             for (int i = 0; i < results.length(); i++) {
                 JSONObject item = results.getJSONObject(i);
                 String title = item.optString("title", "");
-                String url = item.optString("url", "");
+                String itemUrl = item.optString("url", "");
                 String description = item.optString("description", "");
-                if (title.isEmpty() && url.isEmpty() && description.isEmpty()) continue;
+                if (title.isEmpty() && itemUrl.isEmpty() && description.isEmpty()) continue;
                 JSONObject entry = new JSONObject();
                 entry.put("id", formatted.length() + 1);
                 if (!title.isEmpty()) entry.put("title", title);
-                if (!url.isEmpty()) entry.put("url", url);
+                if (!itemUrl.isEmpty()) entry.put("url", itemUrl);
                 if (!description.isEmpty()) entry.put("snippet", description);
                 formatted.put(entry);
             }
