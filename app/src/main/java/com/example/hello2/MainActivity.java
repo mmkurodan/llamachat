@@ -503,16 +503,26 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private void handleAssistantResponseComplete() {
         runOnUiThread(() -> {
-            if (ttsEnabled && pendingUtterances.get() > 0) {
-                // TTS is playing; defer actions until TTS (and optional voice input) finish.
-                pendingAutoVoiceStart = autoVoiceInputEnabled;
-                pendingAutoChatterAfterTts = !autoVoiceInputEnabled && autoChatterEnabled;
-            } else {
-                if (autoVoiceInputEnabled) {
-                    startVoiceRecognition(true);
+            if (autoVoiceInputEnabled) {
+                pendingAutoChatterAfterTts = false;
+                if (ttsEnabled && pendingUtterances.get() > 0) {
+                    // TTS is playing; defer voice input until TTS finishes.
+                    pendingAutoVoiceStart = true;
                 } else {
-                    scheduleAutoChatter();
+                    startVoiceRecognition(true);
                 }
+                return;
+            }
+            pendingAutoVoiceStart = false;
+            if (ttsEnabled) {
+                // Defer auto chatter until TTS finishes (even if no utterances, treat as completed).
+                pendingAutoChatterAfterTts = autoChatterEnabled;
+                if (pendingUtterances.get() <= 0) {
+                    checkAutoVoiceAfterTts();
+                }
+            } else {
+                pendingAutoChatterAfterTts = false;
+                scheduleAutoChatter();
             }
         });
     }
