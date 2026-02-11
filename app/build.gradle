@@ -3,15 +3,23 @@ plugins {
 }
 
 android {
-    namespace "com.example.hello2"
-    compileSdk 34
+    namespace "com.micklab.llamachat"
+    compileSdk 35
+
+    buildFeatures {
+        buildConfig true
+    }
 
     defaultConfig {
-        applicationId "com.example.hello2"
+        applicationId "com.micklab.llamachat"
         minSdk 24
-        targetSdk 34
-        versionCode 1
-        versionName "1.0"
+        targetSdk 35
+
+        // GitHub Actions のビルド番号を versionCode に自動反映
+        versionCode System.getenv("GITHUB_RUN_NUMBER")?.toInteger() ?: 1
+
+        // versionName も同じロジックで自動化
+        versionName "1.${System.getenv("GITHUB_RUN_NUMBER") ?: "0"}"
     }
 
     compileOptions {
@@ -19,9 +27,19 @@ android {
         targetCompatibility JavaVersion.VERSION_1_8
     }
 
+    signingConfigs {
+        release {
+            storeFile file("release.keystore")
+            storePassword System.getenv("KEYSTORE_PASSWORD")
+            keyAlias System.getenv("KEY_ALIAS")
+            keyPassword System.getenv("KEY_PASSWORD")
+        }
+    }
+
     buildTypes {
         release {
             minifyEnabled false
+            signingConfig signingConfigs.release
         }
     }
 }

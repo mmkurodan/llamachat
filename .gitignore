@@ -21,3 +21,5 @@ out/
 
 # Log Files
 *.log
+release.keystore
+release.keystore.base64

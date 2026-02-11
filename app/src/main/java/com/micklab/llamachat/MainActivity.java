@@ -1,4 +1,4 @@
-package com.example.hello2;
+package com.micklab.llamachat;
 
 import android.app.Activity;
 import android.Manifest;
