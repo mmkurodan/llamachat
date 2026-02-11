@@ -1,7 +1,7 @@
 #!/bin/bash
 set -e
 
-git add .
+git add -u
 git commit -m "update"
 git push
 
