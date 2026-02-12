@@ -86,9 +86,26 @@
                         android:inputType="textUri" android:singleLine="true"/>
 
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="モデル" android:layout_marginTop="4dp"/>
-                    <Spinner android:id="@+id/spinnerModel"
-                        android:layout_width="match_parent" android:layout_height="wrap_content"/>
+                        android:text="モード" android:layout_marginTop="4dp"/>
+                    <RadioGroup
+                        android:id="@+id/groupMode"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+                        <RadioButton
+                            android:id="@+id/radioModeNormal"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="通常"
+                            android:checked="true"/>
+                        <RadioButton
+                            android:id="@+id/radioModeChatter"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="おしゃべり"/>
+                    </RadioGroup>
 
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="送信する履歴数" android:layout_marginTop="4dp"/>
@@ -111,10 +128,6 @@
                     <Switch android:id="@+id/switchAutoVoiceInput"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:text="自動音声認識（応答後）" android:layout_marginTop="4dp"/>
-
-                    <Switch android:id="@+id/switchAutoChatter"
-                        android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:text="自動おしゃべりモード" android:layout_marginTop="4dp"/>
 
                     <Switch android:id="@+id/switchWebSearch"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -142,111 +155,324 @@
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:inputType="number" android:singleLine="true"/>
 
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="読み上げ言語" android:layout_marginTop="4dp"/>
-                    <EditText android:id="@+id/etSpeechLang"
-                        android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:inputType="text" android:singleLine="true"/>
-
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="速度" android:layout_marginTop="4dp"/>
-                    <EditText android:id="@+id/etSpeechRate"
-                        android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:inputType="numberDecimal" android:singleLine="true"/>
-
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="ピッチ" android:layout_marginTop="4dp"/>
-                    <EditText android:id="@+id/etSpeechPitch"
-                        android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:inputType="numberDecimal" android:singleLine="true"/>
-
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="システムプロンプト" android:layout_marginTop="4dp"/>
-                    <EditText android:id="@+id/etSystemPrompt"
-                        android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:inputType="textMultiLine" android:minLines="2"/>
-
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="アバター画像" android:textStyle="bold" android:layout_marginTop="8dp"/>
-
-                    <LinearLayout
+                    <RadioGroup
+                        android:id="@+id/tabGroup"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="4dp">
-                        <TextView
+                        android:layout_marginTop="8dp">
+                        <RadioButton
+                            android:id="@+id/tabBase"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="c0 背景"/>
-                        <Button
-                            android:id="@+id/btnPickC0"
-                            android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:text="選択"
-                            android:minWidth="0dp"
-                            android:minHeight="0dp"/>
+                            android:text="ベース"
+                            android:checked="true"/>
+                        <RadioButton
+                            android:id="@+id/tabChatter"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="おしゃべり相手"/>
+                    </RadioGroup>
+
+                    <LinearLayout
+                        android:id="@+id/baseSettingsGroup"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:layout_marginTop="4dp">
+
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="ベース設定" android:textStyle="bold" android:layout_marginTop="4dp"/>
+
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="名前" android:layout_marginTop="4dp"/>
+                        <EditText android:id="@+id/etBaseName"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="text" android:singleLine="true"/>
+
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="モデル" android:layout_marginTop="4dp"/>
+                        <Spinner android:id="@+id/spinnerModel"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"/>
+
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="読み上げ言語" android:layout_marginTop="4dp"/>
+                        <EditText android:id="@+id/etSpeechLang"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="text" android:singleLine="true"/>
+
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="速度" android:layout_marginTop="4dp"/>
+                        <EditText android:id="@+id/etSpeechRate"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="numberDecimal" android:singleLine="true"/>
+
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="ピッチ" android:layout_marginTop="4dp"/>
+                        <EditText android:id="@+id/etSpeechPitch"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="numberDecimal" android:singleLine="true"/>
+
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="システムプロンプト" android:layout_marginTop="4dp"/>
+                        <EditText android:id="@+id/etSystemPrompt"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="textMultiLine" android:minLines="2"/>
+
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="アバター画像" android:textStyle="bold" android:layout_marginTop="8dp"/>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginTop="4dp">
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="c0 背景"/>
+                            <Button
+                                android:id="@+id/btnPickC0"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:text="選択"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"/>
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginTop="4dp">
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="c1 ベース"/>
+                            <Button
+                                android:id="@+id/btnPickC1"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:text="選択"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"/>
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginTop="4dp">
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="c2 まばたき"/>
+                            <Button
+                                android:id="@+id/btnPickC2"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:text="選択"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"/>
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginTop="4dp">
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="c3 会話1"/>
+                            <Button
+                                android:id="@+id/btnPickC3"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:text="選択"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"/>
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginTop="4dp">
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="c4 会話2"/>
+                            <Button
+                                android:id="@+id/btnPickC4"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:text="選択"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"/>
+                        </LinearLayout>
                     </LinearLayout>
 
                     <LinearLayout
+                        android:id="@+id/chatterSettingsGroup"
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="4dp">
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="c1 ベース"/>
-                        <Button
-                            android:id="@+id/btnPickC1"
-                            android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:text="選択"
-                            android:minWidth="0dp"
-                            android:minHeight="0dp"/>
-                    </LinearLayout>
+                        android:orientation="vertical"
+                        android:layout_marginTop="4dp"
+                        android:visibility="gone">
 
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="4dp">
-                        <TextView
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="c2 まばたき"/>
-                        <Button
-                            android:id="@+id/btnPickC2"
-                            android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:text="選択"
-                            android:minWidth="0dp"
-                            android:minHeight="0dp"/>
-                    </LinearLayout>
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="おしゃべり相手設定" android:textStyle="bold" android:layout_marginTop="4dp"/>
 
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:gravity="center_vertical"
-                        android:layout_marginTop="4dp">
-                        <TextView
-                            android:layout_width="0dp"
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="名前" android:layout_marginTop="4dp"/>
+                        <EditText android:id="@+id/etChatterName"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="text" android:singleLine="true"/>
+
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="モデル" android:layout_marginTop="4dp"/>
+                        <Spinner android:id="@+id/spinnerChatterModel"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"/>
+
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="読み上げ言語" android:layout_marginTop="4dp"/>
+                        <EditText android:id="@+id/etChatterSpeechLang"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="text" android:singleLine="true"/>
+
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="速度" android:layout_marginTop="4dp"/>
+                        <EditText android:id="@+id/etChatterSpeechRate"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="numberDecimal" android:singleLine="true"/>
+
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="ピッチ" android:layout_marginTop="4dp"/>
+                        <EditText android:id="@+id/etChatterSpeechPitch"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="numberDecimal" android:singleLine="true"/>
+
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="システムプロンプト" android:layout_marginTop="4dp"/>
+                        <EditText android:id="@+id/etChatterSystemPrompt"
+                            android:layout_width="match_parent" android:layout_height="wrap_content"
+                            android:inputType="textMultiLine" android:minLines="2"/>
+
+                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                            android:text="アバター画像" android:textStyle="bold" android:layout_marginTop="8dp"/>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
                             android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="c3 会話"/>
-                        <Button
-                            android:id="@+id/btnPickC3"
-                            android:layout_width="wrap_content"
-                            android:layout_height="36dp"
-                            android:text="選択"
-                            android:minWidth="0dp"
-                            android:minHeight="0dp"/>
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginTop="4dp">
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="c0 背景"/>
+                            <Button
+                                android:id="@+id/btnPickChatterC0"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:text="選択"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"/>
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginTop="4dp">
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="c1 ベース"/>
+                            <Button
+                                android:id="@+id/btnPickChatterC1"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:text="選択"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"/>
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginTop="4dp">
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="c2 まばたき"/>
+                            <Button
+                                android:id="@+id/btnPickChatterC2"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:text="選択"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"/>
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginTop="4dp">
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="c3 会話1"/>
+                            <Button
+                                android:id="@+id/btnPickChatterC3"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:text="選択"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"/>
+                        </LinearLayout>
+
+                        <LinearLayout
+                            android:layout_width="match_parent"
+                            android:layout_height="wrap_content"
+                            android:orientation="horizontal"
+                            android:gravity="center_vertical"
+                            android:layout_marginTop="4dp">
+                            <TextView
+                                android:layout_width="0dp"
+                                android:layout_height="wrap_content"
+                                android:layout_weight="1"
+                                android:text="c4 会話2"/>
+                            <Button
+                                android:id="@+id/btnPickChatterC4"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:text="選択"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"/>
+                        </LinearLayout>
                     </LinearLayout>
 
                 </LinearLayout>
@@ -271,27 +497,30 @@
                 android:layout_weight="1"
                 android:fillViewport="true">
 
-                <TextView
-                    android:id="@+id/tvConversation"
+                <LinearLayout
+                    android:id="@+id/messageContainer"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:text=""
-                    android:textSize="16sp"/>
+                    android:orientation="vertical"/>
             </ScrollView>
 
             <!-- 入力エリア -->
             <LinearLayout
+                android:id="@+id/inputBubble"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="horizontal"
-                android:paddingTop="8dp">
+                android:layout_marginTop="8dp"
+                android:padding="8dp"
+                android:background="@drawable/chat_input_bg">
 
                 <EditText
                     android:id="@+id/etInput"
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:hint="メッセージを入力"/>
+                    android:hint="メッセージを入力"
+                    android:background="@android:color/transparent"/>
 
                 <Button
                     android:id="@+id/btnSend"

@@ -16,6 +16,7 @@ import android.speech.SpeechRecognizer;
 import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.util.Log;
+import android.view.Gravity;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
@@ -23,6 +24,9 @@ import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.RadioButton;
+import android.widget.RadioGroup;
 import android.widget.ScrollView;
 import android.widget.Spinner;
 import android.widget.Switch;
@@ -77,10 +81,22 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final int REQ_PICK_C1 = 2001;
     private static final int REQ_PICK_C2 = 2002;
     private static final int REQ_PICK_C3 = 2003;
+    private static final int REQ_PICK_C4 = 2004;
+    private static final int REQ_PICK_CHATTER_C0 = 2010;
+    private static final int REQ_PICK_CHATTER_C1 = 2011;
+    private static final int REQ_PICK_CHATTER_C2 = 2012;
+    private static final int REQ_PICK_CHATTER_C3 = 2013;
+    private static final int REQ_PICK_CHATTER_C4 = 2014;
     private static final String AVATAR_C0_FILE = "avatar_c0.jpg";
     private static final String AVATAR_C1_FILE = "avatar_c1.jpg";
     private static final String AVATAR_C2_FILE = "avatar_c2.jpg";
     private static final String AVATAR_C3_FILE = "avatar_c3.jpg";
+    private static final String AVATAR_C4_FILE = "avatar_c4.jpg";
+    private static final String AVATAR_CHATTER_C0_FILE = "avatar_chatter_c0.jpg";
+    private static final String AVATAR_CHATTER_C1_FILE = "avatar_chatter_c1.jpg";
+    private static final String AVATAR_CHATTER_C2_FILE = "avatar_chatter_c2.jpg";
+    private static final String AVATAR_CHATTER_C3_FILE = "avatar_chatter_c3.jpg";
+    private static final String AVATAR_CHATTER_C4_FILE = "avatar_chatter_c4.jpg";
     private static final int TTS_WARMUP_MS = 120;
     private static final int AVATAR_TALK_FRAME_MS = 120;
     private static final int AVATAR_BLINK_MIN_MS = 3000;
@@ -88,14 +104,20 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final int AVATAR_BLINK_DURATION_MS = 120;
 
     // --- UI ---
-    private TextView tvConversation;
+    private LinearLayout messageContainer;
     private EditText etInput;
-    private Button btnSend, btnSettings, btnPickC0, btnPickC1, btnPickC2, btnPickC3;
+    private Button btnSend, btnSettings, btnPickC0, btnPickC1, btnPickC2, btnPickC3, btnPickC4;
+    private Button btnPickChatterC0, btnPickChatterC1, btnPickChatterC2, btnPickChatterC3, btnPickChatterC4;
     private ScrollView scrollView;
     private View settingsPanel;
-    private Spinner spinnerModel;
-    private Switch switchStreaming, switchTts, switchVoiceInput, switchAutoChatter, switchAutoVoiceInput, switchWebSearch, switchDebug;
+    private Spinner spinnerModel, spinnerChatterModel;
+    private RadioGroup groupMode, tabGroup;
+    private RadioButton radioModeNormal, radioModeChatter, tabBase, tabChatter;
+    private LinearLayout baseSettingsGroup, chatterSettingsGroup;
+    private Switch switchStreaming, switchTts, switchVoiceInput, switchAutoVoiceInput, switchWebSearch, switchDebug;
     private EditText etOllamaUrl, etSpeechLang, etSpeechRate, etSpeechPitch, etSystemPrompt;
+    private EditText etChatterSpeechLang, etChatterSpeechRate, etChatterSpeechPitch, etChatterSystemPrompt;
+    private EditText etBaseName, etChatterName;
     private EditText etHistoryLimit, etAutoChatterSeconds;
     private EditText etWebSearchUrl, etWebSearchApiKey;
     private ImageView ivAvatarBackground;
@@ -104,6 +126,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     // --- 設定（デフォルト値） ---
     private String ollamaBaseUrl = "http://localhost:11434";
     private String selectedModel = "default";
+    private String chatterModel = "default";
     private boolean streamingEnabled = true;
     private boolean ttsEnabled = false;
     private boolean voiceInputEnabled = true;
@@ -117,6 +140,12 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private float speechRate = 1.0f;
     private float speechPitch = 1.0f;
     private String systemPromptText = "あなたはユーザの若い女性秘書です";
+    private String chatterSpeechLang = "ja-JP";
+    private float chatterSpeechRate = 1.0f;
+    private float chatterSpeechPitch = 1.0f;
+    private String chatterSystemPromptText = "あなたはユーザの若い女性秘書です";
+    private String baseName = "アシスタント";
+    private String chatterName = "おしゃべり相手";
     private int historyLimit = 10;
     private int autoChatterSeconds = 30;
 
@@ -127,30 +156,54 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private boolean isTtsSpeaking = false;
     private final StringBuilder sentenceBuffer = new StringBuilder();
     private final AtomicInteger pendingUtterances = new AtomicInteger(0);
-    private final List<String> pendingTtsQueue = new ArrayList<>();
+    private final List<PendingTtsItem> pendingTtsQueue = new ArrayList<>();
     private boolean pendingAutoVoiceStart = false;
     private boolean pendingAutoChatterAfterTts = false;
 
     private enum AvatarMode { IDLE, TALKING }
+    private enum ChatSpeaker { BASE, CHATTER }
+
+    private static class PendingTtsItem {
+        private final String text;
+        private final ChatSpeaker speaker;
+
+        private PendingTtsItem(String text, ChatSpeaker speaker) {
+            this.text = text;
+            this.speaker = speaker;
+        }
+    }
 
     // --- アバター ---
     private final Handler avatarHandler = new Handler(Looper.getMainLooper());
     private final Handler autoHandler = new Handler(Looper.getMainLooper());
     private final Random avatarRandom = new Random();
     private final int[] talkFrames = new int[]{
-            R.drawable.c1, R.drawable.c3
+            R.drawable.c3, R.drawable.c4
     };
     private File avatarC0File;
     private File avatarC1File;
     private File avatarC2File;
     private File avatarC3File;
+    private File avatarC4File;
+    private File avatarChatterC0File;
+    private File avatarChatterC1File;
+    private File avatarChatterC2File;
+    private File avatarChatterC3File;
+    private File avatarChatterC4File;
     private Bitmap avatarC0Bitmap;
     private Bitmap avatarC1Bitmap;
     private Bitmap avatarC2Bitmap;
     private Bitmap avatarC3Bitmap;
+    private Bitmap avatarC4Bitmap;
+    private Bitmap avatarChatterC0Bitmap;
+    private Bitmap avatarChatterC1Bitmap;
+    private Bitmap avatarChatterC2Bitmap;
+    private Bitmap avatarChatterC3Bitmap;
+    private Bitmap avatarChatterC4Bitmap;
     private int talkFrameIndex = 0;
     private boolean isStreamingResponse = false;
     private AvatarMode avatarMode = AvatarMode.IDLE;
+    private ChatSpeaker activeSpeaker = ChatSpeaker.BASE;
     private final Runnable blinkRunnable = new Runnable() {
         @Override
         public void run() {
@@ -182,19 +235,27 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 autoHandler.postDelayed(this, 1000);
                 return;
             }
-            sendChat("さらに続けて");
+            sendChatterTurn();
         }
     };
 
     // --- モデル一覧 ---
     private final List<String> modelList = new ArrayList<>();
     private ArrayAdapter<String> modelAdapter;
+    private ArrayAdapter<String> chatterModelAdapter;
 
     // --- チャット ---
     private final List<JSONObject> conversationHistory = new ArrayList<>();
+    private final List<JSONObject> chatterHistory = new ArrayList<>();
     private volatile boolean isProcessing = false;
     private volatile boolean isListening = false;
     private final Object historyLock = new Object();
+    private ChatSpeaker nextChatterSpeaker = ChatSpeaker.BASE;
+    private String lastBaseResponse = null;
+    private String lastChatterResponse = null;
+    private TextView currentStreamingBubble;
+    private ChatSpeaker currentStreamingSpeaker = ChatSpeaker.BASE;
+    private ChatSpeaker currentTtsSpeaker = ChatSpeaker.BASE;
 
     // --- 音声認識 ---
     private SpeechRecognizer speechRecognizer;
@@ -232,7 +293,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     // ========== UI初期化 ==========
 
     private void initViews() {
-        tvConversation = findViewById(R.id.tvConversation);
+        messageContainer = findViewById(R.id.messageContainer);
         etInput = findViewById(R.id.etInput);
         btnSend = findViewById(R.id.btnSend);
         btnSettings = findViewById(R.id.btnSettings);
@@ -240,21 +301,41 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         btnPickC1 = findViewById(R.id.btnPickC1);
         btnPickC2 = findViewById(R.id.btnPickC2);
         btnPickC3 = findViewById(R.id.btnPickC3);
+        btnPickC4 = findViewById(R.id.btnPickC4);
+        btnPickChatterC0 = findViewById(R.id.btnPickChatterC0);
+        btnPickChatterC1 = findViewById(R.id.btnPickChatterC1);
+        btnPickChatterC2 = findViewById(R.id.btnPickChatterC2);
+        btnPickChatterC3 = findViewById(R.id.btnPickChatterC3);
+        btnPickChatterC4 = findViewById(R.id.btnPickChatterC4);
         ivAvatarBackground = findViewById(R.id.ivAvatarBackground);
         ivAvatar = findViewById(R.id.ivAvatar);
         scrollView = findViewById(R.id.scrollView);
         settingsPanel = findViewById(R.id.settingsPanel);
         spinnerModel = findViewById(R.id.spinnerModel);
+        spinnerChatterModel = findViewById(R.id.spinnerChatterModel);
+        groupMode = findViewById(R.id.groupMode);
+        radioModeNormal = findViewById(R.id.radioModeNormal);
+        radioModeChatter = findViewById(R.id.radioModeChatter);
+        tabGroup = findViewById(R.id.tabGroup);
+        tabBase = findViewById(R.id.tabBase);
+        tabChatter = findViewById(R.id.tabChatter);
+        baseSettingsGroup = findViewById(R.id.baseSettingsGroup);
+        chatterSettingsGroup = findViewById(R.id.chatterSettingsGroup);
         switchStreaming = findViewById(R.id.switchStreaming);
         switchTts = findViewById(R.id.switchTts);
         switchVoiceInput = findViewById(R.id.switchVoiceInput);
-        switchAutoChatter = findViewById(R.id.switchAutoChatter);
         switchAutoVoiceInput = findViewById(R.id.switchAutoVoiceInput);
         etOllamaUrl = findViewById(R.id.etOllamaUrl);
+        etBaseName = findViewById(R.id.etBaseName);
         etSpeechLang = findViewById(R.id.etSpeechLang);
         etSpeechRate = findViewById(R.id.etSpeechRate);
         etSpeechPitch = findViewById(R.id.etSpeechPitch);
         etSystemPrompt = findViewById(R.id.etSystemPrompt);
+        etChatterName = findViewById(R.id.etChatterName);
+        etChatterSpeechLang = findViewById(R.id.etChatterSpeechLang);
+        etChatterSpeechRate = findViewById(R.id.etChatterSpeechRate);
+        etChatterSpeechPitch = findViewById(R.id.etChatterSpeechPitch);
+        etChatterSystemPrompt = findViewById(R.id.etChatterSystemPrompt);
         etHistoryLimit = findViewById(R.id.etHistoryLimit);
         etAutoChatterSeconds = findViewById(R.id.etAutoChatterSeconds);
         switchWebSearch = findViewById(R.id.switchWebSearch);
@@ -266,6 +347,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         modelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
         modelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerModel.setAdapter(modelAdapter);
+        chatterModelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
+        chatterModelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerChatterModel.setAdapter(chatterModelAdapter);
     }
 
     private void setupListeners() {
@@ -274,11 +358,18 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 readSettingsFromUi();
                 saveSettings();
                 settingsPanel.setVisibility(View.GONE);
-                reinitSystemPrompt();
+                reinitSystemPrompts();
             } else {
                 settingsPanel.setVisibility(View.VISIBLE);
             }
         });
+
+        groupMode.setOnCheckedChangeListener((group, checkedId) -> {
+            autoChatterEnabled = checkedId == R.id.radioModeChatter;
+            updateChatterModeUi();
+        });
+
+        tabGroup.setOnCheckedChangeListener((group, checkedId) -> updateSettingsTab());
 
         btnSend.setOnClickListener(v -> {
             String userMsg = etInput.getText().toString().trim();
@@ -297,6 +388,12 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         btnPickC1.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C1));
         btnPickC2.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C2));
         btnPickC3.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C3));
+        btnPickC4.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C4));
+        btnPickChatterC0.setOnClickListener(v -> pickAvatarImage(REQ_PICK_CHATTER_C0));
+        btnPickChatterC1.setOnClickListener(v -> pickAvatarImage(REQ_PICK_CHATTER_C1));
+        btnPickChatterC2.setOnClickListener(v -> pickAvatarImage(REQ_PICK_CHATTER_C2));
+        btnPickChatterC3.setOnClickListener(v -> pickAvatarImage(REQ_PICK_CHATTER_C3));
+        btnPickChatterC4.setOnClickListener(v -> pickAvatarImage(REQ_PICK_CHATTER_C4));
     }
 
     // ========== アバター ==========
@@ -311,6 +408,12 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         avatarC1File = new File(dir, AVATAR_C1_FILE);
         avatarC2File = new File(dir, AVATAR_C2_FILE);
         avatarC3File = new File(dir, AVATAR_C3_FILE);
+        avatarC4File = new File(dir, AVATAR_C4_FILE);
+        avatarChatterC0File = new File(dir, AVATAR_CHATTER_C0_FILE);
+        avatarChatterC1File = new File(dir, AVATAR_CHATTER_C1_FILE);
+        avatarChatterC2File = new File(dir, AVATAR_CHATTER_C2_FILE);
+        avatarChatterC3File = new File(dir, AVATAR_CHATTER_C3_FILE);
+        avatarChatterC4File = new File(dir, AVATAR_CHATTER_C4_FILE);
         reloadAvatarBitmaps();
     }
 
@@ -319,6 +422,12 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         avatarC1Bitmap = loadAvatarBitmap(avatarC1File);
         avatarC2Bitmap = loadAvatarBitmap(avatarC2File);
         avatarC3Bitmap = loadAvatarBitmap(avatarC3File);
+        avatarC4Bitmap = loadAvatarBitmap(avatarC4File);
+        avatarChatterC0Bitmap = loadAvatarBitmap(avatarChatterC0File);
+        avatarChatterC1Bitmap = loadAvatarBitmap(avatarChatterC1File);
+        avatarChatterC2Bitmap = loadAvatarBitmap(avatarChatterC2File);
+        avatarChatterC3Bitmap = loadAvatarBitmap(avatarChatterC3File);
+        avatarChatterC4Bitmap = loadAvatarBitmap(avatarChatterC4File);
     }
 
     private Bitmap loadAvatarBitmap(File file) {
@@ -351,6 +460,18 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 return avatarC2File;
             case REQ_PICK_C3:
                 return avatarC3File;
+            case REQ_PICK_C4:
+                return avatarC4File;
+            case REQ_PICK_CHATTER_C0:
+                return avatarChatterC0File;
+            case REQ_PICK_CHATTER_C1:
+                return avatarChatterC1File;
+            case REQ_PICK_CHATTER_C2:
+                return avatarChatterC2File;
+            case REQ_PICK_CHATTER_C3:
+                return avatarChatterC3File;
+            case REQ_PICK_CHATTER_C4:
+                return avatarChatterC4File;
             default:
                 return null;
         }
@@ -359,13 +480,20 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private int getAvatarResIdForRequest(int requestCode) {
         switch (requestCode) {
             case REQ_PICK_C0:
+            case REQ_PICK_CHATTER_C0:
                 return R.drawable.c0;
             case REQ_PICK_C1:
+            case REQ_PICK_CHATTER_C1:
                 return R.drawable.c1;
             case REQ_PICK_C2:
+            case REQ_PICK_CHATTER_C2:
                 return R.drawable.c2;
             case REQ_PICK_C3:
+            case REQ_PICK_CHATTER_C3:
                 return R.drawable.c3;
+            case REQ_PICK_C4:
+            case REQ_PICK_CHATTER_C4:
+                return R.drawable.c4;
             default:
                 return 0;
         }
@@ -374,10 +502,29 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private void applyAvatarSelection(int requestCode) {
         int resId = getAvatarResIdForRequest(requestCode);
         if (resId == 0) return;
-        if (requestCode == REQ_PICK_C0) {
+        ChatSpeaker target = getAvatarSpeakerForRequest(requestCode);
+        if (target != activeSpeaker) return;
+        if (isAvatarBackgroundRequest(requestCode)) {
             setAvatarBackground(resId);
         } else {
             setAvatarFrame(resId);
+        }
+    }
+
+    private boolean isAvatarBackgroundRequest(int requestCode) {
+        return requestCode == REQ_PICK_C0 || requestCode == REQ_PICK_CHATTER_C0;
+    }
+
+    private ChatSpeaker getAvatarSpeakerForRequest(int requestCode) {
+        switch (requestCode) {
+            case REQ_PICK_CHATTER_C0:
+            case REQ_PICK_CHATTER_C1:
+            case REQ_PICK_CHATTER_C2:
+            case REQ_PICK_CHATTER_C3:
+            case REQ_PICK_CHATTER_C4:
+                return ChatSpeaker.CHATTER;
+            default:
+                return ChatSpeaker.BASE;
         }
     }
 
@@ -408,7 +555,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (ivAvatarBackground != null) {
             Bitmap custom = null;
             if (resId == R.drawable.c0) {
-                custom = avatarC0Bitmap;
+                custom = activeSpeaker == ChatSpeaker.BASE ? avatarC0Bitmap : avatarChatterC0Bitmap;
             }
             if (custom != null) {
                 ivAvatarBackground.setImageBitmap(custom);
@@ -422,11 +569,13 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (ivAvatar != null) {
             Bitmap custom = null;
             if (resId == R.drawable.c1) {
-                custom = avatarC1Bitmap;
+                custom = activeSpeaker == ChatSpeaker.BASE ? avatarC1Bitmap : avatarChatterC1Bitmap;
             } else if (resId == R.drawable.c2) {
-                custom = avatarC2Bitmap;
+                custom = activeSpeaker == ChatSpeaker.BASE ? avatarC2Bitmap : avatarChatterC2Bitmap;
             } else if (resId == R.drawable.c3) {
-                custom = avatarC3Bitmap;
+                custom = activeSpeaker == ChatSpeaker.BASE ? avatarC3Bitmap : avatarChatterC3Bitmap;
+            } else if (resId == R.drawable.c4) {
+                custom = activeSpeaker == ChatSpeaker.BASE ? avatarC4Bitmap : avatarChatterC4Bitmap;
             }
             if (custom != null) {
                 ivAvatar.setImageBitmap(custom);
@@ -471,6 +620,17 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         stopTalkAnimation();
     }
 
+    private void switchActiveSpeaker(ChatSpeaker speaker) {
+        if (speaker == null || speaker == activeSpeaker) return;
+        activeSpeaker = speaker;
+        setAvatarBackground(R.drawable.c0);
+        if (avatarMode == AvatarMode.TALKING) {
+            startTalkAnimation();
+        } else {
+            startIdleAnimation();
+        }
+    }
+
     private void updateAvatarAnimation() {
         boolean shouldTalk = ttsEnabled ? isTtsSpeaking : isStreamingResponse;
         runOnUiThread(() -> {
@@ -486,7 +646,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         });
     }
 
-    private void setStreamingResponse(boolean active) {
+    private void setStreamingResponse(boolean active, ChatSpeaker speaker) {
+        if (active && speaker != null) {
+            switchActiveSpeaker(speaker);
+        }
         isStreamingResponse = active;
         updateAvatarAnimation();
     }
@@ -501,8 +664,40 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         autoHandler.postDelayed(autoChatterRunnable, autoChatterSeconds * 1000L);
     }
 
-    private void handleAssistantResponseComplete() {
+    private void sendChatterTurn() {
+        if (!autoChatterEnabled) return;
+        if (nextChatterSpeaker == ChatSpeaker.BASE) {
+            String prompt = (lastChatterResponse == null || lastChatterResponse.trim().isEmpty())
+                    ? "さらに続けて" : null;
+            sendChatForSpeaker(ChatSpeaker.BASE, prompt, false);
+        } else {
+            String prompt = (lastBaseResponse == null || lastBaseResponse.trim().isEmpty())
+                    ? "さらに続けて" : null;
+            sendChatForSpeaker(ChatSpeaker.CHATTER, prompt, false);
+        }
+    }
+
+    private void handleAssistantResponseComplete(ChatSpeaker speaker, String responseText) {
         runOnUiThread(() -> {
+            if (autoChatterEnabled) {
+                if (responseText != null && !responseText.trim().isEmpty()) {
+                    if (speaker == ChatSpeaker.BASE) {
+                        lastBaseResponse = responseText;
+                        addToHistory(chatterHistory, "user", responseText);
+                    } else {
+                        lastChatterResponse = responseText;
+                        addToHistory(conversationHistory, "user", responseText);
+                    }
+                }
+                nextChatterSpeaker = speaker == ChatSpeaker.BASE ? ChatSpeaker.CHATTER : ChatSpeaker.BASE;
+                pendingAutoVoiceStart = false;
+                pendingAutoChatterAfterTts = true;
+                if (ttsEnabled && pendingUtterances.get() > 0) {
+                    return;
+                }
+                scheduleAutoChatter();
+                return;
+            }
             if (autoVoiceInputEnabled) {
                 pendingAutoChatterAfterTts = false;
                 if (ttsEnabled && pendingUtterances.get() > 0) {
@@ -555,6 +750,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             JSONObject s = new JSONObject(sb.toString());
             ollamaBaseUrl = s.optString("ollamaBaseUrl", ollamaBaseUrl);
             selectedModel = s.optString("selectedModel", selectedModel);
+            chatterModel = s.optString("chatterModel", chatterModel);
             streamingEnabled = s.optBoolean("streamingEnabled", streamingEnabled);
             ttsEnabled = s.optBoolean("ttsEnabled", ttsEnabled);
             voiceInputEnabled = s.optBoolean("voiceInputEnabled", voiceInputEnabled);
@@ -564,6 +760,12 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             speechRate = (float) s.optDouble("speechRate", speechRate);
             speechPitch = (float) s.optDouble("speechPitch", speechPitch);
             systemPromptText = s.optString("systemPrompt", systemPromptText);
+            chatterSpeechLang = s.optString("chatterSpeechLang", chatterSpeechLang);
+            chatterSpeechRate = (float) s.optDouble("chatterSpeechRate", chatterSpeechRate);
+            chatterSpeechPitch = (float) s.optDouble("chatterSpeechPitch", chatterSpeechPitch);
+            chatterSystemPromptText = s.optString("chatterSystemPrompt", chatterSystemPromptText);
+            baseName = s.optString("baseName", baseName);
+            chatterName = s.optString("chatterName", chatterName);
             historyLimit = s.optInt("historyLimit", historyLimit);
             autoChatterSeconds = s.optInt("autoChatterSeconds", autoChatterSeconds);
             webSearchEnabled = s.optBoolean("webSearchEnabled", webSearchEnabled);
@@ -584,6 +786,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             JSONObject s = new JSONObject();
             s.put("ollamaBaseUrl", ollamaBaseUrl);
             s.put("selectedModel", selectedModel);
+            s.put("chatterModel", chatterModel);
             s.put("streamingEnabled", streamingEnabled);
             s.put("ttsEnabled", ttsEnabled);
             s.put("voiceInputEnabled", voiceInputEnabled);
@@ -593,6 +796,12 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             s.put("speechRate", speechRate);
             s.put("speechPitch", speechPitch);
             s.put("systemPrompt", systemPromptText);
+            s.put("chatterSpeechLang", chatterSpeechLang);
+            s.put("chatterSpeechRate", chatterSpeechRate);
+            s.put("chatterSpeechPitch", chatterSpeechPitch);
+            s.put("chatterSystemPrompt", chatterSystemPromptText);
+            s.put("baseName", baseName);
+            s.put("chatterName", chatterName);
             s.put("historyLimit", historyLimit);
             s.put("autoChatterSeconds", autoChatterSeconds);
             s.put("webSearchEnabled", webSearchEnabled);
@@ -614,8 +823,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         streamingEnabled = switchStreaming.isChecked();
         ttsEnabled = switchTts.isChecked();
         voiceInputEnabled = switchVoiceInput.isChecked();
-        autoChatterEnabled = switchAutoChatter.isChecked();
+        autoChatterEnabled = radioModeChatter.isChecked();
         autoVoiceInputEnabled = switchAutoVoiceInput.isChecked();
+        baseName = etBaseName.getText().toString().trim();
+        if (baseName.isEmpty()) baseName = "アシスタント";
         speechLang = etSpeechLang.getText().toString().trim();
         if (speechLang.isEmpty()) speechLang = "ja-JP";
         try {
@@ -629,6 +840,21 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             speechPitch = 1.0f;
         }
         systemPromptText = etSystemPrompt.getText().toString().trim();
+        chatterName = etChatterName.getText().toString().trim();
+        if (chatterName.isEmpty()) chatterName = "おしゃべり相手";
+        chatterSpeechLang = etChatterSpeechLang.getText().toString().trim();
+        if (chatterSpeechLang.isEmpty()) chatterSpeechLang = "ja-JP";
+        try {
+            chatterSpeechRate = Float.parseFloat(etChatterSpeechRate.getText().toString());
+        } catch (Exception e) {
+            chatterSpeechRate = 1.0f;
+        }
+        try {
+            chatterSpeechPitch = Float.parseFloat(etChatterSpeechPitch.getText().toString());
+        } catch (Exception e) {
+            chatterSpeechPitch = 1.0f;
+        }
+        chatterSystemPromptText = etChatterSystemPrompt.getText().toString().trim();
         try {
             historyLimit = Integer.parseInt(etHistoryLimit.getText().toString());
         } catch (Exception e) {
@@ -655,6 +881,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (spinnerModel.getSelectedItem() != null) {
             selectedModel = spinnerModel.getSelectedItem().toString();
         }
+        if (spinnerChatterModel.getSelectedItem() != null) {
+            chatterModel = spinnerChatterModel.getSelectedItem().toString();
+        }
     }
 
     private void applySettingsToUi() {
@@ -662,12 +891,19 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         switchStreaming.setChecked(streamingEnabled);
         switchTts.setChecked(ttsEnabled);
         switchVoiceInput.setChecked(voiceInputEnabled);
-        switchAutoChatter.setChecked(autoChatterEnabled);
+        radioModeChatter.setChecked(autoChatterEnabled);
+        radioModeNormal.setChecked(!autoChatterEnabled);
         switchAutoVoiceInput.setChecked(autoVoiceInputEnabled);
+        etBaseName.setText(baseName);
         etSpeechLang.setText(speechLang);
         etSpeechRate.setText(String.valueOf(speechRate));
         etSpeechPitch.setText(String.valueOf(speechPitch));
         etSystemPrompt.setText(systemPromptText);
+        etChatterName.setText(chatterName);
+        etChatterSpeechLang.setText(chatterSpeechLang);
+        etChatterSpeechRate.setText(String.valueOf(chatterSpeechRate));
+        etChatterSpeechPitch.setText(String.valueOf(chatterSpeechPitch));
+        etChatterSystemPrompt.setText(chatterSystemPromptText);
         etHistoryLimit.setText(String.valueOf(historyLimit));
         etAutoChatterSeconds.setText(String.valueOf(autoChatterSeconds));
         switchWebSearch.setChecked(webSearchEnabled);
@@ -677,6 +913,29 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
         int idx = modelList.indexOf(selectedModel);
         if (idx >= 0) spinnerModel.setSelection(idx);
+        int chatterIdx = modelList.indexOf(chatterModel);
+        if (chatterIdx >= 0) spinnerChatterModel.setSelection(chatterIdx);
+        updateChatterModeUi();
+    }
+
+    private void updateChatterModeUi() {
+        if (autoChatterEnabled) {
+            tabGroup.setVisibility(View.VISIBLE);
+            updateSettingsTab();
+        } else {
+            tabGroup.setVisibility(View.GONE);
+            tabBase.setChecked(true);
+            baseSettingsGroup.setVisibility(View.VISIBLE);
+            chatterSettingsGroup.setVisibility(View.GONE);
+            cancelAutoChatter();
+            pendingAutoChatterAfterTts = false;
+        }
+    }
+
+    private void updateSettingsTab() {
+        boolean showChatter = tabChatter.isChecked();
+        baseSettingsGroup.setVisibility(showChatter ? View.GONE : View.VISIBLE);
+        chatterSettingsGroup.setVisibility(showChatter ? View.VISIBLE : View.GONE);
     }
 
     // ========== TTS ==========
@@ -690,12 +949,13 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (status == TextToSpeech.SUCCESS) {
             ttsReady = true;
             ttsNeedsWarmup = true;
-            applyTtsSettings();
+            applyTtsSettings(ChatSpeaker.BASE);
             tts.setOnUtteranceProgressListener(new UtteranceProgressListener() {
                 @Override
                 public void onStart(String utteranceId) {
                     if (!isWarmupUtterance(utteranceId)) {
                         isTtsSpeaking = true;
+                        switchActiveSpeaker(currentTtsSpeaker);
                         updateAvatarAnimation();
                     }
                 }
@@ -734,17 +994,20 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         return utteranceId != null && utteranceId.startsWith("warmup_");
     }
 
-    private void applyTtsSettings() {
+    private void applyTtsSettings(ChatSpeaker speaker) {
         if (!ttsReady) return;
+        String lang = speaker == ChatSpeaker.CHATTER ? chatterSpeechLang : speechLang;
+        float rate = speaker == ChatSpeaker.CHATTER ? chatterSpeechRate : speechRate;
+        float pitch = speaker == ChatSpeaker.CHATTER ? chatterSpeechPitch : speechPitch;
         try {
-            String[] parts = speechLang.split("-");
+            String[] parts = lang.split("-");
             Locale locale = parts.length >= 2 ? new Locale(parts[0], parts[1]) : new Locale(parts[0]);
             tts.setLanguage(locale);
         } catch (Exception e) {
             tts.setLanguage(Locale.JAPAN);
         }
-        tts.setSpeechRate(speechRate);
-        tts.setPitch(speechPitch);
+        tts.setSpeechRate(rate);
+        tts.setPitch(pitch);
     }
 
     private void playTtsWarmupIfNeeded() {
@@ -762,22 +1025,22 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     private void drainPendingTtsQueue() {
-        List<String> queued;
+        List<PendingTtsItem> queued;
         synchronized (pendingTtsQueue) {
             if (pendingTtsQueue.isEmpty()) return;
             queued = new ArrayList<>(pendingTtsQueue);
             pendingTtsQueue.clear();
         }
-        for (String sentence : queued) {
-            speakSentence(sentence);
+        for (PendingTtsItem item : queued) {
+            speakSentence(item.text, item.speaker);
         }
     }
 
-    private void speakSentence(String text) {
+    private void speakSentence(String text, ChatSpeaker speaker) {
         if (!ttsEnabled) return;
         if (!ttsReady) {
             synchronized (pendingTtsQueue) {
-                pendingTtsQueue.add(text);
+                pendingTtsQueue.add(new PendingTtsItem(text, speaker));
             }
             return;
         }
@@ -791,7 +1054,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 .trim();
         if (clean.isEmpty()) return;
 
-        applyTtsSettings();
+        currentTtsSpeaker = speaker;
+        switchActiveSpeaker(speaker);
+        applyTtsSettings(speaker);
         playTtsWarmupIfNeeded();
         pendingUtterances.incrementAndGet();
         updateAvatarAnimation();
@@ -799,7 +1064,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     /** ストリーミング中のチャンク処理: 文末で区切って逐次読み上げ */
-    private void processChunkForTts(String chunk) {
+    private void processChunkForTts(String chunk, ChatSpeaker speaker) {
         sentenceBuffer.append(chunk);
         String text = sentenceBuffer.toString();
 
@@ -820,18 +1085,18 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             for (String sentence : completePart.split("(?<=[。！？.!?\\n])")) {
                 String trimmed = sentence.trim();
                 if (!trimmed.isEmpty()) {
-                    speakSentence(trimmed);
+                    speakSentence(trimmed, speaker);
                 }
             }
         }
     }
 
     /** バッファに残ったテキストを読み上げ */
-    private void flushSentenceBuffer() {
+    private void flushSentenceBuffer(ChatSpeaker speaker) {
         String remaining = sentenceBuffer.toString().trim();
         sentenceBuffer.setLength(0);
         if (!remaining.isEmpty()) {
-            speakSentence(remaining);
+            speakSentence(remaining, speaker);
         }
     }
 
@@ -852,39 +1117,60 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private void initConversationHistory() {
         synchronized (historyLock) {
             conversationHistory.clear();
+            chatterHistory.clear();
+            nextChatterSpeaker = ChatSpeaker.BASE;
+            lastBaseResponse = null;
+            lastChatterResponse = null;
             try {
                 JSONObject sys = new JSONObject();
                 sys.put("role", "system");
-                sys.put("content", systemPromptText);
+                sys.put("content", buildSystemPromptWithName(systemPromptText, baseName));
                 conversationHistory.add(sys);
+                JSONObject chatterSys = new JSONObject();
+                chatterSys.put("role", "system");
+                chatterSys.put("content", buildSystemPromptWithName(chatterSystemPromptText, chatterName));
+                chatterHistory.add(chatterSys);
             } catch (Exception e) {
                 Log.e(TAG, "initHistory error", e);
             }
         }
     }
 
-    private void reinitSystemPrompt() {
+    private void reinitSystemPrompts() {
         synchronized (historyLock) {
-            if (!conversationHistory.isEmpty()) {
-                try {
-                    JSONObject sys = conversationHistory.get(0);
-                    if ("system".equals(sys.optString("role"))) {
-                        sys.put("content", systemPromptText);
-                    }
-                } catch (Exception e) {
-                    Log.e(TAG, "reinitSystemPrompt error", e);
-                }
-            }
+            updateSystemPrompt(conversationHistory, buildSystemPromptWithName(systemPromptText, baseName));
+            updateSystemPrompt(chatterHistory, buildSystemPromptWithName(chatterSystemPromptText, chatterName));
         }
     }
 
-    private void addToHistory(String role, String content) {
+    private void updateSystemPrompt(List<JSONObject> history, String prompt) {
+        if (history.isEmpty()) return;
+        try {
+            JSONObject sys = history.get(0);
+            if ("system".equals(sys.optString("role"))) {
+                sys.put("content", prompt);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "reinitSystemPrompt error", e);
+        }
+    }
+
+    private String buildSystemPromptWithName(String basePrompt, String name) {
+        String trimmed = basePrompt == null ? "" : basePrompt.trim();
+        if (name == null || name.trim().isEmpty()) return trimmed;
+        String suffix = "あなたの名前は" + name.trim() + "です。";
+        if (trimmed.isEmpty()) return suffix;
+        if (trimmed.contains(suffix)) return trimmed;
+        return trimmed + "\n" + suffix;
+    }
+
+    private void addToHistory(List<JSONObject> history, String role, String content) {
         try {
             JSONObject msg = new JSONObject();
             msg.put("role", role);
             msg.put("content", content);
             synchronized (historyLock) {
-                conversationHistory.add(msg);
+                history.add(msg);
             }
         } catch (Exception e) {
             Log.e(TAG, "addToHistory error", e);
@@ -919,8 +1205,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                         modelList.clear();
                         modelList.addAll(names);
                         modelAdapter.notifyDataSetChanged();
+                        chatterModelAdapter.notifyDataSetChanged();
                         int idx = modelList.indexOf(selectedModel);
                         if (idx >= 0) spinnerModel.setSelection(idx);
+                        int chatterIdx = modelList.indexOf(chatterModel);
+                        if (chatterIdx >= 0) spinnerChatterModel.setSelection(chatterIdx);
                     });
                 } catch (Exception e) {
                     Log.w(TAG, "fetchModels parse error", e);
@@ -939,8 +1228,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (userMsg == null || userMsg.trim().isEmpty()) return;
         cancelAutoChatter();
         etInput.setText("");
-        appendConversation("You: " + userMsg + "\n");
-        addToHistory("user", userMsg);
+        appendUserMessage(userMsg);
+        addToHistory(conversationHistory, "user", userMsg);
 
         if (webSearchEnabled && !webSearchApiKey.isEmpty()) {
             performWebSearchFlow(userMsg);
@@ -1213,28 +1502,40 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     private void sendChat(String transientUserMessage, boolean replaceLastUserMessage) {
-        if (spinnerModel.getSelectedItem() != null) {
-            selectedModel = spinnerModel.getSelectedItem().toString();
+        sendChatForSpeaker(ChatSpeaker.BASE, transientUserMessage, replaceLastUserMessage);
+    }
+
+    private void sendChatForSpeaker(ChatSpeaker speaker, String transientUserMessage, boolean replaceLastUserMessage) {
+        if (speaker == ChatSpeaker.BASE) {
+            if (spinnerModel.getSelectedItem() != null) {
+                selectedModel = spinnerModel.getSelectedItem().toString();
+            }
+        } else if (spinnerChatterModel.getSelectedItem() != null) {
+            chatterModel = spinnerChatterModel.getSelectedItem().toString();
         }
         // 設定パネルが開いていたら最新値を反映
         readSettingsFromUi();
+        reinitSystemPrompts();
 
         isProcessing = true;
         updateSendButton();
         stopTts();
-        setStreamingResponse(false);
+        setStreamingResponse(false, null);
         cancelAutoChatter();
         pendingAutoVoiceStart = false;
 
         try {
             JSONArray messages = new JSONArray();
             boolean shouldReplaceLastUser = replaceLastUserMessage && transientUserMessage != null;
+            List<JSONObject> history = getHistoryForSpeaker(speaker);
             synchronized (historyLock) {
-                if (!conversationHistory.isEmpty()) {
-                    JSONObject first = conversationHistory.get(0);
+                if (!history.isEmpty()) {
+                    JSONObject first = history.get(0);
                     if ("system".equals(first.optString("role"))) {
                         String systemContent = first.optString("content", "");
-                        if (webSearchEnabled && !systemContent.contains(SEARCH_SYSTEM_PROMPT)) {
+                        if (speaker == ChatSpeaker.BASE
+                                && webSearchEnabled
+                                && !systemContent.contains(SEARCH_SYSTEM_PROMPT)) {
                             systemContent = systemContent + "\n" + SEARCH_SYSTEM_PROMPT;
                         }
                         JSONObject sys = new JSONObject();
@@ -1243,10 +1544,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                         messages.put(sys);
                     }
                 }
-                int size = conversationHistory.size();
+                int size = history.size();
                 int start = Math.max(1, size - Math.max(0, historyLimit));
                 for (int i = start; i < size; i++) {
-                    JSONObject msg = conversationHistory.get(i);
+                    JSONObject msg = history.get(i);
                     if (shouldReplaceLastUser && i == size - 1 && "user".equals(msg.optString("role"))) {
                         JSONObject replaced = new JSONObject(msg.toString());
                         replaced.put("content", transientUserMessage);
@@ -1264,7 +1565,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             }
 
             JSONObject body = new JSONObject();
-            body.put("model", selectedModel);
+            body.put("model", speaker == ChatSpeaker.BASE ? selectedModel : chatterModel);
             body.put("messages", messages);
             body.put("stream", streamingEnabled);
 
@@ -1279,25 +1580,29 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             }
 
             if (streamingEnabled) {
-                sendStreaming(request);
+                sendStreaming(request, speaker);
             } else {
-                sendNonStreaming(request);
+                sendNonStreaming(request, speaker);
             }
         } catch (Exception e) {
-            appendConversation("Error: " + e.getMessage() + "\n");
+            appendErrorMessage(e.getMessage());
             isProcessing = false;
             updateSendButton();
         }
     }
 
+    private List<JSONObject> getHistoryForSpeaker(ChatSpeaker speaker) {
+        return speaker == ChatSpeaker.CHATTER ? chatterHistory : conversationHistory;
+    }
+
     /** ストリーミングモード: チャンクごとに表示＋センテンス単位TTS */
-    private void sendStreaming(Request request) {
+    private void sendStreaming(Request request, ChatSpeaker speaker) {
         client.newCall(request).enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
-                appendConversation("Error: " + e.getMessage() + "\n");
+                appendErrorMessage(e.getMessage());
                 appendDebug("/api/chat 返信（失敗）", e.toString());
-                setStreamingResponse(false);
+                setStreamingResponse(false, null);
                 isProcessing = false;
                 updateSendButton();
             }
@@ -1309,8 +1614,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     if (debugEnabled) {
                         appendDebug("/api/chat 返信", buildResponseDebugText(response, errorBody));
                     }
-                    appendConversation("HTTP error: " + response.code() + "\n");
-                    setStreamingResponse(false);
+                    appendErrorMessage("HTTP error: " + response.code());
+                    setStreamingResponse(false, null);
                     isProcessing = false;
                     updateSendButton();
                     return;
@@ -1341,18 +1646,18 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                                         .optString("content", "");
                                 if (!content.isEmpty()) {
                                     if (first) {
-                                        appendConversation("Assistant: ");
+                                        beginStreamingMessage(speaker);
                                         first = false;
                                     }
                                     fullResponse.append(content);
-                                    appendConversation(content);
+                                    appendStreamingMessage(content);
                                     if (!streamingStarted) {
-                                        setStreamingResponse(true);
+                                        setStreamingResponse(true, speaker);
                                         streamingStarted = true;
                                     }
 
                                     if (ttsEnabled) {
-                                        processChunkForTts(content);
+                                        processChunkForTts(content, speaker);
                                     }
                                 }
                             }
@@ -1365,25 +1670,25 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     if (debugRaw != null) {
                         appendDebug("/api/chat 返信", buildResponseDebugText(response, debugRaw.toString()));
                     }
-                    appendConversation("\n");
+                    finishStreamingMessage();
 
                     if (ttsEnabled) {
-                        flushSentenceBuffer();
+                        flushSentenceBuffer(speaker);
                     }
 
                     String text = fullResponse.toString();
                     if (!text.isEmpty()) {
-                        addToHistory("assistant", text);
+                        addToHistory(getHistoryForSpeaker(speaker), "assistant", text);
                     }
                     completed = true;
                 } catch (Exception e) {
-                    appendConversation("Stream error: " + e.getMessage() + "\n");
+                    appendErrorMessage("Stream error: " + e.getMessage());
                 } finally {
-                    setStreamingResponse(false);
+                    setStreamingResponse(false, null);
                     isProcessing = false;
                     updateSendButton();
                     if (completed) {
-                        handleAssistantResponseComplete();
+                        handleAssistantResponseComplete(speaker, fullResponse.toString());
                     }
                 }
             }
@@ -1391,11 +1696,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     /** 非ストリーミングモード: 完全なレスポンスを受信後に表示＋TTS */
-    private void sendNonStreaming(Request request) {
+    private void sendNonStreaming(Request request, ChatSpeaker speaker) {
         client.newCall(request).enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
-                appendConversation("Error: " + e.getMessage() + "\n");
+                appendErrorMessage(e.getMessage());
                 appendDebug("/api/chat 返信（失敗）", e.toString());
                 isProcessing = false;
                 updateSendButton();
@@ -1408,44 +1713,45 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     appendDebug("/api/chat 返信", buildResponseDebugText(response, body));
                 }
                 if (!response.isSuccessful()) {
-                    appendConversation("HTTP error: " + response.code() + "\n");
+                    appendErrorMessage("HTTP error: " + response.code());
                     isProcessing = false;
                     updateSendButton();
                     return;
                 }
 
                 boolean completed = false;
+                String content = "";
                 try {
                     JSONObject json = new JSONObject(body);
-                    String content = "";
                     if (json.has("message")) {
                         content = json.getJSONObject("message").optString("content", "");
                     }
 
+                    switchActiveSpeaker(speaker);
                     if (!content.isEmpty()) {
-                        appendConversation("Assistant: " + content + "\n");
-                        addToHistory("assistant", content);
+                        appendAssistantMessage(speaker, content);
+                        addToHistory(getHistoryForSpeaker(speaker), "assistant", content);
 
                         if (ttsEnabled) {
                             // センテンス単位で読み上げ
                             for (String sentence : content.split("(?<=[。！？.!?\\n])")) {
                                 String trimmed = sentence.trim();
                                 if (!trimmed.isEmpty()) {
-                                    speakSentence(trimmed);
+                                    speakSentence(trimmed, speaker);
                                 }
                             }
                         }
                     } else {
-                        appendConversation("Assistant: （応答なし）\n");
+                        appendAssistantMessage(speaker, "（応答なし）");
                     }
                     completed = true;
                 } catch (Exception e) {
-                    appendConversation("Parse error: " + e.getMessage() + "\n");
+                    appendErrorMessage("Parse error: " + e.getMessage());
                 } finally {
                     isProcessing = false;
                     updateSendButton();
                     if (completed) {
-                        handleAssistantResponseComplete();
+                        handleAssistantResponseComplete(speaker, content);
                     }
                 }
             }
@@ -1462,8 +1768,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             sb.append(detail);
             if (!detail.endsWith("\n")) sb.append("\n");
         }
-        sb.append("\n");
-        appendConversation(sb.toString());
+        appendSystemMessage("DEBUG", sb.toString().trim());
     }
 
     private String buildRequestDebugText(Request request, String body) {
@@ -1497,11 +1802,102 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         return sb.toString();
     }
 
-    private void appendConversation(String text) {
+    private void appendUserMessage(String text) {
+        appendMessage("You", text, true);
+    }
+
+    private void appendAssistantMessage(ChatSpeaker speaker, String text) {
+        appendMessage(getSpeakerName(speaker), text, isUserSideForSpeaker(speaker));
+    }
+
+    private void appendErrorMessage(String text) {
+        appendSystemMessage("Error", text);
+    }
+
+    private void appendSystemMessage(String name, String text) {
+        appendMessage(name, text, false);
+    }
+
+    private void beginStreamingMessage(ChatSpeaker speaker) {
         runOnUiThread(() -> {
-            tvConversation.append(text);
-            scrollView.post(() -> scrollView.fullScroll(View.FOCUS_DOWN));
+            currentStreamingSpeaker = speaker;
+            currentStreamingBubble = createMessageBubble(getSpeakerName(speaker), isUserSideForSpeaker(speaker));
+            String header = getSpeakerName(speaker);
+            currentStreamingBubble.setText(header == null || header.isEmpty() ? "" : header + "\n");
+            scrollToBottom();
         });
+    }
+
+    private void appendStreamingMessage(String content) {
+        runOnUiThread(() -> {
+            if (currentStreamingBubble == null) return;
+            currentStreamingBubble.append(content);
+            scrollToBottom();
+        });
+    }
+
+    private void finishStreamingMessage() {
+        runOnUiThread(() -> {
+            currentStreamingBubble = null;
+            scrollToBottom();
+        });
+    }
+
+    private void appendMessage(String name, String text, boolean isUserSide) {
+        runOnUiThread(() -> {
+            TextView bubble = createMessageBubble(name, isUserSide);
+            bubble.setText(formatMessageText(name, text));
+            scrollToBottom();
+        });
+    }
+
+    private TextView createMessageBubble(String name, boolean isUserSide) {
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(isUserSide ? Gravity.END : Gravity.START);
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        rowParams.topMargin = dpToPx(4);
+        rowParams.bottomMargin = dpToPx(4);
+        row.setLayoutParams(rowParams);
+
+        TextView bubble = new TextView(this);
+        bubble.setBackgroundResource(isUserSide ? R.drawable.chat_bubble_user : R.drawable.chat_bubble_assistant);
+        bubble.setPadding(dpToPx(10), dpToPx(6), dpToPx(10), dpToPx(6));
+        bubble.setTextSize(15);
+        bubble.setTextColor(0xFF000000);
+        int maxWidth = (int) (getResources().getDisplayMetrics().widthPixels * 0.7f);
+        bubble.setMaxWidth(maxWidth);
+
+        row.addView(bubble);
+        messageContainer.addView(row);
+        return bubble;
+    }
+
+    private String formatMessageText(String name, String text) {
+        if (name == null || name.trim().isEmpty()) return text == null ? "" : text;
+        String body = text == null ? "" : text;
+        return name + "\n" + body;
+    }
+
+    private void scrollToBottom() {
+        if (scrollView != null) {
+            scrollView.post(() -> scrollView.fullScroll(View.FOCUS_DOWN));
+        }
+    }
+
+    private int dpToPx(int dp) {
+        return Math.round(dp * getResources().getDisplayMetrics().density);
+    }
+
+    private String getSpeakerName(ChatSpeaker speaker) {
+        return speaker == ChatSpeaker.CHATTER ? chatterName : baseName;
+    }
+
+    private boolean isUserSideForSpeaker(ChatSpeaker speaker) {
+        return speaker == ChatSpeaker.CHATTER;
     }
 
     // ========== ライフサイクル ==========
