@@ -258,6 +258,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private int chatDragThresholdPx = 0;
     private int chatPanelMarginPx = 0;
     private int autoScrollThresholdPx = 0;
+    private boolean wasSettingsPanelVisible = false;
 
     // --- 音声認識 ---
     private SpeechRecognizer speechRecognizer;
@@ -349,6 +350,13 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         chatDragThresholdPx = dpToPx(24);
         chatPanelMarginPx = dpToPx(12);
         autoScrollThresholdPx = dpToPx(64);
+        float elevation = dpToPx(2);
+        if (topPanel != null) {
+            topPanel.setElevation(elevation);
+        }
+        if (chatPanel != null) {
+            chatPanel.setElevation(elevation);
+        }
 
         modelList.add("default");
         modelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
@@ -958,12 +966,22 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         chatExpanded = expanded;
         runOnUiThread(() -> {
             if (topPanel != null) {
-                topPanel.setVisibility(expanded ? View.GONE : View.VISIBLE);
+                LinearLayout.LayoutParams topParams = (LinearLayout.LayoutParams) topPanel.getLayoutParams();
+                topParams.height = expanded ? LinearLayout.LayoutParams.WRAP_CONTENT : 0;
+                topParams.weight = expanded ? 0f : 1f;
+                topPanel.setLayoutParams(topParams);
+                if (settingsPanel != null && expanded) {
+                    wasSettingsPanelVisible = settingsPanel.getVisibility() == View.VISIBLE;
+                    settingsPanel.setVisibility(View.GONE);
+                } else if (settingsPanel != null && !expanded && wasSettingsPanelVisible) {
+                    settingsPanel.setVisibility(View.VISIBLE);
+                    wasSettingsPanelVisible = false;
+                }
             }
             if (chatPanel != null) {
                 LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) chatPanel.getLayoutParams();
                 int margin = expanded ? 0 : chatPanelMarginPx;
-                params.weight = expanded ? 2f : 1f;
+                params.weight = 1f;
                 params.setMargins(margin, margin, margin, margin);
                 chatPanel.setLayoutParams(params);
             }
