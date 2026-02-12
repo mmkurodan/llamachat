@@ -109,6 +109,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private View settingsPanel;
     private View topPanel;
     private LinearLayout chatPanel;
+    private View chatDragArea;
     private View chatDragHandle;
     private Spinner spinnerModel, spinnerChatterModel;
     private RadioGroup groupMode, tabGroup;
@@ -256,6 +257,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private float chatDragStartY = 0f;
     private int chatDragThresholdPx = 0;
     private int chatPanelMarginPx = 0;
+    private int autoScrollThresholdPx = 0;
 
     // --- 音声認識 ---
     private SpeechRecognizer speechRecognizer;
@@ -311,6 +313,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         settingsPanel = findViewById(R.id.settingsPanel);
         topPanel = findViewById(R.id.topPanel);
         chatPanel = findViewById(R.id.chatPanel);
+        chatDragArea = findViewById(R.id.chatDragArea);
         chatDragHandle = findViewById(R.id.chatDragHandle);
         spinnerModel = findViewById(R.id.spinnerModel);
         spinnerChatterModel = findViewById(R.id.spinnerChatterModel);
@@ -343,8 +346,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         switchDebug = findViewById(R.id.switchDebug);
         etWebSearchUrl = findViewById(R.id.etWebSearchUrl);
         etWebSearchApiKey = findViewById(R.id.etWebSearchApiKey);
-        chatDragThresholdPx = dpToPx(48);
+        chatDragThresholdPx = dpToPx(24);
         chatPanelMarginPx = dpToPx(12);
+        autoScrollThresholdPx = dpToPx(64);
 
         modelList.add("default");
         modelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
@@ -373,8 +377,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         });
 
         tabGroup.setOnCheckedChangeListener((group, checkedId) -> updateSettingsTab());
-        if (chatDragHandle != null) {
-            chatDragHandle.setOnTouchListener((v, event) -> {
+        if (chatDragArea != null) {
+            chatDragArea.setOnTouchListener((v, event) -> {
                 switch (event.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
                         chatDragStartY = event.getRawY();
@@ -959,6 +963,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             if (chatPanel != null) {
                 LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) chatPanel.getLayoutParams();
                 int margin = expanded ? 0 : chatPanelMarginPx;
+                params.weight = expanded ? 2f : 1f;
                 params.setMargins(margin, margin, margin, margin);
                 chatPanel.setLayoutParams(params);
             }
@@ -1832,11 +1837,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     private void appendUserMessage(String text) {
-        appendMessage("You", text, true);
+        appendMessage("You", text, true, true);
     }
 
     private void appendAssistantMessage(ChatSpeaker speaker, String text) {
-        appendMessage(getSpeakerName(speaker), text, isUserSideForSpeaker(speaker));
+        appendMessage(getSpeakerName(speaker), text, isUserSideForSpeaker(speaker), false);
     }
 
     private void appendErrorMessage(String text) {
@@ -1844,39 +1849,42 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     private void appendSystemMessage(String name, String text) {
-        appendMessage(name, text, false);
+        appendMessage(name, text, false, false);
     }
 
     private void beginStreamingMessage(ChatSpeaker speaker) {
         runOnUiThread(() -> {
+            boolean shouldScroll = isNearBottom();
             currentStreamingSpeaker = speaker;
             currentStreamingBubble = createMessageBubble(getSpeakerName(speaker), isUserSideForSpeaker(speaker));
             String header = getSpeakerName(speaker);
             currentStreamingBubble.setText(header == null || header.isEmpty() ? "" : header + "\n");
-            scrollToBottom();
+            maybeScrollToBottom(shouldScroll);
         });
     }
 
     private void appendStreamingMessage(String content) {
         runOnUiThread(() -> {
             if (currentStreamingBubble == null) return;
+            boolean shouldScroll = isNearBottom();
             currentStreamingBubble.append(content);
-            scrollToBottom();
+            maybeScrollToBottom(shouldScroll);
         });
     }
 
     private void finishStreamingMessage() {
         runOnUiThread(() -> {
             currentStreamingBubble = null;
-            scrollToBottom();
+            maybeScrollToBottom(false);
         });
     }
 
-    private void appendMessage(String name, String text, boolean isUserSide) {
+    private void appendMessage(String name, String text, boolean isUserSide, boolean forceScroll) {
         runOnUiThread(() -> {
+            boolean shouldScroll = forceScroll || isNearBottom();
             TextView bubble = createMessageBubble(name, isUserSide);
             bubble.setText(formatMessageText(name, text));
-            scrollToBottom();
+            maybeScrollToBottom(shouldScroll);
         });
     }
 
@@ -1911,10 +1919,18 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         return name + "\n" + body;
     }
 
-    private void scrollToBottom() {
-        if (scrollView != null) {
-            scrollView.post(() -> scrollView.fullScroll(View.FOCUS_DOWN));
-        }
+    private void maybeScrollToBottom(boolean force) {
+        if (scrollView == null) return;
+        if (!force && !isNearBottom()) return;
+        scrollView.post(() -> scrollView.fullScroll(View.FOCUS_DOWN));
+    }
+
+    private boolean isNearBottom() {
+        if (scrollView == null) return true;
+        if (scrollView.getChildCount() == 0) return true;
+        View child = scrollView.getChildAt(0);
+        int diff = child.getBottom() - (scrollView.getHeight() + scrollView.getScrollY());
+        return diff <= autoScrollThresholdPx;
     }
 
     private int dpToPx(int dp) {

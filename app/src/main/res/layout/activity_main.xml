@@ -453,10 +453,10 @@
             android:padding="12dp">
 
             <LinearLayout
+                android:id="@+id/chatDragArea"
                 android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center"
-                android:paddingBottom="6dp">
+                android:layout_height="24dp"
+                android:gravity="center">
                 <View
                     android:id="@+id/chatDragHandle"
                     android:layout_width="40dp"
