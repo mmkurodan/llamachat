@@ -17,6 +17,7 @@ import android.speech.tts.TextToSpeech;
 import android.speech.tts.UtteranceProgressListener;
 import android.util.Log;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
@@ -81,22 +82,18 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final int REQ_PICK_C1 = 2001;
     private static final int REQ_PICK_C2 = 2002;
     private static final int REQ_PICK_C3 = 2003;
-    private static final int REQ_PICK_C4 = 2004;
     private static final int REQ_PICK_CHATTER_C0 = 2010;
     private static final int REQ_PICK_CHATTER_C1 = 2011;
     private static final int REQ_PICK_CHATTER_C2 = 2012;
     private static final int REQ_PICK_CHATTER_C3 = 2013;
-    private static final int REQ_PICK_CHATTER_C4 = 2014;
     private static final String AVATAR_C0_FILE = "avatar_c0.jpg";
     private static final String AVATAR_C1_FILE = "avatar_c1.jpg";
     private static final String AVATAR_C2_FILE = "avatar_c2.jpg";
     private static final String AVATAR_C3_FILE = "avatar_c3.jpg";
-    private static final String AVATAR_C4_FILE = "avatar_c4.jpg";
     private static final String AVATAR_CHATTER_C0_FILE = "avatar_chatter_c0.jpg";
     private static final String AVATAR_CHATTER_C1_FILE = "avatar_chatter_c1.jpg";
     private static final String AVATAR_CHATTER_C2_FILE = "avatar_chatter_c2.jpg";
     private static final String AVATAR_CHATTER_C3_FILE = "avatar_chatter_c3.jpg";
-    private static final String AVATAR_CHATTER_C4_FILE = "avatar_chatter_c4.jpg";
     private static final int TTS_WARMUP_MS = 120;
     private static final int AVATAR_TALK_FRAME_MS = 120;
     private static final int AVATAR_BLINK_MIN_MS = 3000;
@@ -106,10 +103,13 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     // --- UI ---
     private LinearLayout messageContainer;
     private EditText etInput;
-    private Button btnSend, btnSettings, btnPickC0, btnPickC1, btnPickC2, btnPickC3, btnPickC4;
-    private Button btnPickChatterC0, btnPickChatterC1, btnPickChatterC2, btnPickChatterC3, btnPickChatterC4;
+    private Button btnSend, btnSettings, btnPickC0, btnPickC1, btnPickC2, btnPickC3;
+    private Button btnPickChatterC0, btnPickChatterC1, btnPickChatterC2, btnPickChatterC3;
     private ScrollView scrollView;
     private View settingsPanel;
+    private View topPanel;
+    private LinearLayout chatPanel;
+    private View chatDragHandle;
     private Spinner spinnerModel, spinnerChatterModel;
     private RadioGroup groupMode, tabGroup;
     private RadioButton radioModeNormal, radioModeChatter, tabBase, tabChatter;
@@ -178,28 +178,24 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private final Handler autoHandler = new Handler(Looper.getMainLooper());
     private final Random avatarRandom = new Random();
     private final int[] talkFrames = new int[]{
-            R.drawable.c3, R.drawable.c4
+            R.drawable.c1, R.drawable.c3
     };
     private File avatarC0File;
     private File avatarC1File;
     private File avatarC2File;
     private File avatarC3File;
-    private File avatarC4File;
     private File avatarChatterC0File;
     private File avatarChatterC1File;
     private File avatarChatterC2File;
     private File avatarChatterC3File;
-    private File avatarChatterC4File;
     private Bitmap avatarC0Bitmap;
     private Bitmap avatarC1Bitmap;
     private Bitmap avatarC2Bitmap;
     private Bitmap avatarC3Bitmap;
-    private Bitmap avatarC4Bitmap;
     private Bitmap avatarChatterC0Bitmap;
     private Bitmap avatarChatterC1Bitmap;
     private Bitmap avatarChatterC2Bitmap;
     private Bitmap avatarChatterC3Bitmap;
-    private Bitmap avatarChatterC4Bitmap;
     private int talkFrameIndex = 0;
     private boolean isStreamingResponse = false;
     private AvatarMode avatarMode = AvatarMode.IDLE;
@@ -256,6 +252,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private TextView currentStreamingBubble;
     private ChatSpeaker currentStreamingSpeaker = ChatSpeaker.BASE;
     private ChatSpeaker currentTtsSpeaker = ChatSpeaker.BASE;
+    private boolean chatExpanded = false;
+    private float chatDragStartY = 0f;
+    private int chatDragThresholdPx = 0;
+    private int chatPanelMarginPx = 0;
 
     // --- 音声認識 ---
     private SpeechRecognizer speechRecognizer;
@@ -301,16 +301,17 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         btnPickC1 = findViewById(R.id.btnPickC1);
         btnPickC2 = findViewById(R.id.btnPickC2);
         btnPickC3 = findViewById(R.id.btnPickC3);
-        btnPickC4 = findViewById(R.id.btnPickC4);
         btnPickChatterC0 = findViewById(R.id.btnPickChatterC0);
         btnPickChatterC1 = findViewById(R.id.btnPickChatterC1);
         btnPickChatterC2 = findViewById(R.id.btnPickChatterC2);
         btnPickChatterC3 = findViewById(R.id.btnPickChatterC3);
-        btnPickChatterC4 = findViewById(R.id.btnPickChatterC4);
         ivAvatarBackground = findViewById(R.id.ivAvatarBackground);
         ivAvatar = findViewById(R.id.ivAvatar);
         scrollView = findViewById(R.id.scrollView);
         settingsPanel = findViewById(R.id.settingsPanel);
+        topPanel = findViewById(R.id.topPanel);
+        chatPanel = findViewById(R.id.chatPanel);
+        chatDragHandle = findViewById(R.id.chatDragHandle);
         spinnerModel = findViewById(R.id.spinnerModel);
         spinnerChatterModel = findViewById(R.id.spinnerChatterModel);
         groupMode = findViewById(R.id.groupMode);
@@ -342,6 +343,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         switchDebug = findViewById(R.id.switchDebug);
         etWebSearchUrl = findViewById(R.id.etWebSearchUrl);
         etWebSearchApiKey = findViewById(R.id.etWebSearchApiKey);
+        chatDragThresholdPx = dpToPx(48);
+        chatPanelMarginPx = dpToPx(12);
 
         modelList.add("default");
         modelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
@@ -370,6 +373,30 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         });
 
         tabGroup.setOnCheckedChangeListener((group, checkedId) -> updateSettingsTab());
+        if (chatDragHandle != null) {
+            chatDragHandle.setOnTouchListener((v, event) -> {
+                switch (event.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        chatDragStartY = event.getRawY();
+                        return true;
+                    case MotionEvent.ACTION_MOVE:
+                        float delta = event.getRawY() - chatDragStartY;
+                        if (!chatExpanded && delta < -chatDragThresholdPx) {
+                            setChatExpanded(true);
+                            chatDragStartY = event.getRawY();
+                        } else if (chatExpanded && delta > chatDragThresholdPx) {
+                            setChatExpanded(false);
+                            chatDragStartY = event.getRawY();
+                        }
+                        return true;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        return true;
+                    default:
+                        return false;
+                }
+            });
+        }
 
         btnSend.setOnClickListener(v -> {
             String userMsg = etInput.getText().toString().trim();
@@ -388,12 +415,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         btnPickC1.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C1));
         btnPickC2.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C2));
         btnPickC3.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C3));
-        btnPickC4.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C4));
         btnPickChatterC0.setOnClickListener(v -> pickAvatarImage(REQ_PICK_CHATTER_C0));
         btnPickChatterC1.setOnClickListener(v -> pickAvatarImage(REQ_PICK_CHATTER_C1));
         btnPickChatterC2.setOnClickListener(v -> pickAvatarImage(REQ_PICK_CHATTER_C2));
         btnPickChatterC3.setOnClickListener(v -> pickAvatarImage(REQ_PICK_CHATTER_C3));
-        btnPickChatterC4.setOnClickListener(v -> pickAvatarImage(REQ_PICK_CHATTER_C4));
     }
 
     // ========== アバター ==========
@@ -408,12 +433,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         avatarC1File = new File(dir, AVATAR_C1_FILE);
         avatarC2File = new File(dir, AVATAR_C2_FILE);
         avatarC3File = new File(dir, AVATAR_C3_FILE);
-        avatarC4File = new File(dir, AVATAR_C4_FILE);
         avatarChatterC0File = new File(dir, AVATAR_CHATTER_C0_FILE);
         avatarChatterC1File = new File(dir, AVATAR_CHATTER_C1_FILE);
         avatarChatterC2File = new File(dir, AVATAR_CHATTER_C2_FILE);
         avatarChatterC3File = new File(dir, AVATAR_CHATTER_C3_FILE);
-        avatarChatterC4File = new File(dir, AVATAR_CHATTER_C4_FILE);
         reloadAvatarBitmaps();
     }
 
@@ -422,12 +445,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         avatarC1Bitmap = loadAvatarBitmap(avatarC1File);
         avatarC2Bitmap = loadAvatarBitmap(avatarC2File);
         avatarC3Bitmap = loadAvatarBitmap(avatarC3File);
-        avatarC4Bitmap = loadAvatarBitmap(avatarC4File);
         avatarChatterC0Bitmap = loadAvatarBitmap(avatarChatterC0File);
         avatarChatterC1Bitmap = loadAvatarBitmap(avatarChatterC1File);
         avatarChatterC2Bitmap = loadAvatarBitmap(avatarChatterC2File);
         avatarChatterC3Bitmap = loadAvatarBitmap(avatarChatterC3File);
-        avatarChatterC4Bitmap = loadAvatarBitmap(avatarChatterC4File);
     }
 
     private Bitmap loadAvatarBitmap(File file) {
@@ -460,8 +481,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 return avatarC2File;
             case REQ_PICK_C3:
                 return avatarC3File;
-            case REQ_PICK_C4:
-                return avatarC4File;
             case REQ_PICK_CHATTER_C0:
                 return avatarChatterC0File;
             case REQ_PICK_CHATTER_C1:
@@ -470,8 +489,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 return avatarChatterC2File;
             case REQ_PICK_CHATTER_C3:
                 return avatarChatterC3File;
-            case REQ_PICK_CHATTER_C4:
-                return avatarChatterC4File;
             default:
                 return null;
         }
@@ -491,9 +508,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             case REQ_PICK_C3:
             case REQ_PICK_CHATTER_C3:
                 return R.drawable.c3;
-            case REQ_PICK_C4:
-            case REQ_PICK_CHATTER_C4:
-                return R.drawable.c4;
             default:
                 return 0;
         }
@@ -521,7 +535,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             case REQ_PICK_CHATTER_C1:
             case REQ_PICK_CHATTER_C2:
             case REQ_PICK_CHATTER_C3:
-            case REQ_PICK_CHATTER_C4:
                 return ChatSpeaker.CHATTER;
             default:
                 return ChatSpeaker.BASE;
@@ -574,8 +587,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 custom = activeSpeaker == ChatSpeaker.BASE ? avatarC2Bitmap : avatarChatterC2Bitmap;
             } else if (resId == R.drawable.c3) {
                 custom = activeSpeaker == ChatSpeaker.BASE ? avatarC3Bitmap : avatarChatterC3Bitmap;
-            } else if (resId == R.drawable.c4) {
-                custom = activeSpeaker == ChatSpeaker.BASE ? avatarC4Bitmap : avatarChatterC4Bitmap;
             }
             if (custom != null) {
                 ivAvatar.setImageBitmap(custom);
@@ -936,6 +947,22 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         boolean showChatter = tabChatter.isChecked();
         baseSettingsGroup.setVisibility(showChatter ? View.GONE : View.VISIBLE);
         chatterSettingsGroup.setVisibility(showChatter ? View.VISIBLE : View.GONE);
+    }
+
+    private void setChatExpanded(boolean expanded) {
+        if (chatExpanded == expanded) return;
+        chatExpanded = expanded;
+        runOnUiThread(() -> {
+            if (topPanel != null) {
+                topPanel.setVisibility(expanded ? View.GONE : View.VISIBLE);
+            }
+            if (chatPanel != null) {
+                LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) chatPanel.getLayoutParams();
+                int margin = expanded ? 0 : chatPanelMarginPx;
+                params.setMargins(margin, margin, margin, margin);
+                chatPanel.setLayoutParams(params);
+            }
+        });
     }
 
     // ========== TTS ==========
@@ -1679,6 +1706,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     String text = fullResponse.toString();
                     if (!text.isEmpty()) {
                         addToHistory(getHistoryForSpeaker(speaker), "assistant", text);
+                    } else {
+                        appendAssistantMessage(speaker, "（応答なし）");
                     }
                     completed = true;
                 } catch (Exception e) {
