@@ -103,6 +103,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     // --- UI ---
     private LinearLayout messageContainer;
     private EditText etInput;
+    private LinearLayout inputBubble;
     private Button btnSend, btnSettings, btnPickC0, btnPickC1, btnPickC2, btnPickC3;
     private Button btnPickChatterC0, btnPickChatterC1, btnPickChatterC2, btnPickChatterC3;
     private ScrollView scrollView;
@@ -253,7 +254,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private TextView currentStreamingBubble;
     private ChatSpeaker currentStreamingSpeaker = ChatSpeaker.BASE;
     private ChatSpeaker currentTtsSpeaker = ChatSpeaker.BASE;
-    private boolean chatExpanded = false;
+    private enum ChatPanelState { COLLAPSED, NORMAL, EXPANDED }
+    private ChatPanelState chatPanelState = ChatPanelState.NORMAL;
     private float chatDragStartY = 0f;
     private int chatDragThresholdPx = 0;
     private int chatPanelMarginPx = 0;
@@ -298,6 +300,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private void initViews() {
         messageContainer = findViewById(R.id.messageContainer);
         etInput = findViewById(R.id.etInput);
+        inputBubble = findViewById(R.id.inputBubble);
         btnSend = findViewById(R.id.btnSend);
         btnSettings = findViewById(R.id.btnSettings);
         btnPickC0 = findViewById(R.id.btnPickC0);
@@ -395,11 +398,17 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                         return true;
                     case MotionEvent.ACTION_MOVE:
                         float delta = event.getRawY() - chatDragStartY;
-                        if (!chatExpanded && delta < -chatDragThresholdPx) {
-                            setChatExpanded(true);
+                        if (chatPanelState == ChatPanelState.NORMAL && delta < -chatDragThresholdPx) {
+                            setChatPanelState(ChatPanelState.EXPANDED);
                             chatDragStartY = event.getRawY();
-                        } else if (chatExpanded && delta > chatDragThresholdPx) {
-                            setChatExpanded(false);
+                        } else if (chatPanelState == ChatPanelState.NORMAL && delta > chatDragThresholdPx) {
+                            setChatPanelState(ChatPanelState.COLLAPSED);
+                            chatDragStartY = event.getRawY();
+                        } else if (chatPanelState == ChatPanelState.EXPANDED && delta > chatDragThresholdPx) {
+                            setChatPanelState(ChatPanelState.NORMAL);
+                            chatDragStartY = event.getRawY();
+                        } else if (chatPanelState == ChatPanelState.COLLAPSED && delta < -chatDragThresholdPx) {
+                            setChatPanelState(ChatPanelState.NORMAL);
                             chatDragStartY = event.getRawY();
                         }
                         return true;
@@ -963,29 +972,46 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         chatterSettingsGroup.setVisibility(showChatter ? View.VISIBLE : View.GONE);
     }
 
-    private void setChatExpanded(boolean expanded) {
-        if (chatExpanded == expanded) return;
-        chatExpanded = expanded;
+    private void setChatPanelState(ChatPanelState state) {
+        if (chatPanelState == state) return;
+        chatPanelState = state;
         runOnUiThread(() -> {
             if (topPanel != null) {
                 LinearLayout.LayoutParams topParams = (LinearLayout.LayoutParams) topPanel.getLayoutParams();
-                topParams.height = expanded ? LinearLayout.LayoutParams.WRAP_CONTENT : 0;
-                topParams.weight = expanded ? 0f : 1f;
+                if (state == ChatPanelState.EXPANDED) {
+                    topParams.height = LinearLayout.LayoutParams.WRAP_CONTENT;
+                    topParams.weight = 0f;
+                } else {
+                    topParams.height = 0;
+                    topParams.weight = state == ChatPanelState.COLLAPSED ? 2f : 1f;
+                }
                 topPanel.setLayoutParams(topParams);
-                if (settingsPanel != null && expanded) {
+                if (settingsPanel != null && state == ChatPanelState.EXPANDED) {
                     wasSettingsPanelVisible = settingsPanel.getVisibility() == View.VISIBLE;
                     settingsPanel.setVisibility(View.GONE);
-                } else if (settingsPanel != null && !expanded && wasSettingsPanelVisible) {
+                } else if (settingsPanel != null && state != ChatPanelState.EXPANDED && wasSettingsPanelVisible) {
                     settingsPanel.setVisibility(View.VISIBLE);
                     wasSettingsPanelVisible = false;
                 }
             }
             if (chatPanel != null) {
                 LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) chatPanel.getLayoutParams();
-                int margin = expanded ? 0 : chatPanelMarginPx;
-                params.weight = expanded ? 2f : 1f;
+                int margin = state == ChatPanelState.EXPANDED ? 0 : chatPanelMarginPx;
+                if (state == ChatPanelState.COLLAPSED) {
+                    params.weight = 0f;
+                    params.height = LinearLayout.LayoutParams.WRAP_CONTENT;
+                } else {
+                    params.weight = state == ChatPanelState.EXPANDED ? 2f : 1f;
+                    params.height = 0;
+                }
                 params.setMargins(margin, margin, margin, margin);
                 chatPanel.setLayoutParams(params);
+            }
+            if (scrollView != null) {
+                scrollView.setVisibility(state == ChatPanelState.COLLAPSED ? View.GONE : View.VISIBLE);
+            }
+            if (inputBubble != null) {
+                inputBubble.setVisibility(state == ChatPanelState.COLLAPSED ? View.GONE : View.VISIBLE);
             }
             requestChatLayoutUpdate();
         });
@@ -1965,17 +1991,20 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     private void requestChatLayoutUpdate() {
-        if (messageContainer != null) {
-            messageContainer.requestLayout();
-            messageContainer.invalidate();
-        }
         if (scrollView != null) {
-            scrollView.requestLayout();
-            scrollView.invalidate();
-        }
-        if (chatPanel != null) {
-            chatPanel.requestLayout();
-            chatPanel.invalidate();
+            scrollView.post(() -> {
+                if (messageContainer != null) {
+                    messageContainer.requestLayout();
+                    messageContainer.invalidate();
+                }
+                scrollView.requestLayout();
+                scrollView.invalidate();
+                scrollView.postInvalidateOnAnimation();
+                if (chatPanel != null) {
+                    chatPanel.requestLayout();
+                    chatPanel.invalidate();
+                }
+            });
         }
     }
 
