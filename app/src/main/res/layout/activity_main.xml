@@ -452,34 +452,41 @@
             android:background="@drawable/chat_panel_bg"
             android:padding="12dp">
 
-            <LinearLayout
-                android:id="@+id/chatDragArea"
-                android:layout_width="match_parent"
-                android:layout_height="32dp"
-                android:gravity="center"
-                android:clickable="true"
-                android:focusable="true">
-                <View
-                    android:id="@+id/chatDragHandle"
-                    android:layout_width="40dp"
-                    android:layout_height="4dp"
-                    android:background="#CCCCCC"/>
-            </LinearLayout>
-
-            <!-- チャットメッセージ -->
-            <ScrollView
-                android:id="@+id/scrollView"
+            <FrameLayout
                 android:layout_width="match_parent"
                 android:layout_height="0dp"
-                android:layout_weight="1"
-                android:fillViewport="true">
+                android:layout_weight="1">
+
+                <!-- チャットメッセージ -->
+                <ScrollView
+                    android:id="@+id/scrollView"
+                    android:layout_width="match_parent"
+                    android:layout_height="match_parent"
+                    android:fillViewport="true"
+                    android:paddingTop="32dp">
+
+                    <LinearLayout
+                        android:id="@+id/messageContainer"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"/>
+                </ScrollView>
 
                 <LinearLayout
-                    android:id="@+id/messageContainer"
+                    android:id="@+id/chatDragArea"
                     android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:orientation="vertical"/>
-            </ScrollView>
+                    android:layout_height="32dp"
+                    android:layout_gravity="top"
+                    android:gravity="center"
+                    android:clickable="true"
+                    android:focusable="true">
+                    <View
+                        android:id="@+id/chatDragHandle"
+                        android:layout_width="40dp"
+                        android:layout_height="4dp"
+                        android:background="#CCCCCC"/>
+                </LinearLayout>
+            </FrameLayout>
 
             <!-- 入力エリア -->
             <LinearLayout

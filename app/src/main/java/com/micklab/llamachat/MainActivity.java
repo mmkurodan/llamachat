@@ -263,6 +263,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private final Object streamBufferLock = new Object();
     private final StringBuilder streamBuffer = new StringBuilder();
     private boolean streamFlushScheduled = false;
+    private final StringBuilder streamingTextBuffer = new StringBuilder();
 
     // --- 音声認識 ---
     private SpeechRecognizer speechRecognizer;
@@ -1873,7 +1874,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             currentStreamingSpeaker = speaker;
             currentStreamingBubble = createMessageBubble(getSpeakerName(speaker), isUserSideForSpeaker(speaker));
             String header = getSpeakerName(speaker);
-            currentStreamingBubble.setText(header == null || header.isEmpty() ? "" : header + "\n");
+            streamingTextBuffer.setLength(0);
+            currentStreamingBubble.setText(formatMessageText(header, ""));
             flushStreamingBuffer();
             requestChatLayoutUpdate();
             maybeScrollToBottom(shouldScroll);
@@ -1887,7 +1889,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private void appendStreamingMessageInternal(String content) {
         if (currentStreamingBubble == null) return;
         boolean shouldScroll = isNearBottom();
-        currentStreamingBubble.append(content);
+        streamingTextBuffer.append(content);
+        String header = getSpeakerName(currentStreamingSpeaker);
+        currentStreamingBubble.setText(formatMessageText(header, streamingTextBuffer.toString()));
         currentStreamingBubble.requestLayout();
         currentStreamingBubble.invalidate();
         requestChatLayoutUpdate();
@@ -1897,6 +1901,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private void finishStreamingMessage() {
         runOnUiThread(() -> {
             currentStreamingBubble = null;
+            streamingTextBuffer.setLength(0);
             requestChatLayoutUpdate();
             maybeScrollToBottom(false);
         });
@@ -2020,6 +2025,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             streamBuffer.setLength(0);
             streamFlushScheduled = false;
         }
+        streamingTextBuffer.setLength(0);
     }
 
     private String getSpeakerName(ChatSpeaker speaker) {
