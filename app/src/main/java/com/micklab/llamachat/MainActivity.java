@@ -353,9 +353,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         float elevation = dpToPx(2);
         if (topPanel != null) {
             topPanel.setElevation(elevation);
+            topPanel.bringToFront();
         }
         if (chatPanel != null) {
             chatPanel.setElevation(elevation);
+            chatPanel.bringToFront();
         }
 
         modelList.add("default");
@@ -981,10 +983,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             if (chatPanel != null) {
                 LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) chatPanel.getLayoutParams();
                 int margin = expanded ? 0 : chatPanelMarginPx;
-                params.weight = 1f;
+                params.weight = expanded ? 2f : 1f;
                 params.setMargins(margin, margin, margin, margin);
                 chatPanel.setLayoutParams(params);
             }
+            requestChatLayoutUpdate();
         });
     }
 
@@ -1877,6 +1880,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             currentStreamingBubble = createMessageBubble(getSpeakerName(speaker), isUserSideForSpeaker(speaker));
             String header = getSpeakerName(speaker);
             currentStreamingBubble.setText(header == null || header.isEmpty() ? "" : header + "\n");
+            requestChatLayoutUpdate();
             maybeScrollToBottom(shouldScroll);
         });
     }
@@ -1886,6 +1890,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             if (currentStreamingBubble == null) return;
             boolean shouldScroll = isNearBottom();
             currentStreamingBubble.append(content);
+            currentStreamingBubble.requestLayout();
+            currentStreamingBubble.invalidate();
+            requestChatLayoutUpdate();
             maybeScrollToBottom(shouldScroll);
         });
     }
@@ -1893,6 +1900,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private void finishStreamingMessage() {
         runOnUiThread(() -> {
             currentStreamingBubble = null;
+            requestChatLayoutUpdate();
             maybeScrollToBottom(false);
         });
     }
@@ -1902,6 +1910,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             boolean shouldScroll = forceScroll || isNearBottom();
             TextView bubble = createMessageBubble(name, isUserSide);
             bubble.setText(formatMessageText(name, text));
+            requestChatLayoutUpdate();
             maybeScrollToBottom(shouldScroll);
         });
     }
@@ -1953,6 +1962,21 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private int dpToPx(int dp) {
         return Math.round(dp * getResources().getDisplayMetrics().density);
+    }
+
+    private void requestChatLayoutUpdate() {
+        if (messageContainer != null) {
+            messageContainer.requestLayout();
+            messageContainer.invalidate();
+        }
+        if (scrollView != null) {
+            scrollView.requestLayout();
+            scrollView.invalidate();
+        }
+        if (chatPanel != null) {
+            chatPanel.requestLayout();
+            chatPanel.invalidate();
+        }
     }
 
     private String getSpeakerName(ChatSpeaker speaker) {
