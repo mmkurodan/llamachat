@@ -395,35 +395,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
         tabGroup.setOnCheckedChangeListener((group, checkedId) -> updateSettingsTab());
         if (chatDragArea != null) {
-            chatDragArea.setOnTouchListener((v, event) -> {
-                switch (event.getActionMasked()) {
-                    case MotionEvent.ACTION_DOWN:
-                        chatDragStartY = event.getRawY();
-                        v.getParent().requestDisallowInterceptTouchEvent(true);
-                        return true;
-                    case MotionEvent.ACTION_MOVE:
-                        float delta = event.getRawY() - chatDragStartY;
-                        if (!chatExpanded && delta < -chatDragThresholdPx) {
-                            setChatExpanded(true);
-                            chatDragStartY = event.getRawY();
-                        } else if (chatExpanded && delta > chatDragThresholdPx) {
-                            setChatExpanded(false);
-                            chatDragStartY = event.getRawY();
-                        }
-                        return true;
-                    case MotionEvent.ACTION_UP:
-                    case MotionEvent.ACTION_CANCEL:
-                        float endDelta = event.getRawY() - chatDragStartY;
-                        if (endDelta < -chatDragThresholdPx) {
-                            setChatExpanded(true);
-                        } else if (endDelta > chatDragThresholdPx) {
-                            setChatExpanded(false);
-                        }
-                        return true;
-                    default:
-                        return false;
-                }
-            });
+            chatDragArea.setOnClickListener(v -> setChatExpanded(!chatExpanded));
         }
 
         btnSend.setOnClickListener(v -> {
