@@ -261,6 +261,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private int chatPanelMarginPx = 0;
     private int autoScrollThresholdPx = 0;
     private boolean wasSettingsPanelVisible = false;
+    private final Handler uiHandler = new Handler(Looper.getMainLooper());
+    private final Object streamBufferLock = new Object();
+    private final StringBuilder streamBuffer = new StringBuilder();
+    private boolean streamFlushScheduled = false;
 
     // --- 音声認識 ---
     private SpeechRecognizer speechRecognizer;
@@ -362,6 +366,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             chatPanel.setElevation(elevation);
             chatPanel.bringToFront();
         }
+        if (chatDragArea != null) {
+            chatDragArea.bringToFront();
+        }
 
         modelList.add("default");
         modelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
@@ -395,6 +402,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 switch (event.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
                         chatDragStartY = event.getRawY();
+                        v.getParent().requestDisallowInterceptTouchEvent(true);
                         return true;
                     case MotionEvent.ACTION_MOVE:
                         float delta = event.getRawY() - chatDragStartY;
@@ -414,6 +422,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                         return true;
                     case MotionEvent.ACTION_UP:
                     case MotionEvent.ACTION_CANCEL:
+                        float endDelta = event.getRawY() - chatDragStartY;
+                        if (endDelta < -chatDragThresholdPx) {
+                            setChatPanelState(chatPanelState == ChatPanelState.COLLAPSED
+                                    ? ChatPanelState.NORMAL
+                                    : ChatPanelState.EXPANDED);
+                        } else if (endDelta > chatDragThresholdPx) {
+                            setChatPanelState(ChatPanelState.COLLAPSED);
+                        }
                         return true;
                     default:
                         return false;
@@ -1729,7 +1745,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                                         first = false;
                                     }
                                     fullResponse.append(content);
-                                    appendStreamingMessage(content);
+                                    queueStreamingChunk(content);
                                     if (!streamingStarted) {
                                         setStreamingResponse(true, speaker);
                                         streamingStarted = true;
@@ -1749,6 +1765,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     if (debugRaw != null) {
                         appendDebug("/api/chat 返信", buildResponseDebugText(response, debugRaw.toString()));
                     }
+                    flushStreamingBuffer();
                     finishStreamingMessage();
 
                     if (ttsEnabled) {
@@ -1906,21 +1923,24 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             currentStreamingBubble = createMessageBubble(getSpeakerName(speaker), isUserSideForSpeaker(speaker));
             String header = getSpeakerName(speaker);
             currentStreamingBubble.setText(header == null || header.isEmpty() ? "" : header + "\n");
+            resetStreamBuffer();
             requestChatLayoutUpdate();
             maybeScrollToBottom(shouldScroll);
         });
     }
 
     private void appendStreamingMessage(String content) {
-        runOnUiThread(() -> {
-            if (currentStreamingBubble == null) return;
-            boolean shouldScroll = isNearBottom();
-            currentStreamingBubble.append(content);
-            currentStreamingBubble.requestLayout();
-            currentStreamingBubble.invalidate();
-            requestChatLayoutUpdate();
-            maybeScrollToBottom(shouldScroll);
-        });
+        runOnUiThread(() -> appendStreamingMessageInternal(content));
+    }
+
+    private void appendStreamingMessageInternal(String content) {
+        if (currentStreamingBubble == null) return;
+        boolean shouldScroll = isNearBottom();
+        currentStreamingBubble.append(content);
+        currentStreamingBubble.requestLayout();
+        currentStreamingBubble.invalidate();
+        requestChatLayoutUpdate();
+        maybeScrollToBottom(shouldScroll);
     }
 
     private void finishStreamingMessage() {
@@ -1996,6 +2016,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 if (messageContainer != null) {
                     messageContainer.requestLayout();
                     messageContainer.invalidate();
+                    messageContainer.postInvalidateOnAnimation();
                 }
                 scrollView.requestLayout();
                 scrollView.invalidate();
@@ -2003,8 +2024,39 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 if (chatPanel != null) {
                     chatPanel.requestLayout();
                     chatPanel.invalidate();
+                    chatPanel.postInvalidateOnAnimation();
                 }
             });
+        }
+    }
+
+    private void queueStreamingChunk(String content) {
+        synchronized (streamBufferLock) {
+            streamBuffer.append(content);
+            if (streamFlushScheduled) return;
+            streamFlushScheduled = true;
+        }
+        uiHandler.post(this::flushStreamingBuffer);
+    }
+
+    private void flushStreamingBuffer() {
+        String chunk;
+        synchronized (streamBufferLock) {
+            if (streamBuffer.length() == 0) {
+                streamFlushScheduled = false;
+                return;
+            }
+            chunk = streamBuffer.toString();
+            streamBuffer.setLength(0);
+            streamFlushScheduled = false;
+        }
+        appendStreamingMessageInternal(chunk);
+    }
+
+    private void resetStreamBuffer() {
+        synchronized (streamBufferLock) {
+            streamBuffer.setLength(0);
+            streamFlushScheduled = false;
         }
     }
 
