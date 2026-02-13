@@ -103,7 +103,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     // --- UI ---
     private LinearLayout messageContainer;
     private EditText etInput;
-    private LinearLayout inputBubble;
     private Button btnSend, btnSettings, btnPickC0, btnPickC1, btnPickC2, btnPickC3;
     private Button btnPickChatterC0, btnPickChatterC1, btnPickChatterC2, btnPickChatterC3;
     private ScrollView scrollView;
@@ -254,8 +253,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private TextView currentStreamingBubble;
     private ChatSpeaker currentStreamingSpeaker = ChatSpeaker.BASE;
     private ChatSpeaker currentTtsSpeaker = ChatSpeaker.BASE;
-    private enum ChatPanelState { COLLAPSED, NORMAL, EXPANDED }
-    private ChatPanelState chatPanelState = ChatPanelState.NORMAL;
+    private boolean chatExpanded = false;
     private float chatDragStartY = 0f;
     private int chatDragThresholdPx = 0;
     private int chatPanelMarginPx = 0;
@@ -304,7 +302,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private void initViews() {
         messageContainer = findViewById(R.id.messageContainer);
         etInput = findViewById(R.id.etInput);
-        inputBubble = findViewById(R.id.inputBubble);
         btnSend = findViewById(R.id.btnSend);
         btnSettings = findViewById(R.id.btnSettings);
         btnPickC0 = findViewById(R.id.btnPickC0);
@@ -406,17 +403,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                         return true;
                     case MotionEvent.ACTION_MOVE:
                         float delta = event.getRawY() - chatDragStartY;
-                        if (chatPanelState == ChatPanelState.NORMAL && delta < -chatDragThresholdPx) {
-                            setChatPanelState(ChatPanelState.EXPANDED);
+                        if (!chatExpanded && delta < -chatDragThresholdPx) {
+                            setChatExpanded(true);
                             chatDragStartY = event.getRawY();
-                        } else if (chatPanelState == ChatPanelState.NORMAL && delta > chatDragThresholdPx) {
-                            setChatPanelState(ChatPanelState.COLLAPSED);
-                            chatDragStartY = event.getRawY();
-                        } else if (chatPanelState == ChatPanelState.EXPANDED && delta > chatDragThresholdPx) {
-                            setChatPanelState(ChatPanelState.NORMAL);
-                            chatDragStartY = event.getRawY();
-                        } else if (chatPanelState == ChatPanelState.COLLAPSED && delta < -chatDragThresholdPx) {
-                            setChatPanelState(ChatPanelState.NORMAL);
+                        } else if (chatExpanded && delta > chatDragThresholdPx) {
+                            setChatExpanded(false);
                             chatDragStartY = event.getRawY();
                         }
                         return true;
@@ -424,11 +415,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     case MotionEvent.ACTION_CANCEL:
                         float endDelta = event.getRawY() - chatDragStartY;
                         if (endDelta < -chatDragThresholdPx) {
-                            setChatPanelState(chatPanelState == ChatPanelState.COLLAPSED
-                                    ? ChatPanelState.NORMAL
-                                    : ChatPanelState.EXPANDED);
+                            setChatExpanded(true);
                         } else if (endDelta > chatDragThresholdPx) {
-                            setChatPanelState(ChatPanelState.COLLAPSED);
+                            setChatExpanded(false);
                         }
                         return true;
                     default:
@@ -988,46 +977,35 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         chatterSettingsGroup.setVisibility(showChatter ? View.VISIBLE : View.GONE);
     }
 
-    private void setChatPanelState(ChatPanelState state) {
-        if (chatPanelState == state) return;
-        chatPanelState = state;
+    private void setChatExpanded(boolean expanded) {
+        if (chatExpanded == expanded) return;
+        chatExpanded = expanded;
         runOnUiThread(() -> {
             if (topPanel != null) {
                 LinearLayout.LayoutParams topParams = (LinearLayout.LayoutParams) topPanel.getLayoutParams();
-                if (state == ChatPanelState.EXPANDED) {
+                if (expanded) {
                     topParams.height = LinearLayout.LayoutParams.WRAP_CONTENT;
                     topParams.weight = 0f;
                 } else {
                     topParams.height = 0;
-                    topParams.weight = state == ChatPanelState.COLLAPSED ? 2f : 1f;
+                    topParams.weight = 1f;
                 }
                 topPanel.setLayoutParams(topParams);
-                if (settingsPanel != null && state == ChatPanelState.EXPANDED) {
+                if (settingsPanel != null && expanded) {
                     wasSettingsPanelVisible = settingsPanel.getVisibility() == View.VISIBLE;
                     settingsPanel.setVisibility(View.GONE);
-                } else if (settingsPanel != null && state != ChatPanelState.EXPANDED && wasSettingsPanelVisible) {
+                } else if (settingsPanel != null && !expanded && wasSettingsPanelVisible) {
                     settingsPanel.setVisibility(View.VISIBLE);
                     wasSettingsPanelVisible = false;
                 }
             }
             if (chatPanel != null) {
                 LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) chatPanel.getLayoutParams();
-                int margin = state == ChatPanelState.EXPANDED ? 0 : chatPanelMarginPx;
-                if (state == ChatPanelState.COLLAPSED) {
-                    params.weight = 0f;
-                    params.height = LinearLayout.LayoutParams.WRAP_CONTENT;
-                } else {
-                    params.weight = state == ChatPanelState.EXPANDED ? 2f : 1f;
-                    params.height = 0;
-                }
+                int margin = expanded ? 0 : chatPanelMarginPx;
+                params.weight = expanded ? 2f : 1f;
+                params.height = 0;
                 params.setMargins(margin, margin, margin, margin);
                 chatPanel.setLayoutParams(params);
-            }
-            if (scrollView != null) {
-                scrollView.setVisibility(state == ChatPanelState.COLLAPSED ? View.GONE : View.VISIBLE);
-            }
-            if (inputBubble != null) {
-                inputBubble.setVisibility(state == ChatPanelState.COLLAPSED ? View.GONE : View.VISIBLE);
             }
             requestChatLayoutUpdate();
         });
@@ -1618,6 +1596,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         setStreamingResponse(false, null);
         cancelAutoChatter();
         pendingAutoVoiceStart = false;
+        resetStreamBuffer();
 
         try {
             JSONArray messages = new JSONArray();
@@ -1923,7 +1902,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             currentStreamingBubble = createMessageBubble(getSpeakerName(speaker), isUserSideForSpeaker(speaker));
             String header = getSpeakerName(speaker);
             currentStreamingBubble.setText(header == null || header.isEmpty() ? "" : header + "\n");
-            resetStreamBuffer();
+            flushStreamingBuffer();
             requestChatLayoutUpdate();
             maybeScrollToBottom(shouldScroll);
         });
@@ -2049,6 +2028,17 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             chunk = streamBuffer.toString();
             streamBuffer.setLength(0);
             streamFlushScheduled = false;
+        }
+        if (currentStreamingBubble == null) {
+            synchronized (streamBufferLock) {
+                streamBuffer.append(chunk);
+                if (streamFlushScheduled) {
+                    return;
+                }
+                streamFlushScheduled = true;
+            }
+            uiHandler.postDelayed(this::flushStreamingBuffer, 16);
+            return;
         }
         appendStreamingMessageInternal(chunk);
     }
