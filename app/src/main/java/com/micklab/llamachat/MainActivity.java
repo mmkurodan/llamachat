@@ -1,7 +1,11 @@
 package com.micklab.llamachat;
 
+import android.app.AlertDialog;
 import android.app.Activity;
 import android.Manifest;
+import android.content.ClipData;
+import android.content.ClipboardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -104,7 +108,12 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private LinearLayout messageContainer;
     private EditText etInput;
     private Button btnSend, btnSettings, btnPickC0, btnPickC1, btnPickC2, btnPickC3;
+    private Button btnClearC0, btnClearC1, btnClearC2, btnClearC3;
     private Button btnPickChatterC0, btnPickChatterC1, btnPickChatterC2, btnPickChatterC3;
+    private Button btnClearChatterC0, btnClearChatterC1, btnClearChatterC2, btnClearChatterC3;
+    private Button btnHelp, btnPrivacy, btnRights;
+    private TextView tvC0Filename, tvC1Filename, tvC2Filename, tvC3Filename;
+    private TextView tvChatterC0Filename, tvChatterC1Filename, tvChatterC2Filename, tvChatterC3Filename;
     private ScrollView scrollView;
     private View settingsPanel;
     private View topPanel;
@@ -124,7 +133,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private ImageView ivAvatarBackground;
     private ImageView ivAvatar;
 
-    // --- 設定（デフォルト値） ---
+    // --- Settings (defaults) ---
     private String ollamaBaseUrl = "http://localhost:11434";
     private String selectedModel = "default";
     private String chatterModel = "default";
@@ -174,7 +183,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
     }
 
-    // --- アバター ---
+    // --- Avatar ---
     private final Handler avatarHandler = new Handler(Looper.getMainLooper());
     private final Handler autoHandler = new Handler(Looper.getMainLooper());
     private final Random avatarRandom = new Random();
@@ -236,12 +245,12 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
     };
 
-    // --- モデル一覧 ---
+    // --- Model List ---
     private final List<String> modelList = new ArrayList<>();
     private ArrayAdapter<String> modelAdapter;
     private ArrayAdapter<String> chatterModelAdapter;
 
-    // --- チャット ---
+    // --- Chat ---
     private final List<JSONObject> conversationHistory = new ArrayList<>();
     private final List<JSONObject> chatterHistory = new ArrayList<>();
     private volatile boolean isProcessing = false;
@@ -264,14 +273,69 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private final StringBuilder streamBuffer = new StringBuilder();
     private boolean streamFlushScheduled = false;
     private final StringBuilder streamingTextBuffer = new StringBuilder();
+    private Call currentCall = null;
 
-    // --- 音声認識 ---
+    // --- Voice Recognition ---
     private SpeechRecognizer speechRecognizer;
     private boolean pendingVoiceStart = false;
     private boolean triedOnlineFallback = false;
     private boolean currentPreferOffline = true;
 
-    // --- ネットワーク ---
+    // --- Help/Privacy/Rights Content ---
+    private static final String HELP_TEXT =
+            "【使い方 / How to Use】\n\n" +
+            "■ 基本操作 / Basic Operations\n" +
+            "・メッセージを入力して送信ボタンを押すとAIと会話できます。\n" +
+            "・Enter a message and press Send to chat with AI.\n\n" +
+            "・空欄で送信すると音声入力が開始されます（音声認識有効時）。\n" +
+            "・Sending empty triggers voice input (when enabled).\n\n" +
+            "■ モード / Modes\n" +
+            "・Normal: 通常のチャット / Standard chat mode\n" +
+            "・Chatter: 2つのAI同士が会話します / Two AIs converse\n\n" +
+            "■ 設定 / Settings\n" +
+            "・Streaming: リアルタイム応答表示 / Real-time response\n" +
+            "・TTS: 音声読み上げ / Text-to-speech\n" +
+            "・Web Search: 検索結果を参照 / Reference search results\n\n" +
+            "■ アバター / Avatar\n" +
+            "・c0: 背景画像 / Background image\n" +
+            "・c1: 基本表情 / Base expression\n" +
+            "・c2: まばたき / Blink frame\n" +
+            "・c3: 会話中 / Talking frame";
+
+    private static final String PRIVACY_TEXT =
+            "【プライバシーポリシー / Privacy Policy】\n\n" +
+            "■ データの収集 / Data Collection\n" +
+            "・本アプリはユーザーの会話データをサーバーに送信しません。\n" +
+            "・This app does not send conversation data to any server.\n\n" +
+            "・すべての会話は設定されたOllamaサーバーとの間でのみ行われます。\n" +
+            "・All conversations occur only with your configured Ollama server.\n\n" +
+            "■ ローカルデータ / Local Data\n" +
+            "・設定とアバター画像はデバイス内にのみ保存されます。\n" +
+            "・Settings and avatar images are stored locally on device only.\n\n" +
+            "■ Web検索 / Web Search\n" +
+            "・Web検索機能を使用する場合、検索クエリは設定されたAPIに送信されます。\n" +
+            "・When using Web Search, queries are sent to your configured API.\n\n" +
+            "■ 音声認識 / Voice Recognition\n" +
+            "・音声認識はデバイスのシステム機能を使用します。\n" +
+            "・Voice recognition uses your device's system features.";
+
+    private static final String RIGHTS_TEXT =
+            "【権利情報 / Rights Information】\n\n" +
+            "■ アプリケーション / Application\n" +
+            "・本アプリはオープンソースソフトウェアです。\n" +
+            "・This application is open source software.\n\n" +
+            "■ 使用ライブラリ / Libraries Used\n" +
+            "・OkHttp - Apache License 2.0\n" +
+            "・Android SDK - Apache License 2.0\n\n" +
+            "■ 免責事項 / Disclaimer\n" +
+            "・AIの応答内容について開発者は責任を負いません。\n" +
+            "・Developer is not responsible for AI response content.\n\n" +
+            "・本アプリの使用は自己責任でお願いします。\n" +
+            "・Use this app at your own risk.\n\n" +
+            "■ 連絡先 / Contact\n" +
+            "・GitHub: https://github.com/micklab";
+
+    // --- Network ---
     private final OkHttpClient client = new OkHttpClient.Builder()
             .connectTimeout(3600, TimeUnit.SECONDS)
             .writeTimeout(3600, TimeUnit.SECONDS)
@@ -298,7 +362,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         fetchModels();
     }
 
-    // ========== UI初期化 ==========
+    // ========== UI Initialization ==========
 
     private void initViews() {
         messageContainer = findViewById(R.id.messageContainer);
@@ -309,10 +373,29 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         btnPickC1 = findViewById(R.id.btnPickC1);
         btnPickC2 = findViewById(R.id.btnPickC2);
         btnPickC3 = findViewById(R.id.btnPickC3);
+        btnClearC0 = findViewById(R.id.btnClearC0);
+        btnClearC1 = findViewById(R.id.btnClearC1);
+        btnClearC2 = findViewById(R.id.btnClearC2);
+        btnClearC3 = findViewById(R.id.btnClearC3);
         btnPickChatterC0 = findViewById(R.id.btnPickChatterC0);
         btnPickChatterC1 = findViewById(R.id.btnPickChatterC1);
         btnPickChatterC2 = findViewById(R.id.btnPickChatterC2);
         btnPickChatterC3 = findViewById(R.id.btnPickChatterC3);
+        btnClearChatterC0 = findViewById(R.id.btnClearChatterC0);
+        btnClearChatterC1 = findViewById(R.id.btnClearChatterC1);
+        btnClearChatterC2 = findViewById(R.id.btnClearChatterC2);
+        btnClearChatterC3 = findViewById(R.id.btnClearChatterC3);
+        btnHelp = findViewById(R.id.btnHelp);
+        btnPrivacy = findViewById(R.id.btnPrivacy);
+        btnRights = findViewById(R.id.btnRights);
+        tvC0Filename = findViewById(R.id.tvC0Filename);
+        tvC1Filename = findViewById(R.id.tvC1Filename);
+        tvC2Filename = findViewById(R.id.tvC2Filename);
+        tvC3Filename = findViewById(R.id.tvC3Filename);
+        tvChatterC0Filename = findViewById(R.id.tvChatterC0Filename);
+        tvChatterC1Filename = findViewById(R.id.tvChatterC1Filename);
+        tvChatterC2Filename = findViewById(R.id.tvChatterC2Filename);
+        tvChatterC3Filename = findViewById(R.id.tvChatterC3Filename);
         ivAvatarBackground = findViewById(R.id.ivAvatarBackground);
         ivAvatar = findViewById(R.id.ivAvatar);
         scrollView = findViewById(R.id.scrollView);
@@ -400,12 +483,16 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
 
         btnSend.setOnClickListener(v -> {
+            if (isProcessing) {
+                showCancelConfirmation();
+                return;
+            }
             String userMsg = etInput.getText().toString().trim();
             if (userMsg.isEmpty()) {
                 if (voiceInputEnabled) {
                     startVoiceRecognition(true);
                 } else {
-                    Toast.makeText(this, "入力してください", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(this, "Please enter a message", Toast.LENGTH_SHORT).show();
                 }
                 return;
             }
@@ -416,13 +503,102 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         btnPickC1.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C1));
         btnPickC2.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C2));
         btnPickC3.setOnClickListener(v -> pickAvatarImage(REQ_PICK_C3));
+        btnClearC0.setOnClickListener(v -> clearAvatarImage(REQ_PICK_C0));
+        btnClearC1.setOnClickListener(v -> clearAvatarImage(REQ_PICK_C1));
+        btnClearC2.setOnClickListener(v -> clearAvatarImage(REQ_PICK_C2));
+        btnClearC3.setOnClickListener(v -> clearAvatarImage(REQ_PICK_C3));
         btnPickChatterC0.setOnClickListener(v -> pickAvatarImage(REQ_PICK_CHATTER_C0));
         btnPickChatterC1.setOnClickListener(v -> pickAvatarImage(REQ_PICK_CHATTER_C1));
         btnPickChatterC2.setOnClickListener(v -> pickAvatarImage(REQ_PICK_CHATTER_C2));
         btnPickChatterC3.setOnClickListener(v -> pickAvatarImage(REQ_PICK_CHATTER_C3));
+        btnClearChatterC0.setOnClickListener(v -> clearAvatarImage(REQ_PICK_CHATTER_C0));
+        btnClearChatterC1.setOnClickListener(v -> clearAvatarImage(REQ_PICK_CHATTER_C1));
+        btnClearChatterC2.setOnClickListener(v -> clearAvatarImage(REQ_PICK_CHATTER_C2));
+        btnClearChatterC3.setOnClickListener(v -> clearAvatarImage(REQ_PICK_CHATTER_C3));
+
+        btnHelp.setOnClickListener(v -> showInfoDialog("Help", HELP_TEXT));
+        btnPrivacy.setOnClickListener(v -> showInfoDialog("Privacy Policy", PRIVACY_TEXT));
+        btnRights.setOnClickListener(v -> showInfoDialog("Rights", RIGHTS_TEXT));
     }
 
-    // ========== アバター ==========
+    private void showCancelConfirmation() {
+        new AlertDialog.Builder(this)
+                .setTitle("Cancel Request")
+                .setMessage("Do you want to cancel the current request?\n現在のリクエストをキャンセルしますか？")
+                .setPositiveButton("Yes / はい", (dialog, which) -> cancelCurrentRequest())
+                .setNegativeButton("No / いいえ", null)
+                .show();
+    }
+
+    private void cancelCurrentRequest() {
+        if (currentCall != null) {
+            currentCall.cancel();
+            currentCall = null;
+        }
+        isProcessing = false;
+        setStreamingResponse(false, null);
+        stopTts();
+        updateSendButton();
+        appendSystemMessage("System", "Request cancelled / リクエストがキャンセルされました");
+    }
+
+    private void showInfoDialog(String title, String content) {
+        AlertDialog.Builder builder = new AlertDialog.Builder(this);
+        builder.setTitle(title);
+        builder.setMessage(content);
+        builder.setPositiveButton("Close", null);
+        builder.setNeutralButton("Copy", (dialog, which) -> {
+            ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
+            ClipData clip = ClipData.newPlainText(title, content);
+            clipboard.setPrimaryClip(clip);
+            Toast.makeText(this, "Copied to clipboard", Toast.LENGTH_SHORT).show();
+        });
+        builder.show();
+    }
+
+    private void clearAvatarImage(int requestCode) {
+        File target = getAvatarFileForRequest(requestCode);
+        if (target != null && target.exists()) {
+            target.delete();
+        }
+        reloadAvatarBitmaps();
+        applyAvatarSelection(requestCode);
+        updateAvatarFilenameDisplay(requestCode, null);
+    }
+
+    private void updateAvatarFilenameDisplay(int requestCode, String filename) {
+        TextView tv = getFilenameTextViewForRequest(requestCode);
+        if (tv != null) {
+            tv.setText(filename != null ? filename : "(default)");
+        }
+    }
+
+    private TextView getFilenameTextViewForRequest(int requestCode) {
+        switch (requestCode) {
+            case REQ_PICK_C0: return tvC0Filename;
+            case REQ_PICK_C1: return tvC1Filename;
+            case REQ_PICK_C2: return tvC2Filename;
+            case REQ_PICK_C3: return tvC3Filename;
+            case REQ_PICK_CHATTER_C0: return tvChatterC0Filename;
+            case REQ_PICK_CHATTER_C1: return tvChatterC1Filename;
+            case REQ_PICK_CHATTER_C2: return tvChatterC2Filename;
+            case REQ_PICK_CHATTER_C3: return tvChatterC3Filename;
+            default: return null;
+        }
+    }
+
+    private void updateAllAvatarFilenameDisplays() {
+        updateAvatarFilenameDisplay(REQ_PICK_C0, avatarC0File != null && avatarC0File.exists() ? avatarC0File.getName() : null);
+        updateAvatarFilenameDisplay(REQ_PICK_C1, avatarC1File != null && avatarC1File.exists() ? avatarC1File.getName() : null);
+        updateAvatarFilenameDisplay(REQ_PICK_C2, avatarC2File != null && avatarC2File.exists() ? avatarC2File.getName() : null);
+        updateAvatarFilenameDisplay(REQ_PICK_C3, avatarC3File != null && avatarC3File.exists() ? avatarC3File.getName() : null);
+        updateAvatarFilenameDisplay(REQ_PICK_CHATTER_C0, avatarChatterC0File != null && avatarChatterC0File.exists() ? avatarChatterC0File.getName() : null);
+        updateAvatarFilenameDisplay(REQ_PICK_CHATTER_C1, avatarChatterC1File != null && avatarChatterC1File.exists() ? avatarChatterC1File.getName() : null);
+        updateAvatarFilenameDisplay(REQ_PICK_CHATTER_C2, avatarChatterC2File != null && avatarChatterC2File.exists() ? avatarChatterC2File.getName() : null);
+        updateAvatarFilenameDisplay(REQ_PICK_CHATTER_C3, avatarChatterC3File != null && avatarChatterC3File.exists() ? avatarChatterC3File.getName() : null);
+    }
+
+    // ========== Avatar ==========
 
     private void initAvatarAssets() {
         File dir = getExternalFilesDir(null);
@@ -439,6 +615,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         avatarChatterC2File = new File(dir, AVATAR_CHATTER_C2_FILE);
         avatarChatterC3File = new File(dir, AVATAR_CHATTER_C3_FILE);
         reloadAvatarBitmaps();
+        updateAllAvatarFilenameDisplays();
     }
 
     private void reloadAvatarBitmaps() {
@@ -463,7 +640,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private void pickAvatarImage(int requestCode) {
         if (avatarC0File == null) {
-            Toast.makeText(this, "外部ファイルフォルダが利用できません", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "External storage unavailable", Toast.LENGTH_SHORT).show();
             return;
         }
         Intent intent = new Intent(Intent.ACTION_OPEN_DOCUMENT);
@@ -748,7 +925,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
     }
 
-    // ========== 設定 I/O（JSONファイル） ==========
+    // ========== Settings I/O (JSON file) ==========
 
     private void loadSettings() {
         try {
@@ -787,7 +964,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             if (historyLimit < 0) historyLimit = 0;
             if (autoChatterSeconds < 0) autoChatterSeconds = 0;
         } catch (FileNotFoundException e) {
-            // 初回起動時: デフォルト値を使用
+            // First run: use defaults
         } catch (Exception e) {
             Log.e(TAG, "loadSettings error", e);
         }
@@ -1090,7 +1267,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             }
             return;
         }
-        // テキスト正規化（ollama-chat の speak() と同等）
+        // Text normalization (similar to ollama-chat speak())
         String clean = text
                 .replaceAll("[\\n\\r\\t]", "、")
                 .replaceAll("[!@#$%^&*()_+={}\\[\\]|\\\\:;<>.?/]", "、")
@@ -1158,7 +1335,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         updateAvatarAnimation();
     }
 
-    // ========== 会話履歴 ==========
+    // ========== Conversation History ==========
 
     private void initConversationHistory() {
         synchronized (historyLock) {
@@ -1223,7 +1400,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
     }
 
-    // ========== モデル取得 (/api/tags) ==========
+    // ========== Model Fetch (/api/tags) ==========
 
     private void fetchModels() {
         String url = ollamaBaseUrl + "/api/tags";
@@ -1264,7 +1441,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         });
     }
 
-    // ========== チャット送信 ==========
+    // ========== Chat Send ==========
 
     private void updateSendButton() {
         runOnUiThread(() -> btnSend.setEnabled(!isProcessing && !isListening));
@@ -1379,10 +1556,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
     }
 
-    /** Web検索APIを呼び出して結果を構造化して取得 */
+    /** Call Web Search API and get structured results (generic) */
     private String callWebSearchApi(String keywords) {
         try {
-            String url = webSearchUrl + "?q=" + java.net.URLEncoder.encode(keywords, "UTF-8") + "&count=5";
+            String url = webSearchUrl + "?q=" + java.net.URLEncoder.encode(keywords, "UTF-8");
 
             Request.Builder reqBuilder = new Request.Builder()
                     .url(url)
@@ -1390,19 +1567,22 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     .addHeader("Accept", "application/json")
                     .addHeader("Accept-Language", "ja-JP");
 
-            // Brave Search API uses x-subscription-token header
+            // Support multiple API key header formats
             if (!webSearchApiKey.isEmpty()) {
-                reqBuilder.addHeader("X-Subscription-Token", webSearchApiKey);
+                // Try common API key header formats
+                reqBuilder.addHeader("X-Subscription-Token", webSearchApiKey); // Brave
+                reqBuilder.addHeader("Authorization", "Bearer " + webSearchApiKey); // Many APIs
+                reqBuilder.addHeader("X-Api-Key", webSearchApiKey); // Generic
             }
 
             Request request = reqBuilder.build();
             if (debugEnabled) {
-                appendDebug("Web API 送信", buildRequestDebugText(request, null));
+                appendDebug("Web API Request", buildRequestDebugText(request, null));
             }
             Response response = client.newCall(request).execute();
             String respBody = response.body() != null ? response.body().string() : "";
             if (debugEnabled) {
-                appendDebug("Web API 返信", buildResponseDebugText(response, respBody));
+                appendDebug("Web API Response", buildResponseDebugText(response, respBody));
             }
             if (!response.isSuccessful()) {
                 Log.w(TAG, "callWebSearchApi HTTP error: " + response.code());
@@ -1410,33 +1590,48 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             }
             JSONObject json = new JSONObject(respBody);
 
-            // Brave Search API format
-            JSONObject webObj = json.optJSONObject("web");
-            if (webObj == null) return null;
-            JSONArray results = webObj.optJSONArray("results");
-            if (results == null || results.length() == 0) return null;
-
-            JSONArray formatted = new JSONArray();
-            for (int i = 0; i < results.length(); i++) {
-                JSONObject item = results.getJSONObject(i);
-                String title = item.optString("title", "");
-                String itemUrl = item.optString("url", "");
-                String description = item.optString("description", "");
-                if (title.isEmpty() && itemUrl.isEmpty() && description.isEmpty()) continue;
-                JSONObject entry = new JSONObject();
-                entry.put("id", formatted.length() + 1);
-                if (!title.isEmpty()) entry.put("title", title);
-                if (!itemUrl.isEmpty()) entry.put("url", itemUrl);
-                if (!description.isEmpty()) entry.put("snippet", description);
-                formatted.put(entry);
-            }
-            if (formatted.length() == 0) return null;
-            String result = "SEARCH_RESULTS:\n" + formatted.toString(2);
+            // Try generic extraction: collect all string values from JSON
+            StringBuilder extracted = new StringBuilder();
+            extractAllStringValues(json, extracted, 0);
+            String extractedText = extracted.toString().trim();
+            
+            if (extractedText.isEmpty()) return null;
+            
+            String result = "SEARCH_RESULTS:\n" + extractedText;
             Log.d(TAG, "Web search results: " + result);
             return result;
         } catch (Exception e) {
             Log.e(TAG, "callWebSearchApi error", e);
             return null;
+        }
+    }
+
+    /** Recursively extract all string values from JSON */
+    private void extractAllStringValues(Object obj, StringBuilder sb, int depth) {
+        if (depth > 10) return; // Prevent infinite recursion
+        try {
+            if (obj instanceof JSONObject) {
+                JSONObject json = (JSONObject) obj;
+                java.util.Iterator<String> keys = json.keys();
+                while (keys.hasNext()) {
+                    String key = keys.next();
+                    Object value = json.get(key);
+                    extractAllStringValues(value, sb, depth + 1);
+                }
+            } else if (obj instanceof JSONArray) {
+                JSONArray arr = (JSONArray) obj;
+                for (int i = 0; i < arr.length() && i < 10; i++) { // Limit array items
+                    extractAllStringValues(arr.get(i), sb, depth + 1);
+                }
+            } else if (obj instanceof String) {
+                String str = ((String) obj).trim();
+                if (!str.isEmpty() && str.length() > 10 && !str.startsWith("http")) {
+                    if (sb.length() > 0) sb.append("\n");
+                    sb.append(str);
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "extractAllStringValues error", e);
         }
     }
 
@@ -1464,7 +1659,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (isProcessing || isListening) return;
         cancelAutoChatter();
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            Toast.makeText(this, "音声認識が利用できません", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Voice recognition unavailable", Toast.LENGTH_SHORT).show();
             return;
         }
         if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
@@ -1503,14 +1698,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     isListening = false;
                     updateSendButton();
                     Toast.makeText(MainActivity.this,
-                            "オフライン音声認識に失敗したためオンラインに切り替えます",
+                            "Offline recognition failed, switching to online",
                             Toast.LENGTH_SHORT).show();
                     startVoiceRecognition(false);
                     return;
                 }
                 if (error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT
                         && error != SpeechRecognizer.ERROR_NO_MATCH) {
-                    Toast.makeText(MainActivity.this, "音声認識に失敗しました", Toast.LENGTH_SHORT).show();
+                    Toast.makeText(MainActivity.this, "Voice recognition failed", Toast.LENGTH_SHORT).show();
                 }
                 handleVoiceRecognitionFinished();
             }
@@ -1559,7 +1754,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         } else if (spinnerChatterModel.getSelectedItem() != null) {
             chatterModel = spinnerChatterModel.getSelectedItem().toString();
         }
-        // 設定パネルが開いていたら最新値を反映
+        // Apply settings from UI if panel is open
         readSettingsFromUi();
         reinitSystemPrompts();
 
@@ -1623,7 +1818,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     .post(requestBody)
                     .build();
             if (debugEnabled) {
-                appendDebug("/api/chat 送信", buildRequestDebugText(request, requestJson));
+                appendDebug("/api/chat Request", buildRequestDebugText(request, requestJson));
             }
 
             if (streamingEnabled) {
@@ -1642,13 +1837,19 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         return speaker == ChatSpeaker.CHATTER ? chatterHistory : conversationHistory;
     }
 
-    /** ストリーミングモード: チャンクごとに表示＋センテンス単位TTS */
+    /** Streaming mode: Display chunks + sentence-by-sentence TTS */
     private void sendStreaming(Request request, ChatSpeaker speaker) {
-        client.newCall(request).enqueue(new Callback() {
+        Call call = client.newCall(request);
+        currentCall = call;
+        call.enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
+                currentCall = null;
+                if (call.isCanceled()) {
+                    return; // Don't show error for cancelled requests
+                }
                 appendErrorMessage(e.getMessage());
-                appendDebug("/api/chat 返信（失敗）", e.toString());
+                appendDebug("/api/chat Response (Failed)", e.toString());
                 setStreamingResponse(false, null);
                 isProcessing = false;
                 updateSendButton();
@@ -1659,7 +1860,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 if (!response.isSuccessful()) {
                     String errorBody = response.body() != null ? response.body().string() : "";
                     if (debugEnabled) {
-                        appendDebug("/api/chat 返信", buildResponseDebugText(response, errorBody));
+                        appendDebug("/api/chat Response", buildResponseDebugText(response, errorBody));
                     }
                     appendErrorMessage("HTTP error: " + response.code());
                     setStreamingResponse(false, null);
@@ -1715,7 +1916,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     }
 
                     if (debugRaw != null) {
-                        appendDebug("/api/chat 返信", buildResponseDebugText(response, debugRaw.toString()));
+                        appendDebug("/api/chat Response", buildResponseDebugText(response, debugRaw.toString()));
                     }
                     flushStreamingBuffer();
                     finishStreamingMessage();
@@ -1728,12 +1929,15 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     if (!text.isEmpty()) {
                         addToHistory(getHistoryForSpeaker(speaker), "assistant", text);
                     } else {
-                        appendAssistantMessage(speaker, "（応答なし）");
+                        appendAssistantMessage(speaker, "(No response)");
                     }
                     completed = true;
                 } catch (Exception e) {
-                    appendErrorMessage("Stream error: " + e.getMessage());
+                    if (!call.isCanceled()) {
+                        appendErrorMessage("Stream error: " + e.getMessage());
+                    }
                 } finally {
+                    currentCall = null;
                     setStreamingResponse(false, null);
                     isProcessing = false;
                     updateSendButton();
@@ -1745,25 +1949,32 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         });
     }
 
-    /** 非ストリーミングモード: 完全なレスポンスを受信後に表示＋TTS */
+    /** Non-streaming mode: Display full response + TTS */
     private void sendNonStreaming(Request request, ChatSpeaker speaker) {
-        client.newCall(request).enqueue(new Callback() {
+        Call call = client.newCall(request);
+        currentCall = call;
+        call.enqueue(new Callback() {
             @Override
-            public void onFailure(Call call, IOException e) {
+            public void onFailure(Call c, IOException e) {
+                currentCall = null;
+                if (c.isCanceled()) {
+                    return;
+                }
                 appendErrorMessage(e.getMessage());
-                appendDebug("/api/chat 返信（失敗）", e.toString());
+                appendDebug("/api/chat Response (Failed)", e.toString());
                 isProcessing = false;
                 updateSendButton();
             }
 
             @Override
-            public void onResponse(Call call, Response response) throws IOException {
+            public void onResponse(Call c, Response response) throws IOException {
                 String body = response.body() != null ? response.body().string() : "";
                 if (debugEnabled) {
-                    appendDebug("/api/chat 返信", buildResponseDebugText(response, body));
+                    appendDebug("/api/chat Response", buildResponseDebugText(response, body));
                 }
                 if (!response.isSuccessful()) {
                     appendErrorMessage("HTTP error: " + response.code());
+                    currentCall = null;
                     isProcessing = false;
                     updateSendButton();
                     return;
@@ -1783,7 +1994,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                         addToHistory(getHistoryForSpeaker(speaker), "assistant", content);
 
                         if (ttsEnabled) {
-                            // センテンス単位で読み上げ
+                            // Sentence-by-sentence TTS
                             for (String sentence : content.split("(?<=[。！？.!?\\n])")) {
                                 String trimmed = sentence.trim();
                                 if (!trimmed.isEmpty()) {
@@ -1792,12 +2003,13 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                             }
                         }
                     } else {
-                        appendAssistantMessage(speaker, "（応答なし）");
+                        appendAssistantMessage(speaker, "(No response)");
                     }
                     completed = true;
                 } catch (Exception e) {
                     appendErrorMessage("Parse error: " + e.getMessage());
                 } finally {
+                    currentCall = null;
                     isProcessing = false;
                     updateSendButton();
                     if (completed) {
@@ -1808,7 +2020,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         });
     }
 
-    // ========== UI ヘルパー ==========
+    // ========== UI Helpers ==========
 
     private void appendDebug(String title, String detail) {
         if (!debugEnabled) return;
@@ -2036,7 +2248,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         return speaker == ChatSpeaker.CHATTER;
     }
 
-    // ========== ライフサイクル ==========
+    // ========== Lifecycle ==========
 
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
@@ -2047,11 +2259,32 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         File target = getAvatarFileForRequest(requestCode);
         if (target == null) return;
         if (!copyAvatarUriToFile(uri, target)) {
-            Toast.makeText(this, "画像の保存に失敗しました", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, "Failed to save image", Toast.LENGTH_SHORT).show();
             return;
         }
         reloadAvatarBitmaps();
         applyAvatarSelection(requestCode);
+        // Get filename from URI for display
+        String filename = getFilenameFromUri(uri);
+        updateAvatarFilenameDisplay(requestCode, filename != null ? filename : target.getName());
+    }
+
+    private String getFilenameFromUri(Uri uri) {
+        String result = null;
+        if (uri.getScheme() != null && uri.getScheme().equals("content")) {
+            try (android.database.Cursor cursor = getContentResolver().query(uri, null, null, null, null)) {
+                if (cursor != null && cursor.moveToFirst()) {
+                    int index = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME);
+                    if (index >= 0) {
+                        result = cursor.getString(index);
+                    }
+                }
+            }
+        }
+        if (result == null) {
+            result = uri.getLastPathSegment();
+        }
+        return result;
     }
 
     @Override
@@ -2065,7 +2298,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 startVoiceRecognition(true);
             } else {
                 pendingVoiceStart = false;
-                Toast.makeText(this, "マイクの権限が必要です", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, "Microphone permission required", Toast.LENGTH_SHORT).show();
             }
         }
     }

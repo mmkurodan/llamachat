@@ -33,7 +33,7 @@
             android:layout_weight="1"
             android:orientation="vertical">
 
-            <!-- ヘッダー -->
+            <!-- Header -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
@@ -55,14 +55,14 @@
                     android:id="@+id/btnSettings"
                     android:layout_width="wrap_content"
                     android:layout_height="36dp"
-                    android:text="⚙️ 設定"
+                    android:text="⚙️ Settings"
                     android:textColor="#FFFFFF"
                     android:background="@android:color/transparent"
                     android:minWidth="0dp"
                     android:minHeight="0dp"/>
             </LinearLayout>
 
-            <!-- 設定パネル（折りたたみ） -->
+            <!-- Settings Panel (collapsible) -->
             <ScrollView
                 android:id="@+id/settingsPanel"
                 android:layout_width="match_parent"
@@ -77,7 +77,7 @@
                     android:padding="12dp">
 
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="⚙️ 設定" android:textSize="16sp" android:textStyle="bold"
+                        android:text="⚙️ Settings" android:textSize="16sp" android:textStyle="bold"
                         android:layout_marginBottom="8dp"/>
 
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
@@ -87,7 +87,7 @@
                         android:inputType="textUri" android:singleLine="true"/>
 
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="モード" android:layout_marginTop="4dp"/>
+                        android:text="Mode" android:layout_marginTop="4dp"/>
                     <RadioGroup
                         android:id="@+id/groupMode"
                         android:layout_width="match_parent"
@@ -98,60 +98,60 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="通常"
+                            android:text="Normal"
                             android:checked="true"/>
                         <RadioButton
                             android:id="@+id/radioModeChatter"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="おしゃべり"/>
+                            android:text="Chatter"/>
                     </RadioGroup>
 
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="送信する履歴数" android:layout_marginTop="4dp"/>
+                        android:text="History Limit" android:layout_marginTop="4dp"/>
                     <EditText android:id="@+id/etHistoryLimit"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:inputType="number" android:singleLine="true"/>
 
                     <Switch android:id="@+id/switchStreaming"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:text="ストリーミング" android:checked="true" android:layout_marginTop="8dp"/>
+                        android:text="Streaming" android:checked="true" android:layout_marginTop="8dp"/>
 
                     <Switch android:id="@+id/switchTts"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:text="音声読み上げ" android:layout_marginTop="4dp"/>
+                        android:text="Text-to-Speech" android:layout_marginTop="4dp"/>
 
                     <Switch android:id="@+id/switchVoiceInput"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:text="音声認識（空欄送信時）" android:layout_marginTop="4dp"/>
+                        android:text="Voice Input (on empty send)" android:layout_marginTop="4dp"/>
 
                     <Switch android:id="@+id/switchAutoVoiceInput"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:text="自動音声認識（応答後）" android:layout_marginTop="4dp"/>
+                        android:text="Auto Voice Input (after response)" android:layout_marginTop="4dp"/>
 
                     <Switch android:id="@+id/switchWebSearch"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:text="Web検索" android:layout_marginTop="4dp"/>
+                        android:text="Web Search" android:layout_marginTop="4dp"/>
 
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Web検索API URL" android:layout_marginTop="4dp"/>
+                        android:text="Web Search API URL" android:layout_marginTop="4dp"/>
                     <EditText android:id="@+id/etWebSearchUrl"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:inputType="textUri" android:singleLine="true"/>
 
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Web検索APIキー" android:layout_marginTop="4dp"/>
+                        android:text="Web Search API Key" android:layout_marginTop="4dp"/>
                     <EditText android:id="@+id/etWebSearchApiKey"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:inputType="textPassword" android:singleLine="true"/>
 
                     <Switch android:id="@+id/switchDebug"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:text="デバックモード" android:layout_marginTop="8dp"/>
+                        android:text="Debug Mode" android:layout_marginTop="8dp"/>
 
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="おしゃべり間隔（秒）" android:layout_marginTop="4dp"/>
+                        android:text="Chatter Interval (sec)" android:layout_marginTop="4dp"/>
                     <EditText android:id="@+id/etAutoChatterSeconds"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:inputType="number" android:singleLine="true"/>
@@ -167,14 +167,14 @@
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="ベース"
+                            android:text="Base"
                             android:checked="true"/>
                         <RadioButton
                             android:id="@+id/tabChatter"
                             android:layout_width="0dp"
                             android:layout_height="wrap_content"
                             android:layout_weight="1"
-                            android:text="おしゃべり相手"/>
+                            android:text="Chatter Partner"/>
                     </RadioGroup>
 
                     <LinearLayout
@@ -185,45 +185,45 @@
                         android:layout_marginTop="4dp">
 
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="ベース設定" android:textStyle="bold" android:layout_marginTop="4dp"/>
+                            android:text="Base Settings" android:textStyle="bold" android:layout_marginTop="4dp"/>
 
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="名前" android:layout_marginTop="4dp"/>
+                            android:text="Name" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etBaseName"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="text" android:singleLine="true"/>
 
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="モデル" android:layout_marginTop="4dp"/>
+                            android:text="Model" android:layout_marginTop="4dp"/>
                         <Spinner android:id="@+id/spinnerModel"
                             android:layout_width="match_parent" android:layout_height="wrap_content"/>
 
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="読み上げ言語" android:layout_marginTop="4dp"/>
+                            android:text="Speech Language" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etSpeechLang"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="text" android:singleLine="true"/>
 
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="速度" android:layout_marginTop="4dp"/>
+                            android:text="Speech Rate" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etSpeechRate"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="numberDecimal" android:singleLine="true"/>
 
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="ピッチ" android:layout_marginTop="4dp"/>
+                            android:text="Speech Pitch" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etSpeechPitch"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="numberDecimal" android:singleLine="true"/>
 
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="システムプロンプト" android:layout_marginTop="4dp"/>
+                            android:text="System Prompt" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etSystemPrompt"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="textMultiLine" android:minLines="2"/>
 
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="アバター画像" android:textStyle="bold" android:layout_marginTop="8dp"/>
+                            android:text="Avatar Images" android:textStyle="bold" android:layout_marginTop="8dp"/>
 
                         <LinearLayout
                             android:layout_width="match_parent"
@@ -232,17 +232,34 @@
                             android:gravity="center_vertical"
                             android:layout_marginTop="4dp">
                             <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="c0 BG"/>
+                            <TextView
+                                android:id="@+id/tvC0Filename"
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="c0 背景"/>
+                                android:layout_marginStart="8dp"
+                                android:text="(default)"
+                                android:textSize="12sp"
+                                android:ellipsize="middle"
+                                android:singleLine="true"/>
                             <Button
                                 android:id="@+id/btnPickC0"
                                 android:layout_width="wrap_content"
                                 android:layout_height="36dp"
-                                android:text="選択"
+                                android:text="Select"
                                 android:minWidth="0dp"
                                 android:minHeight="0dp"/>
+                            <Button
+                                android:id="@+id/btnClearC0"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:text="Clear"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:layout_marginStart="4dp"/>
                         </LinearLayout>
 
                         <LinearLayout
@@ -252,17 +269,34 @@
                             android:gravity="center_vertical"
                             android:layout_marginTop="4dp">
                             <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="c1 Base"/>
+                            <TextView
+                                android:id="@+id/tvC1Filename"
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="c1 ベース"/>
+                                android:layout_marginStart="8dp"
+                                android:text="(default)"
+                                android:textSize="12sp"
+                                android:ellipsize="middle"
+                                android:singleLine="true"/>
                             <Button
                                 android:id="@+id/btnPickC1"
                                 android:layout_width="wrap_content"
                                 android:layout_height="36dp"
-                                android:text="選択"
+                                android:text="Select"
                                 android:minWidth="0dp"
                                 android:minHeight="0dp"/>
+                            <Button
+                                android:id="@+id/btnClearC1"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:text="Clear"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:layout_marginStart="4dp"/>
                         </LinearLayout>
 
                         <LinearLayout
@@ -272,17 +306,34 @@
                             android:gravity="center_vertical"
                             android:layout_marginTop="4dp">
                             <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="c2 Blink"/>
+                            <TextView
+                                android:id="@+id/tvC2Filename"
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="c2 まばたき"/>
+                                android:layout_marginStart="8dp"
+                                android:text="(default)"
+                                android:textSize="12sp"
+                                android:ellipsize="middle"
+                                android:singleLine="true"/>
                             <Button
                                 android:id="@+id/btnPickC2"
                                 android:layout_width="wrap_content"
                                 android:layout_height="36dp"
-                                android:text="選択"
+                                android:text="Select"
                                 android:minWidth="0dp"
                                 android:minHeight="0dp"/>
+                            <Button
+                                android:id="@+id/btnClearC2"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:text="Clear"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:layout_marginStart="4dp"/>
                         </LinearLayout>
 
                         <LinearLayout
@@ -292,17 +343,34 @@
                             android:gravity="center_vertical"
                             android:layout_marginTop="4dp">
                             <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="c3 Talk"/>
+                            <TextView
+                                android:id="@+id/tvC3Filename"
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="c3 会話1"/>
+                                android:layout_marginStart="8dp"
+                                android:text="(default)"
+                                android:textSize="12sp"
+                                android:ellipsize="middle"
+                                android:singleLine="true"/>
                             <Button
                                 android:id="@+id/btnPickC3"
                                 android:layout_width="wrap_content"
                                 android:layout_height="36dp"
-                                android:text="選択"
+                                android:text="Select"
                                 android:minWidth="0dp"
                                 android:minHeight="0dp"/>
+                            <Button
+                                android:id="@+id/btnClearC3"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:text="Clear"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:layout_marginStart="4dp"/>
                         </LinearLayout>
 
                     </LinearLayout>
@@ -316,45 +384,45 @@
                         android:visibility="gone">
 
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="おしゃべり相手設定" android:textStyle="bold" android:layout_marginTop="4dp"/>
+                            android:text="Chatter Partner Settings" android:textStyle="bold" android:layout_marginTop="4dp"/>
 
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="名前" android:layout_marginTop="4dp"/>
+                            android:text="Name" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etChatterName"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="text" android:singleLine="true"/>
 
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="モデル" android:layout_marginTop="4dp"/>
+                            android:text="Model" android:layout_marginTop="4dp"/>
                         <Spinner android:id="@+id/spinnerChatterModel"
                             android:layout_width="match_parent" android:layout_height="wrap_content"/>
 
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="読み上げ言語" android:layout_marginTop="4dp"/>
+                            android:text="Speech Language" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etChatterSpeechLang"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="text" android:singleLine="true"/>
 
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="速度" android:layout_marginTop="4dp"/>
+                            android:text="Speech Rate" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etChatterSpeechRate"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="numberDecimal" android:singleLine="true"/>
 
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="ピッチ" android:layout_marginTop="4dp"/>
+                            android:text="Speech Pitch" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etChatterSpeechPitch"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="numberDecimal" android:singleLine="true"/>
 
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="システムプロンプト" android:layout_marginTop="4dp"/>
+                            android:text="System Prompt" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etChatterSystemPrompt"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="textMultiLine" android:minLines="2"/>
 
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                            android:text="アバター画像" android:textStyle="bold" android:layout_marginTop="8dp"/>
+                            android:text="Avatar Images" android:textStyle="bold" android:layout_marginTop="8dp"/>
 
                         <LinearLayout
                             android:layout_width="match_parent"
@@ -363,17 +431,34 @@
                             android:gravity="center_vertical"
                             android:layout_marginTop="4dp">
                             <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="c0 BG"/>
+                            <TextView
+                                android:id="@+id/tvChatterC0Filename"
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="c0 背景"/>
+                                android:layout_marginStart="8dp"
+                                android:text="(default)"
+                                android:textSize="12sp"
+                                android:ellipsize="middle"
+                                android:singleLine="true"/>
                             <Button
                                 android:id="@+id/btnPickChatterC0"
                                 android:layout_width="wrap_content"
                                 android:layout_height="36dp"
-                                android:text="選択"
+                                android:text="Select"
                                 android:minWidth="0dp"
                                 android:minHeight="0dp"/>
+                            <Button
+                                android:id="@+id/btnClearChatterC0"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:text="Clear"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:layout_marginStart="4dp"/>
                         </LinearLayout>
 
                         <LinearLayout
@@ -383,17 +468,34 @@
                             android:gravity="center_vertical"
                             android:layout_marginTop="4dp">
                             <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="c1 Base"/>
+                            <TextView
+                                android:id="@+id/tvChatterC1Filename"
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="c1 ベース"/>
+                                android:layout_marginStart="8dp"
+                                android:text="(default)"
+                                android:textSize="12sp"
+                                android:ellipsize="middle"
+                                android:singleLine="true"/>
                             <Button
                                 android:id="@+id/btnPickChatterC1"
                                 android:layout_width="wrap_content"
                                 android:layout_height="36dp"
-                                android:text="選択"
+                                android:text="Select"
                                 android:minWidth="0dp"
                                 android:minHeight="0dp"/>
+                            <Button
+                                android:id="@+id/btnClearChatterC1"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:text="Clear"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:layout_marginStart="4dp"/>
                         </LinearLayout>
 
                         <LinearLayout
@@ -403,17 +505,34 @@
                             android:gravity="center_vertical"
                             android:layout_marginTop="4dp">
                             <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="c2 Blink"/>
+                            <TextView
+                                android:id="@+id/tvChatterC2Filename"
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="c2 まばたき"/>
+                                android:layout_marginStart="8dp"
+                                android:text="(default)"
+                                android:textSize="12sp"
+                                android:ellipsize="middle"
+                                android:singleLine="true"/>
                             <Button
                                 android:id="@+id/btnPickChatterC2"
                                 android:layout_width="wrap_content"
                                 android:layout_height="36dp"
-                                android:text="選択"
+                                android:text="Select"
                                 android:minWidth="0dp"
                                 android:minHeight="0dp"/>
+                            <Button
+                                android:id="@+id/btnClearChatterC2"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:text="Clear"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:layout_marginStart="4dp"/>
                         </LinearLayout>
 
                         <LinearLayout
@@ -423,19 +542,67 @@
                             android:gravity="center_vertical"
                             android:layout_marginTop="4dp">
                             <TextView
+                                android:layout_width="wrap_content"
+                                android:layout_height="wrap_content"
+                                android:text="c3 Talk"/>
+                            <TextView
+                                android:id="@+id/tvChatterC3Filename"
                                 android:layout_width="0dp"
                                 android:layout_height="wrap_content"
                                 android:layout_weight="1"
-                                android:text="c3 会話1"/>
+                                android:layout_marginStart="8dp"
+                                android:text="(default)"
+                                android:textSize="12sp"
+                                android:ellipsize="middle"
+                                android:singleLine="true"/>
                             <Button
                                 android:id="@+id/btnPickChatterC3"
                                 android:layout_width="wrap_content"
                                 android:layout_height="36dp"
-                                android:text="選択"
+                                android:text="Select"
                                 android:minWidth="0dp"
                                 android:minHeight="0dp"/>
+                            <Button
+                                android:id="@+id/btnClearChatterC3"
+                                android:layout_width="wrap_content"
+                                android:layout_height="36dp"
+                                android:text="Clear"
+                                android:minWidth="0dp"
+                                android:minHeight="0dp"
+                                android:layout_marginStart="4dp"/>
                         </LinearLayout>
 
+                    </LinearLayout>
+
+                    <!-- Help/Privacy/Rights Section -->
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Information" android:textStyle="bold" android:layout_marginTop="16dp"/>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="8dp">
+                        <Button
+                            android:id="@+id/btnHelp"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="Help"/>
+                        <Button
+                            android:id="@+id/btnPrivacy"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="Privacy"
+                            android:layout_marginStart="4dp"/>
+                        <Button
+                            android:id="@+id/btnRights"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="Rights"
+                            android:layout_marginStart="4dp"/>
                     </LinearLayout>
 
                 </LinearLayout>
@@ -457,7 +624,7 @@
                 android:layout_height="0dp"
                 android:layout_weight="1">
 
-                <!-- チャットメッセージ -->
+                <!-- Chat Messages -->
                 <ScrollView
                     android:id="@+id/scrollView"
                     android:layout_width="match_parent"
@@ -488,7 +655,7 @@
                 </LinearLayout>
             </FrameLayout>
 
-            <!-- 入力エリア -->
+            <!-- Input Area -->
             <LinearLayout
                 android:id="@+id/inputBubble"
                 android:layout_width="match_parent"
@@ -503,14 +670,14 @@
                     android:layout_width="0dp"
                     android:layout_height="wrap_content"
                     android:layout_weight="1"
-                    android:hint="メッセージを入力"
+                    android:hint="Enter message"
                     android:background="@android:color/transparent"/>
 
                 <Button
                     android:id="@+id/btnSend"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="送信"
+                    android:text="Send"
                     android:layout_marginStart="4dp"/>
             </LinearLayout>
         </LinearLayout>
