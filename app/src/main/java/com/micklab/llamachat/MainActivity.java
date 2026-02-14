@@ -273,6 +273,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private final StringBuilder streamBuffer = new StringBuilder();
     private boolean streamFlushScheduled = false;
     private final StringBuilder streamingTextBuffer = new StringBuilder();
+    private final AtomicInteger streamingTokenCounter = new AtomicInteger(0);
+    private volatile int activeStreamingToken = 0;
     private Call currentCall = null;
 
     // --- Voice Recognition ---
@@ -285,22 +287,46 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final String HELP_TEXT =
             "【使い方 / How to Use】\n\n" +
             "■ 基本操作 / Basic Operations\n" +
-            "・メッセージを入力して送信ボタンを押すとAIと会話できます。\n" +
-            "・Enter a message and press Send to chat with AI.\n\n" +
-            "・空欄で送信すると音声入力が開始されます（音声認識有効時）。\n" +
-            "・Sending empty triggers voice input (when enabled).\n\n" +
+            "・⚙️ Settings を押すと設定を開閉します。\n" +
+            "・Tap ⚙️ Settings to open/close the settings panel.\n\n" +
+            "・メッセージ入力後、Sendで送信します。\n" +
+            "・Enter a message and press Send.\n\n" +
+            "・送信中にSendを押すとキャンセル確認が表示されます。\n" +
+            "・Press Send while processing to confirm cancel.\n\n" +
+            "・ログ上部のバーをタップするとチャットエリアが拡大/縮小します。\n" +
+            "・Tap the top handle of the log area to expand/collapse the chat panel.\n\n" +
+            "■ 音声 / Voice\n" +
+            "・入力が空欄で送信すると音声入力を開始します（Voice Input有効時）。\n" +
+            "・Sending empty starts voice input when enabled.\n\n" +
+            "・Auto Voice Input は応答後に自動で音声入力を開始します。\n" +
+            "・Auto Voice Input starts voice input after each response.\n\n" +
             "■ モード / Modes\n" +
-            "・Normal: 通常のチャット / Standard chat mode\n" +
-            "・Chatter: 2つのAI同士が会話します / Two AIs converse\n\n" +
-            "■ 設定 / Settings\n" +
-            "・Streaming: リアルタイム応答表示 / Real-time response\n" +
-            "・TTS: 音声読み上げ / Text-to-speech\n" +
-            "・Web Search: 検索結果を参照 / Reference search results\n\n" +
+            "・Normal: 通常の1モデルチャット。\n" +
+            "・Normal: Standard single-model chat.\n" +
+            "・Chatter: Base と Chatter Partner の2モデルが会話します。\n" +
+            "・Chatter: Two models (Base and Chatter Partner) converse.\n" +
+            "・Chatter Interval で発話間隔（秒）を設定します。\n" +
+            "・Chatter Interval sets the time between turns (seconds).\n\n" +
+            "■ 応答 / Response\n" +
+            "・Streaming: 応答をリアルタイム表示します。\n" +
+            "・Streaming shows responses in real time.\n\n" +
+            "・Text-to-Speech: 応答を音声で読み上げます。\n" +
+            "・Text-to-Speech reads responses aloud.\n\n" +
+            "■ Web Search\n" +
+            "・Web Search を有効にすると検索結果を参照します。\n" +
+            "・Enable Web Search to include search results in responses.\n\n" +
             "■ アバター / Avatar\n" +
-            "・c0: 背景画像 / Background image\n" +
-            "・c1: 基本表情 / Base expression\n" +
-            "・c2: まばたき / Blink frame\n" +
-            "・c3: 会話中 / Talking frame";
+            "・c0: 背景 / Background\n" +
+            "・c1: 基本表情 / Base\n" +
+            "・c2: まばたき / Blink\n" +
+            "・c3: 会話中 / Talking\n" +
+            "・Base と Chatter Partner で別々に設定できます。\n" +
+            "・You can set different images for Base and Chatter Partner.\n" +
+            "・Clear を押すとデフォルト画像に戻ります。\n" +
+            "・Press Clear to reset to default.\n\n" +
+            "■ 保存 / Storage\n" +
+            "・設定と画像は端末内に保存されます。\n" +
+            "・Settings and images are stored locally on the device.";
 
     private static final String PRIVACY_TEXT =
             "【プライバシーポリシー / Privacy Policy】\n\n" +
@@ -535,6 +561,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             currentCall.cancel();
             currentCall = null;
         }
+        activeStreamingToken = streamingTokenCounter.incrementAndGet();
+        resetStreamBuffer();
         isProcessing = false;
         setStreamingResponse(false, null);
         stopTts();
@@ -1765,6 +1793,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         cancelAutoChatter();
         pendingAutoVoiceStart = false;
         resetStreamBuffer();
+        int streamToken = startStreamingSession();
 
         try {
             JSONArray messages = new JSONArray();
@@ -1822,7 +1851,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             }
 
             if (streamingEnabled) {
-                sendStreaming(request, speaker);
+                sendStreaming(request, speaker, streamToken);
             } else {
                 sendNonStreaming(request, speaker);
             }
@@ -1838,7 +1867,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     /** Streaming mode: Display chunks + sentence-by-sentence TTS */
-    private void sendStreaming(Request request, ChatSpeaker speaker) {
+    private void sendStreaming(Request request, ChatSpeaker speaker, int token) {
         Call call = client.newCall(request);
         currentCall = call;
         call.enqueue(new Callback() {
@@ -1894,11 +1923,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                                         .optString("content", "");
                                 if (!content.isEmpty()) {
                                     if (first) {
-                                        beginStreamingMessage(speaker);
+                                        beginStreamingMessage(speaker, token);
                                         first = false;
                                     }
                                     fullResponse.append(content);
-                                    queueStreamingChunk(content);
+                                    queueStreamingChunk(content, token);
                                     if (!streamingStarted) {
                                         setStreamingResponse(true, speaker);
                                         streamingStarted = true;
@@ -1918,8 +1947,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     if (debugRaw != null) {
                         appendDebug("/api/chat Response", buildResponseDebugText(response, debugRaw.toString()));
                     }
-                    flushStreamingBuffer();
-                    finishStreamingMessage();
+                    flushStreamingBuffer(token);
+                    finishStreamingMessage(token);
 
                     if (ttsEnabled) {
                         flushSentenceBuffer(speaker);
@@ -2080,25 +2109,27 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         appendMessage(name, text, false, false);
     }
 
-    private void beginStreamingMessage(ChatSpeaker speaker) {
+    private void beginStreamingMessage(ChatSpeaker speaker, int token) {
         runOnUiThread(() -> {
+            if (token != activeStreamingToken) return;
             boolean shouldScroll = isNearBottom();
             currentStreamingSpeaker = speaker;
             currentStreamingBubble = createMessageBubble(getSpeakerName(speaker), isUserSideForSpeaker(speaker));
             String header = getSpeakerName(speaker);
             streamingTextBuffer.setLength(0);
             currentStreamingBubble.setText(formatMessageText(header, ""));
-            flushStreamingBuffer();
+            flushStreamingBuffer(token);
             requestChatLayoutUpdate();
             maybeScrollToBottom(shouldScroll);
         });
     }
 
-    private void appendStreamingMessage(String content) {
-        runOnUiThread(() -> appendStreamingMessageInternal(content));
+    private void appendStreamingMessage(String content, int token) {
+        runOnUiThread(() -> appendStreamingMessageInternal(content, token));
     }
 
-    private void appendStreamingMessageInternal(String content) {
+    private void appendStreamingMessageInternal(String content, int token) {
+        if (token != activeStreamingToken) return;
         if (currentStreamingBubble == null) return;
         boolean shouldScroll = isNearBottom();
         streamingTextBuffer.append(content);
@@ -2110,8 +2141,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         maybeScrollToBottom(shouldScroll);
     }
 
-    private void finishStreamingMessage() {
+    private void finishStreamingMessage(int token) {
         runOnUiThread(() -> {
+            if (token != activeStreamingToken) return;
             currentStreamingBubble = null;
             streamingTextBuffer.setLength(0);
             requestChatLayoutUpdate();
@@ -2198,18 +2230,22 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
     }
 
-    private void queueStreamingChunk(String content) {
+    private void queueStreamingChunk(String content, int token) {
+        if (token != activeStreamingToken) return;
         synchronized (streamBufferLock) {
+            if (token != activeStreamingToken) return;
             streamBuffer.append(content);
             if (streamFlushScheduled) return;
             streamFlushScheduled = true;
         }
-        uiHandler.post(this::flushStreamingBuffer);
+        uiHandler.post(() -> flushStreamingBuffer(token));
     }
 
-    private void flushStreamingBuffer() {
+    private void flushStreamingBuffer(int token) {
+        if (token != activeStreamingToken) return;
         String chunk;
         synchronized (streamBufferLock) {
+            if (token != activeStreamingToken) return;
             if (streamBuffer.length() == 0) {
                 streamFlushScheduled = false;
                 return;
@@ -2220,16 +2256,17 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
         if (currentStreamingBubble == null) {
             synchronized (streamBufferLock) {
+                if (token != activeStreamingToken) return;
                 streamBuffer.append(chunk);
                 if (streamFlushScheduled) {
                     return;
                 }
                 streamFlushScheduled = true;
             }
-            uiHandler.postDelayed(this::flushStreamingBuffer, 16);
+            uiHandler.postDelayed(() -> flushStreamingBuffer(token), 16);
             return;
         }
-        appendStreamingMessageInternal(chunk);
+        appendStreamingMessageInternal(chunk, token);
     }
 
     private void resetStreamBuffer() {
@@ -2238,6 +2275,16 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             streamFlushScheduled = false;
         }
         streamingTextBuffer.setLength(0);
+    }
+
+    private int startStreamingSession() {
+        int token = streamingTokenCounter.incrementAndGet();
+        activeStreamingToken = token;
+        runOnUiThread(() -> {
+            currentStreamingBubble = null;
+            streamingTextBuffer.setLength(0);
+        });
+        return token;
     }
 
     private String getSpeakerName(ChatSpeaker speaker) {
