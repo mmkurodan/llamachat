@@ -103,6 +103,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final int AVATAR_BLINK_MIN_MS = 3000;
     private static final int AVATAR_BLINK_MAX_MS = 7000;
     private static final int AVATAR_BLINK_DURATION_MS = 120;
+    private static final int STREAM_FLUSH_INTERVAL_MS = 33;
 
     // --- UI ---
     private LinearLayout messageContainer;
@@ -275,6 +276,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private final StringBuilder streamingTextBuffer = new StringBuilder();
     private final AtomicInteger streamingTokenCounter = new AtomicInteger(0);
     private volatile int activeStreamingToken = 0;
+    private volatile boolean layoutUpdateScheduled = false;
     private Call currentCall = null;
 
     // --- Voice Recognition ---
@@ -286,45 +288,57 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     // --- Help/Privacy/Rights Content ---
     private static final String HELP_TEXT =
             "【使い方 / How to Use】\n\n" +
-            "■ 基本操作 / Basic Operations\n" +
+            "■ 画面 / Screen\n" +
             "・⚙️ Settings を押すと設定を開閉します。\n" +
             "・Tap ⚙️ Settings to open/close the settings panel.\n\n" +
-            "・メッセージ入力後、Sendで送信します。\n" +
-            "・Enter a message and press Send.\n\n" +
-            "・送信中にSendを押すとキャンセル確認が表示されます。\n" +
-            "・Press Send while processing to confirm cancel.\n\n" +
             "・ログ上部のバーをタップするとチャットエリアが拡大/縮小します。\n" +
             "・Tap the top handle of the log area to expand/collapse the chat panel.\n\n" +
+            "■ 送信 / Sending\n" +
+            "・メッセージ入力後にSendで送信します。\n" +
+            "・Enter a message and press Send.\n\n" +
+            "・送信中はボタンがSTOPになり、タップで中止できます。\n" +
+            "・While processing, the button shows STOP and can cancel the request.\n\n" +
             "■ 音声 / Voice\n" +
-            "・入力が空欄で送信すると音声入力を開始します（Voice Input有効時）。\n" +
-            "・Sending empty starts voice input when enabled.\n\n" +
-            "・Auto Voice Input は応答後に自動で音声入力を開始します。\n" +
+            "・Voice Inputを有効にすると空欄送信で音声入力します。\n" +
+            "・When Voice Input is enabled, sending empty starts voice input.\n\n" +
+            "・Auto Voice Inputは応答後に自動で音声入力を開始します。\n" +
             "・Auto Voice Input starts voice input after each response.\n\n" +
             "■ モード / Modes\n" +
-            "・Normal: 通常の1モデルチャット。\n" +
-            "・Normal: Standard single-model chat.\n" +
-            "・Chatter: Base と Chatter Partner の2モデルが会話します。\n" +
-            "・Chatter: Two models (Base and Chatter Partner) converse.\n" +
-            "・Chatter Interval で発話間隔（秒）を設定します。\n" +
-            "・Chatter Interval sets the time between turns (seconds).\n\n" +
+            "・Normal: 1つのモデルでチャットします。\n" +
+            "・Normal: Chat with a single model.\n" +
+            "・Chatter: BaseとChatter Partnerが交互に会話します。\n" +
+            "・Chatter: Base and Chatter Partner alternate turns.\n" +
+            "・Chatter Intervalで発話間隔（秒）を設定します。\n" +
+            "・Chatter Interval sets the delay between turns (seconds).\n\n" +
+            "■ 設定タブ / Settings Tabs\n" +
+            "・Base/Chatter Partnerのタブで各モデル設定を切り替えます。\n" +
+            "・Use the Base/Chatter Partner tabs to switch settings.\n\n" +
+            "・Model/Name/System Prompt/Speech Language/Rate/Pitchを設定できます。\n" +
+            "・Configure Model/Name/System Prompt/Speech Language/Rate/Pitch.\n\n" +
             "■ 応答 / Response\n" +
             "・Streaming: 応答をリアルタイム表示します。\n" +
             "・Streaming shows responses in real time.\n\n" +
             "・Text-to-Speech: 応答を音声で読み上げます。\n" +
             "・Text-to-Speech reads responses aloud.\n\n" +
+            "・History Limitで送信する履歴数を調整します。\n" +
+            "・History Limit controls how many past messages are sent.\n\n" +
             "■ Web Search\n" +
-            "・Web Search を有効にすると検索結果を参照します。\n" +
-            "・Enable Web Search to include search results in responses.\n\n" +
+            "・Web Searchを有効にすると検索APIを使います。\n" +
+            "・Enable Web Search to use the configured search API.\n" +
+            "・URLとAPI Keyを入力します。\n" +
+            "・Set the Web Search API URL and API Key.\n\n" +
             "■ アバター / Avatar\n" +
             "・c0: 背景 / Background\n" +
             "・c1: 基本表情 / Base\n" +
             "・c2: まばたき / Blink\n" +
             "・c3: 会話中 / Talking\n" +
-            "・Base と Chatter Partner で別々に設定できます。\n" +
+            "・BaseとChatter Partnerで別々に設定できます。\n" +
             "・You can set different images for Base and Chatter Partner.\n" +
-            "・Clear を押すとデフォルト画像に戻ります。\n" +
+            "・Clearでデフォルトに戻します。\n" +
             "・Press Clear to reset to default.\n\n" +
-            "■ 保存 / Storage\n" +
+            "■ その他 / Other\n" +
+            "・Debug Modeで通信ログを表示します。\n" +
+            "・Debug Mode shows API request/response logs.\n" +
             "・設定と画像は端末内に保存されます。\n" +
             "・Settings and images are stored locally on the device.";
 
@@ -1472,7 +1486,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     // ========== Chat Send ==========
 
     private void updateSendButton() {
-        runOnUiThread(() -> btnSend.setEnabled(!isProcessing && !isListening));
+        runOnUiThread(() -> {
+            if (btnSend == null) return;
+            btnSend.setEnabled(true);
+            btnSend.setText(isProcessing ? "STOP" : "Send");
+        });
     }
 
     private void submitUserMessage(String userMsg) {
@@ -2211,23 +2229,25 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     private void requestChatLayoutUpdate() {
-        if (scrollView != null) {
-            scrollView.post(() -> {
-                if (messageContainer != null) {
-                    messageContainer.requestLayout();
-                    messageContainer.invalidate();
-                    messageContainer.postInvalidateOnAnimation();
-                }
-                scrollView.requestLayout();
-                scrollView.invalidate();
-                scrollView.postInvalidateOnAnimation();
-                if (chatPanel != null) {
-                    chatPanel.requestLayout();
-                    chatPanel.invalidate();
-                    chatPanel.postInvalidateOnAnimation();
-                }
-            });
-        }
+        if (scrollView == null) return;
+        if (layoutUpdateScheduled) return;
+        layoutUpdateScheduled = true;
+        scrollView.post(() -> {
+            layoutUpdateScheduled = false;
+            if (messageContainer != null) {
+                messageContainer.requestLayout();
+                messageContainer.invalidate();
+                messageContainer.postInvalidateOnAnimation();
+            }
+            scrollView.requestLayout();
+            scrollView.invalidate();
+            scrollView.postInvalidateOnAnimation();
+            if (chatPanel != null) {
+                chatPanel.requestLayout();
+                chatPanel.invalidate();
+                chatPanel.postInvalidateOnAnimation();
+            }
+        });
     }
 
     private void queueStreamingChunk(String content, int token) {
@@ -2238,7 +2258,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             if (streamFlushScheduled) return;
             streamFlushScheduled = true;
         }
-        uiHandler.post(() -> flushStreamingBuffer(token));
+        uiHandler.postDelayed(() -> flushStreamingBuffer(token), STREAM_FLUSH_INTERVAL_MS);
     }
 
     private void flushStreamingBuffer(int token) {
@@ -2263,7 +2283,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 }
                 streamFlushScheduled = true;
             }
-            uiHandler.postDelayed(() -> flushStreamingBuffer(token), 16);
+            uiHandler.postDelayed(() -> flushStreamingBuffer(token), STREAM_FLUSH_INTERVAL_MS);
             return;
         }
         appendStreamingMessageInternal(chunk, token);
