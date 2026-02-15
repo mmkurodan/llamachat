@@ -104,6 +104,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final int AVATAR_BLINK_MAX_MS = 7000;
     private static final int AVATAR_BLINK_DURATION_MS = 120;
     private static final int STREAM_FLUSH_INTERVAL_MS = 33;
+    private static final String[] REASONING_OPEN_TAGS = new String[]{
+            "<think>", "<analysis>", "<|thought|>"
+    };
 
     // --- UI ---
     private LinearLayout messageContainer;
@@ -1310,7 +1313,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             return;
         }
         // Text normalization (similar to ollama-chat speak())
-        String clean = text
+        String source = stripReasoningSegments(text);
+        String clean = source
                 .replaceAll("[\\n\\r\\t]", "、")
                 .replaceAll("[!@#$%^&*()_+={}\\[\\]|\\\\:;<>.?/]", "、")
                 .replaceAll("[,\u201c\u201d]", " ")
@@ -1916,7 +1920,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     return;
                 }
 
-                StringBuilder fullResponse = new StringBuilder();
+                StringBuilder rawResponse = new StringBuilder();
+                String visibleResponse = "";
                 boolean first = true;
                 boolean streamingStarted = false;
                 boolean completed = false;
@@ -1940,20 +1945,41 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                                 String content = json.getJSONObject("message")
                                         .optString("content", "");
                                 if (!content.isEmpty()) {
-                                    if (first) {
-                                        beginStreamingMessage(speaker, token);
-                                        first = false;
+                                    rawResponse.append(content);
+                                    String filtered = stripReasoningSegments(rawResponse.toString());
+                                    if (!filtered.startsWith(visibleResponse)) {
+                                        if (first && !filtered.isEmpty()) {
+                                            beginStreamingMessage(speaker, token);
+                                            first = false;
+                                        }
+                                        resetStreamBuffer();
+                                        setStreamingMessage(filtered, token);
+                                        if (!streamingStarted && !filtered.isEmpty()) {
+                                            setStreamingResponse(true, speaker);
+                                            streamingStarted = true;
+                                        }
+                                        if (ttsEnabled) {
+                                            sentenceBuffer.setLength(0);
+                                        }
+                                        visibleResponse = filtered;
+                                        continue;
                                     }
-                                    fullResponse.append(content);
-                                    queueStreamingChunk(content, token);
-                                    if (!streamingStarted) {
+                                    String visibleDelta = filtered.substring(visibleResponse.length());
+                                    if (!visibleDelta.isEmpty()) {
+                                        if (first) {
+                                            beginStreamingMessage(speaker, token);
+                                            first = false;
+                                        }
+                                        queueStreamingChunk(visibleDelta, token);
+                                    }
+                                    if (!streamingStarted && !filtered.isEmpty()) {
                                         setStreamingResponse(true, speaker);
                                         streamingStarted = true;
                                     }
-
-                                    if (ttsEnabled) {
-                                        processChunkForTts(content, speaker);
+                                    if (ttsEnabled && !visibleDelta.isEmpty()) {
+                                        processChunkForTts(visibleDelta, speaker);
                                     }
+                                    visibleResponse = filtered;
                                 }
                             }
                             if (done) break;
@@ -1972,8 +1998,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                         flushSentenceBuffer(speaker);
                     }
 
-                    String text = fullResponse.toString();
-                    if (!text.isEmpty()) {
+                    String text = visibleResponse;
+                    if (!text.trim().isEmpty()) {
                         addToHistory(getHistoryForSpeaker(speaker), "assistant", text);
                     } else {
                         appendAssistantMessage(speaker, "(No response)");
@@ -1989,7 +2015,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     isProcessing = false;
                     updateSendButton();
                     if (completed) {
-                        handleAssistantResponseComplete(speaker, fullResponse.toString());
+                        handleAssistantResponseComplete(speaker, visibleResponse);
                     }
                 }
             }
@@ -2034,9 +2060,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     if (json.has("message")) {
                         content = json.getJSONObject("message").optString("content", "");
                     }
+                    content = stripReasoningSegments(content);
 
                     switchActiveSpeaker(speaker);
-                    if (!content.isEmpty()) {
+                    if (!content.trim().isEmpty()) {
                         appendAssistantMessage(speaker, content);
                         addToHistory(getHistoryForSpeaker(speaker), "assistant", content);
 
@@ -2068,6 +2095,36 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     // ========== UI Helpers ==========
+
+    private String stripReasoningSegments(String text) {
+        if (text == null || text.isEmpty()) return "";
+        String filtered = text
+                .replaceAll("(?s)<think>.*?</think>", "")
+                .replaceAll("(?s)<analysis>.*?</analysis>", "")
+                .replaceAll("(?s)<\\|thought\\|>.*?<\\|endthought\\|>", "")
+                .replaceAll("(?s)<think>.*$", "")
+                .replaceAll("(?s)<analysis>.*$", "")
+                .replaceAll("(?s)<\\|thought\\|>.*$", "");
+        int trimLen = trailingReasoningOpenPrefixLength(filtered);
+        if (trimLen > 0) {
+            filtered = filtered.substring(0, filtered.length() - trimLen);
+        }
+        return filtered;
+    }
+
+    private int trailingReasoningOpenPrefixLength(String text) {
+        if (text == null || text.isEmpty()) return 0;
+        int max = 0;
+        for (String openTag : REASONING_OPEN_TAGS) {
+            int limit = Math.min(openTag.length() - 1, text.length());
+            for (int len = 1; len <= limit; len++) {
+                if (text.regionMatches(text.length() - len, openTag, 0, len)) {
+                    max = Math.max(max, len);
+                }
+            }
+        }
+        return max;
+    }
 
     private void appendDebug(String title, String detail) {
         if (!debugEnabled) return;
@@ -2104,7 +2161,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         String headers = response.headers().toString();
         sb.append("Headers:\n").append(headers.isEmpty() ? "(none)\n" : headers);
         if (body != null) {
-            sb.append("Body:\n").append(body).append("\n");
+            sb.append("Body:\n").append(stripReasoningSegments(body)).append("\n");
         } else {
             sb.append("Body: (none)\n");
         }
@@ -2116,7 +2173,12 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     private void appendAssistantMessage(ChatSpeaker speaker, String text) {
-        appendMessage(getSpeakerName(speaker), text, isUserSideForSpeaker(speaker), false);
+        appendMessage(
+                getSpeakerName(speaker),
+                stripReasoningSegments(text),
+                isUserSideForSpeaker(speaker),
+                false
+        );
     }
 
     private void appendErrorMessage(String text) {
@@ -2144,6 +2206,26 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private void appendStreamingMessage(String content, int token) {
         runOnUiThread(() -> appendStreamingMessageInternal(content, token));
+    }
+
+    private void setStreamingMessage(String content, int token) {
+        runOnUiThread(() -> setStreamingMessageInternal(content, token));
+    }
+
+    private void setStreamingMessageInternal(String content, int token) {
+        if (token != activeStreamingToken) return;
+        if (currentStreamingBubble == null) return;
+        boolean shouldScroll = isNearBottom();
+        streamingTextBuffer.setLength(0);
+        if (content != null) {
+            streamingTextBuffer.append(content);
+        }
+        String header = getSpeakerName(currentStreamingSpeaker);
+        currentStreamingBubble.setText(formatMessageText(header, streamingTextBuffer.toString()));
+        currentStreamingBubble.requestLayout();
+        currentStreamingBubble.invalidate();
+        requestChatLayoutUpdate();
+        maybeScrollToBottom(shouldScroll);
     }
 
     private void appendStreamingMessageInternal(String content, int token) {
