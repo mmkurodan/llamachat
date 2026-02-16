@@ -901,6 +901,15 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     private void switchActiveSpeaker(ChatSpeaker speaker) {
+        if (speaker == null) return;
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            runOnUiThread(() -> applyActiveSpeaker(speaker));
+            return;
+        }
+        applyActiveSpeaker(speaker);
+    }
+
+    private void applyActiveSpeaker(ChatSpeaker speaker) {
         if (speaker == null || speaker == activeSpeaker) return;
         activeSpeaker = speaker;
         setAvatarBackground(R.drawable.c0);
