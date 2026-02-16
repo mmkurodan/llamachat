@@ -25,6 +25,7 @@ import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowManager;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
@@ -533,6 +534,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 saveSettings();
                 settingsPanel.setVisibility(View.GONE);
                 reinitSystemPrompts();
+                focusChatInputAfterSettings();
             } else {
                 settingsPanel.setVisibility(View.VISIBLE);
             }
@@ -585,6 +587,26 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         btnHelp.setOnClickListener(v -> showInfoDialog("Help", HELP_TEXT));
         btnPrivacy.setOnClickListener(v -> showInfoDialog("Privacy Policy", PRIVACY_TEXT));
         btnRights.setOnClickListener(v -> showInfoDialog("Rights", RIGHTS_TEXT));
+    }
+
+    private void focusChatInputAfterSettings() {
+        View focused = getCurrentFocus();
+        if (focused != null) {
+            focused.clearFocus();
+            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null && focused.getWindowToken() != null) {
+                imm.hideSoftInputFromWindow(focused.getWindowToken(), 0);
+            }
+        }
+        if (etInput == null) return;
+        etInput.post(() -> {
+            etInput.requestFocus();
+            etInput.setSelection(etInput.getText().length());
+            InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+            if (imm != null) {
+                imm.showSoftInput(etInput, InputMethodManager.SHOW_IMPLICIT);
+            }
+        });
     }
 
     private void showCancelConfirmation() {
