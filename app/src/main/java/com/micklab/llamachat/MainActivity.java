@@ -104,6 +104,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final int AVATAR_BLINK_MAX_MS = 7000;
     private static final int AVATAR_BLINK_DURATION_MS = 120;
     private static final int STREAM_FLUSH_INTERVAL_MS = 33;
+    private static final int THINKING_ANIMATION_INTERVAL_MS = 360;
     private static final String[] REASONING_OPEN_TAGS = new String[]{
             "<think>", "<analysis>", "<|thought|>"
     };
@@ -187,6 +188,16 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
     }
 
+    private static class ReasoningFilterResult {
+        private final String visibleText;
+        private final boolean reasoningActive;
+
+        private ReasoningFilterResult(String visibleText, boolean reasoningActive) {
+            this.visibleText = visibleText;
+            this.reasoningActive = reasoningActive;
+        }
+    }
+
     // --- Avatar ---
     private final Handler avatarHandler = new Handler(Looper.getMainLooper());
     private final Handler autoHandler = new Handler(Looper.getMainLooper());
@@ -264,8 +275,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private String lastBaseResponse = null;
     private String lastChatterResponse = null;
     private TextView currentStreamingBubble;
+    private TextView currentThinkingBubble;
     private ChatSpeaker currentStreamingSpeaker = ChatSpeaker.BASE;
+    private ChatSpeaker currentThinkingSpeaker = ChatSpeaker.BASE;
     private ChatSpeaker currentTtsSpeaker = ChatSpeaker.BASE;
+    private int thinkingDotStep = 0;
     private boolean chatExpanded = false;
     private float chatDragStartY = 0f;
     private int chatDragThresholdPx = 0;
@@ -281,6 +295,15 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private volatile int activeStreamingToken = 0;
     private volatile boolean layoutUpdateScheduled = false;
     private Call currentCall = null;
+    private final Runnable thinkingAnimationRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (currentThinkingBubble == null) return;
+            thinkingDotStep = (thinkingDotStep + 1) % 3;
+            updateThinkingBubbleText();
+            uiHandler.postDelayed(this, THINKING_ANIMATION_INTERVAL_MS);
+        }
+    };
 
     // --- Voice Recognition ---
     private SpeechRecognizer speechRecognizer;
@@ -580,6 +603,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
         activeStreamingToken = streamingTokenCounter.incrementAndGet();
         resetStreamBuffer();
+        hideThinkingIndicator();
         isProcessing = false;
         setStreamingResponse(false, null);
         stopTts();
@@ -1896,6 +1920,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             @Override
             public void onFailure(Call call, IOException e) {
                 currentCall = null;
+                setThinkingIndicator(false, speaker, token);
                 if (call.isCanceled()) {
                     return; // Don't show error for cancelled requests
                 }
@@ -1914,6 +1939,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                         appendDebug("/api/chat Response", buildResponseDebugText(response, errorBody));
                     }
                     appendErrorMessage("HTTP error: " + response.code());
+                    setThinkingIndicator(false, speaker, token);
                     setStreamingResponse(false, null);
                     isProcessing = false;
                     updateSendButton();
@@ -1946,7 +1972,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                                         .optString("content", "");
                                 if (!content.isEmpty()) {
                                     rawResponse.append(content);
-                                    String filtered = stripReasoningSegments(rawResponse.toString());
+                                    ReasoningFilterResult filterResult =
+                                            filterReasoningSegments(rawResponse.toString());
+                                    String filtered = filterResult.visibleText;
+                                    setThinkingIndicator(filterResult.reasoningActive, speaker, token);
                                     if (!filtered.startsWith(visibleResponse)) {
                                         if (first && !filtered.isEmpty()) {
                                             beginStreamingMessage(speaker, token);
@@ -1991,6 +2020,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     if (debugRaw != null) {
                         appendDebug("/api/chat Response", buildResponseDebugText(response, debugRaw.toString()));
                     }
+                    setThinkingIndicator(false, speaker, token);
                     flushStreamingBuffer(token);
                     finishStreamingMessage(token);
 
@@ -2011,6 +2041,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     }
                 } finally {
                     currentCall = null;
+                    setThinkingIndicator(false, speaker, token);
                     setStreamingResponse(false, null);
                     isProcessing = false;
                     updateSendButton();
@@ -2097,8 +2128,15 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     // ========== UI Helpers ==========
 
     private String stripReasoningSegments(String text) {
-        if (text == null || text.isEmpty()) return "";
-        String filtered = text
+        return filterReasoningSegments(text).visibleText;
+    }
+
+    private ReasoningFilterResult filterReasoningSegments(String text) {
+        if (text == null || text.isEmpty()) {
+            return new ReasoningFilterResult("", false);
+        }
+        String normalized = collapseExtraNewlineAfterReasoningClose(text);
+        String filtered = normalized
                 .replaceAll("(?s)<think>.*?</think>", "")
                 .replaceAll("(?s)<analysis>.*?</analysis>", "")
                 .replaceAll("(?s)<\\|thought\\|>.*?<\\|endthought\\|>", "")
@@ -2109,7 +2147,31 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (trimLen > 0) {
             filtered = filtered.substring(0, filtered.length() - trimLen);
         }
-        return filtered;
+        return new ReasoningFilterResult(filtered, hasUnclosedReasoningBlock(normalized));
+    }
+
+    private String collapseExtraNewlineAfterReasoningClose(String text) {
+        return text.replaceAll(
+                "(</think>|</analysis>|<\\|endthought\\|>)\\r?\\n\\r?\\n",
+                "$1\n"
+        );
+    }
+
+    private boolean hasUnclosedReasoningBlock(String text) {
+        return hasUnclosedTag(text, "<think>", "</think>")
+                || hasUnclosedTag(text, "<analysis>", "</analysis>")
+                || hasUnclosedTag(text, "<|thought|>", "<|endthought|>");
+    }
+
+    private boolean hasUnclosedTag(String text, String openTag, String closeTag) {
+        int searchFrom = 0;
+        while (true) {
+            int openIdx = text.indexOf(openTag, searchFrom);
+            if (openIdx < 0) return false;
+            int closeIdx = text.indexOf(closeTag, openIdx + openTag.length());
+            if (closeIdx < 0) return true;
+            searchFrom = closeIdx + closeTag.length();
+        }
     }
 
     private int trailingReasoningOpenPrefixLength(String text) {
@@ -2161,7 +2223,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         String headers = response.headers().toString();
         sb.append("Headers:\n").append(headers.isEmpty() ? "(none)\n" : headers);
         if (body != null) {
-            sb.append("Body:\n").append(stripReasoningSegments(body)).append("\n");
+            sb.append("Body:\n").append(body).append("\n");
         } else {
             sb.append("Body: (none)\n");
         }
@@ -2187,6 +2249,58 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private void appendSystemMessage(String name, String text) {
         appendMessage(name, text, false, false);
+    }
+
+    private void setThinkingIndicator(boolean active, ChatSpeaker speaker, int token) {
+        runOnUiThread(() -> {
+            if (token != activeStreamingToken) return;
+            if (!active) {
+                hideThinkingIndicatorInternal();
+                return;
+            }
+            if (currentThinkingBubble != null) return;
+            boolean shouldScroll = isNearBottom();
+            currentThinkingSpeaker = speaker;
+            currentThinkingBubble = createMessageBubble(getSpeakerName(speaker), isUserSideForSpeaker(speaker));
+            thinkingDotStep = 0;
+            updateThinkingBubbleText();
+            uiHandler.removeCallbacks(thinkingAnimationRunnable);
+            uiHandler.postDelayed(thinkingAnimationRunnable, THINKING_ANIMATION_INTERVAL_MS);
+            requestChatLayoutUpdate();
+            maybeScrollToBottom(shouldScroll);
+        });
+    }
+
+    private void updateThinkingBubbleText() {
+        if (currentThinkingBubble == null) return;
+        int dots = (thinkingDotStep % 3) + 1;
+        StringBuilder body = new StringBuilder("Thinking");
+        for (int i = 0; i < dots; i++) {
+            body.append('.');
+        }
+        String header = getSpeakerName(currentThinkingSpeaker);
+        currentThinkingBubble.setText(formatMessageText(header, body.toString()));
+        currentThinkingBubble.requestLayout();
+        currentThinkingBubble.invalidate();
+        requestChatLayoutUpdate();
+    }
+
+    private void hideThinkingIndicator() {
+        runOnUiThread(this::hideThinkingIndicatorInternal);
+    }
+
+    private void hideThinkingIndicatorInternal() {
+        uiHandler.removeCallbacks(thinkingAnimationRunnable);
+        if (currentThinkingBubble == null) return;
+        View row = (View) currentThinkingBubble.getParent();
+        if (row != null) {
+            Object parent = row.getParent();
+            if (parent instanceof LinearLayout) {
+                ((LinearLayout) parent).removeView(row);
+            }
+        }
+        currentThinkingBubble = null;
+        requestChatLayoutUpdate();
     }
 
     private void beginStreamingMessage(ChatSpeaker speaker, int token) {
@@ -2383,6 +2497,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         int token = streamingTokenCounter.incrementAndGet();
         activeStreamingToken = token;
         runOnUiThread(() -> {
+            hideThinkingIndicatorInternal();
             currentStreamingBubble = null;
             streamingTextBuffer.setLength(0);
         });
@@ -2468,6 +2583,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     protected void onDestroy() {
         stopAvatarAnimation();
         autoHandler.removeCallbacksAndMessages(null);
+        hideThinkingIndicator();
         if (tts != null) {
             tts.stop();
             tts.shutdown();
