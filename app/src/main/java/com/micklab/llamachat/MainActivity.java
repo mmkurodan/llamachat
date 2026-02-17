@@ -29,6 +29,7 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.RadioButton;
@@ -138,6 +139,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private EditText etWebSearchUrl, etWebSearchApiKey;
     private ImageView ivAvatarBackground;
     private ImageView ivAvatar;
+    private FrameLayout counterpartMiniContainer;
+    private ImageView ivCounterpartMiniBackground;
+    private ImageView ivCounterpartMiniAvatar;
 
     // --- Settings (defaults) ---
     private String ollamaBaseUrl = "http://localhost:11434";
@@ -465,6 +469,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         tvChatterC3Filename = findViewById(R.id.tvChatterC3Filename);
         ivAvatarBackground = findViewById(R.id.ivAvatarBackground);
         ivAvatar = findViewById(R.id.ivAvatar);
+        counterpartMiniContainer = findViewById(R.id.counterpartMiniContainer);
+        ivCounterpartMiniBackground = findViewById(R.id.ivCounterpartMiniBackground);
+        ivCounterpartMiniAvatar = findViewById(R.id.ivCounterpartMiniAvatar);
         scrollView = findViewById(R.id.scrollView);
         settingsPanel = findViewById(R.id.settingsPanel);
         topPanel = findViewById(R.id.topPanel);
@@ -517,6 +524,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (chatDragArea != null) {
             chatDragArea.bringToFront();
         }
+        updateCounterpartMiniSize();
 
         modelList.add("default");
         modelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
@@ -607,6 +615,18 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 imm.showSoftInput(etInput, InputMethodManager.SHOW_IMPLICIT);
             }
         });
+    }
+
+    private void updateCounterpartMiniSize() {
+        if (counterpartMiniContainer == null) return;
+        int width = getResources().getDisplayMetrics().widthPixels / 4;
+        int height = getResources().getDisplayMetrics().heightPixels / 4;
+        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) counterpartMiniContainer.getLayoutParams();
+        if (params == null) return;
+        if (params.width == width && params.height == height) return;
+        params.width = width;
+        params.height = height;
+        counterpartMiniContainer.setLayoutParams(params);
     }
 
     private void showCancelConfirmation() {
@@ -786,12 +806,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         int resId = getAvatarResIdForRequest(requestCode);
         if (resId == 0) return;
         ChatSpeaker target = getAvatarSpeakerForRequest(requestCode);
-        if (target != activeSpeaker) return;
-        if (isAvatarBackgroundRequest(requestCode)) {
-            setAvatarBackground(resId);
-        } else {
-            setAvatarFrame(resId);
+        if (target == activeSpeaker) {
+            if (isAvatarBackgroundRequest(requestCode)) {
+                setAvatarBackground(resId);
+            } else {
+                setAvatarFrame(resId);
+            }
         }
+        updateCounterpartMiniAvatar();
     }
 
     private boolean isAvatarBackgroundRequest(int requestCode) {
@@ -831,13 +853,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         avatarMode = AvatarMode.IDLE;
         setAvatarBackground(R.drawable.c0);
         startIdleAnimation();
+        updateCounterpartMiniAvatar();
     }
 
     private void setAvatarBackground(int resId) {
         if (ivAvatarBackground != null) {
             Bitmap custom = null;
             if (resId == R.drawable.c0) {
-                custom = activeSpeaker == ChatSpeaker.BASE ? avatarC0Bitmap : avatarChatterC0Bitmap;
+                custom = getAvatarBackgroundBitmapForSpeaker(activeSpeaker);
             }
             if (custom != null) {
                 ivAvatarBackground.setImageBitmap(custom);
@@ -849,20 +872,73 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private void setAvatarFrame(int resId) {
         if (ivAvatar != null) {
-            Bitmap custom = null;
-            if (resId == R.drawable.c1) {
-                custom = activeSpeaker == ChatSpeaker.BASE ? avatarC1Bitmap : avatarChatterC1Bitmap;
-            } else if (resId == R.drawable.c2) {
-                custom = activeSpeaker == ChatSpeaker.BASE ? avatarC2Bitmap : avatarChatterC2Bitmap;
-            } else if (resId == R.drawable.c3) {
-                custom = activeSpeaker == ChatSpeaker.BASE ? avatarC3Bitmap : avatarChatterC3Bitmap;
-            }
+            Bitmap custom = getAvatarFrameBitmapForSpeaker(activeSpeaker, resId);
             if (custom != null) {
                 ivAvatar.setImageBitmap(custom);
             } else {
                 ivAvatar.setImageResource(resId);
             }
         }
+    }
+
+    private Bitmap getAvatarBackgroundBitmapForSpeaker(ChatSpeaker speaker) {
+        return speaker == ChatSpeaker.CHATTER ? avatarChatterC0Bitmap : avatarC0Bitmap;
+    }
+
+    private Bitmap getAvatarFrameBitmapForSpeaker(ChatSpeaker speaker, int resId) {
+        if (speaker == ChatSpeaker.CHATTER) {
+            if (resId == R.drawable.c1) return avatarChatterC1Bitmap;
+            if (resId == R.drawable.c2) return avatarChatterC2Bitmap;
+            if (resId == R.drawable.c3) return avatarChatterC3Bitmap;
+            return null;
+        }
+        if (resId == R.drawable.c1) return avatarC1Bitmap;
+        if (resId == R.drawable.c2) return avatarC2Bitmap;
+        if (resId == R.drawable.c3) return avatarC3Bitmap;
+        return null;
+    }
+
+    private void setCounterpartMiniBackground(ChatSpeaker speaker) {
+        if (ivCounterpartMiniBackground == null) return;
+        Bitmap custom = getAvatarBackgroundBitmapForSpeaker(speaker);
+        if (custom != null) {
+            ivCounterpartMiniBackground.setImageBitmap(custom);
+        } else {
+            ivCounterpartMiniBackground.setImageResource(R.drawable.c0);
+        }
+    }
+
+    private void setCounterpartMiniAvatar(ChatSpeaker speaker) {
+        if (ivCounterpartMiniAvatar == null) return;
+        Bitmap custom = getAvatarFrameBitmapForSpeaker(speaker, R.drawable.c1);
+        if (custom != null) {
+            ivCounterpartMiniAvatar.setImageBitmap(custom);
+        } else {
+            ivCounterpartMiniAvatar.setImageResource(R.drawable.c1);
+        }
+    }
+
+    private void updateCounterpartMiniAvatar() {
+        if (Looper.myLooper() != Looper.getMainLooper()) {
+            runOnUiThread(this::updateCounterpartMiniAvatar);
+            return;
+        }
+        if (counterpartMiniContainer == null
+                || ivCounterpartMiniBackground == null
+                || ivCounterpartMiniAvatar == null) {
+            return;
+        }
+        if (!autoChatterEnabled) {
+            counterpartMiniContainer.setVisibility(View.GONE);
+            return;
+        }
+        updateCounterpartMiniSize();
+        ChatSpeaker counterpart = activeSpeaker == ChatSpeaker.BASE
+                ? ChatSpeaker.CHATTER
+                : ChatSpeaker.BASE;
+        setCounterpartMiniBackground(counterpart);
+        setCounterpartMiniAvatar(counterpart);
+        counterpartMiniContainer.setVisibility(View.VISIBLE);
     }
 
     private void scheduleNextBlink() {
@@ -918,6 +994,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         } else {
             startIdleAnimation();
         }
+        updateCounterpartMiniAvatar();
     }
 
     private void updateAvatarAnimation() {
@@ -1211,6 +1288,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (autoChatterEnabled) {
             tabGroup.setVisibility(View.VISIBLE);
             updateSettingsTab();
+            updateCounterpartMiniAvatar();
         } else {
             tabGroup.setVisibility(View.GONE);
             tabBase.setChecked(true);
@@ -1218,6 +1296,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             chatterSettingsGroup.setVisibility(View.GONE);
             cancelAutoChatter();
             pendingAutoChatterAfterTts = false;
+            updateCounterpartMiniAvatar();
         }
     }
 

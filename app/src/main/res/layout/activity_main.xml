@@ -12,6 +12,38 @@
         android:scaleType="centerCrop"
         android:src="@drawable/c0" />
 
+    <FrameLayout
+        android:id="@+id/counterpartMiniContainer"
+        android:layout_width="96dp"
+        android:layout_height="96dp"
+        android:layout_gravity="top|end"
+        android:layout_marginTop="56dp"
+        android:layout_marginEnd="12dp"
+        android:visibility="gone">
+
+        <ImageView
+            android:id="@+id/ivCounterpartMiniBackground"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/mini_avatar_round_rect"
+            android:clipToOutline="true"
+            android:contentDescription="@null"
+            android:importantForAccessibility="no"
+            android:scaleType="centerCrop"
+            android:src="@drawable/c0" />
+
+        <ImageView
+            android:id="@+id/ivCounterpartMiniAvatar"
+            android:layout_width="match_parent"
+            android:layout_height="match_parent"
+            android:background="@drawable/mini_avatar_round_rect"
+            android:clipToOutline="true"
+            android:contentDescription="@null"
+            android:importantForAccessibility="no"
+            android:scaleType="centerCrop"
+            android:src="@drawable/c1" />
+    </FrameLayout>
+
     <ImageView
         android:id="@+id/ivAvatar"
         android:layout_width="match_parent"
