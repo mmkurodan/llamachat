@@ -865,7 +865,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             if (custom != null) {
                 ivAvatarBackground.setImageBitmap(custom);
             } else {
-                ivAvatarBackground.setImageResource(resId);
+                int fallbackRes = resId;
+                if (resId == R.drawable.c0 && activeSpeaker == ChatSpeaker.CHATTER) {
+                    fallbackRes = R.drawable.c0c;
+                }
+                ivAvatarBackground.setImageResource(fallbackRes);
             }
         }
     }
@@ -876,7 +880,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             if (custom != null) {
                 ivAvatar.setImageBitmap(custom);
             } else {
-                ivAvatar.setImageResource(resId);
+                int fallbackRes = resId;
+                if (activeSpeaker == ChatSpeaker.CHATTER) {
+                    if (resId == R.drawable.c1) fallbackRes = R.drawable.c1c;
+                    else if (resId == R.drawable.c2) fallbackRes = R.drawable.c2c;
+                    else if (resId == R.drawable.c3) fallbackRes = R.drawable.c3c;
+                    else if (resId == R.drawable.c0) fallbackRes = R.drawable.c0c;
+                }
+                ivAvatar.setImageResource(fallbackRes);
             }
         }
     }
@@ -904,7 +915,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (custom != null) {
             ivCounterpartMiniBackground.setImageBitmap(custom);
         } else {
-            ivCounterpartMiniBackground.setImageResource(R.drawable.c0);
+            int fallbackRes = (speaker == ChatSpeaker.CHATTER) ? R.drawable.c0c : R.drawable.c0;
+            ivCounterpartMiniBackground.setImageResource(fallbackRes);
         }
     }
 
@@ -914,7 +926,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (custom != null) {
             ivCounterpartMiniAvatar.setImageBitmap(custom);
         } else {
-            ivCounterpartMiniAvatar.setImageResource(R.drawable.c1);
+            int fallbackRes = (speaker == ChatSpeaker.CHATTER) ? R.drawable.c1c : R.drawable.c1;
+            ivCounterpartMiniAvatar.setImageResource(fallbackRes);
         }
     }
 
