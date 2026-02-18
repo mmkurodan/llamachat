@@ -113,6 +113,38 @@
                         android:layout_marginBottom="8dp"/>
 
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Config Profile"/>
+                    <EditText android:id="@+id/etProfileName"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="text" android:singleLine="true"/>
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="4dp">
+                        <Button
+                            android:id="@+id/btnProfileSave"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="Save"/>
+                        <Button
+                            android:id="@+id/btnProfileLoad"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="Load"
+                            android:layout_marginStart="4dp"/>
+                        <Button
+                            android:id="@+id/btnProfileDelete"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="Delete"
+                            android:layout_marginStart="4dp"/>
+                    </LinearLayout>
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Ollama URL"/>
                     <EditText android:id="@+id/etOllamaUrl"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -145,6 +177,12 @@
                     <EditText android:id="@+id/etHistoryLimit"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:inputType="number" android:singleLine="true"/>
+                    <Button
+                        android:id="@+id/btnResetLogs"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Reset Conversation Log"
+                        android:layout_marginTop="8dp"/>
 
                     <Switch android:id="@+id/switchStreaming"
                         android:layout_width="match_parent" android:layout_height="wrap_content"

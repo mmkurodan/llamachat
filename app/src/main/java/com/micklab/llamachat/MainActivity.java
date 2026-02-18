@@ -80,6 +80,17 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private static final String TAG = "OllamaChat";
     private static final String SETTINGS_FILE = "chat_settings.json";
+    private static final String SETTINGS_PROFILE_DIR = "settings_profiles";
+    private static final String SETTINGS_PROFILE_SUFFIX = ".json";
+    private static final String PROFILE_AVATAR_PREFIX = "profile_avatar_";
+    private static final String PROFILE_AVATAR_C0_KEY = "avatarC0";
+    private static final String PROFILE_AVATAR_C1_KEY = "avatarC1";
+    private static final String PROFILE_AVATAR_C2_KEY = "avatarC2";
+    private static final String PROFILE_AVATAR_C3_KEY = "avatarC3";
+    private static final String PROFILE_AVATAR_CHATTER_C0_KEY = "avatarChatterC0";
+    private static final String PROFILE_AVATAR_CHATTER_C1_KEY = "avatarChatterC1";
+    private static final String PROFILE_AVATAR_CHATTER_C2_KEY = "avatarChatterC2";
+    private static final String PROFILE_AVATAR_CHATTER_C3_KEY = "avatarChatterC3";
     private static final String SEARCH_SYSTEM_PROMPT =
             "You are a search-augmented assistant. When the user provides SEARCH_RESULTS, you must read them and base your answer strictly on that information.";
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
@@ -118,6 +129,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private Button btnClearC0, btnClearC1, btnClearC2, btnClearC3;
     private Button btnPickChatterC0, btnPickChatterC1, btnPickChatterC2, btnPickChatterC3;
     private Button btnClearChatterC0, btnClearChatterC1, btnClearChatterC2, btnClearChatterC3;
+    private Button btnResetLogs, btnProfileSave, btnProfileLoad, btnProfileDelete;
     private Button btnHelp, btnPrivacy, btnRights;
     private TextView tvC0Filename, tvC1Filename, tvC2Filename, tvC3Filename;
     private TextView tvChatterC0Filename, tvChatterC1Filename, tvChatterC2Filename, tvChatterC3Filename;
@@ -136,7 +148,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private EditText etChatterSpeechLang, etChatterSpeechRate, etChatterSpeechPitch, etChatterSystemPrompt;
     private EditText etBaseName, etChatterName;
     private EditText etHistoryLimit, etAutoChatterSeconds;
-    private EditText etWebSearchUrl, etWebSearchApiKey;
+    private EditText etWebSearchUrl, etWebSearchApiKey, etProfileName;
     private ImageView ivAvatarBackground;
     private ImageView ivAvatar;
     private FrameLayout counterpartMiniContainer;
@@ -456,6 +468,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         btnClearChatterC1 = findViewById(R.id.btnClearChatterC1);
         btnClearChatterC2 = findViewById(R.id.btnClearChatterC2);
         btnClearChatterC3 = findViewById(R.id.btnClearChatterC3);
+        btnResetLogs = findViewById(R.id.btnResetLogs);
+        btnProfileSave = findViewById(R.id.btnProfileSave);
+        btnProfileLoad = findViewById(R.id.btnProfileLoad);
+        btnProfileDelete = findViewById(R.id.btnProfileDelete);
         btnHelp = findViewById(R.id.btnHelp);
         btnPrivacy = findViewById(R.id.btnPrivacy);
         btnRights = findViewById(R.id.btnRights);
@@ -492,6 +508,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         switchTts = findViewById(R.id.switchTts);
         switchVoiceInput = findViewById(R.id.switchVoiceInput);
         switchAutoVoiceInput = findViewById(R.id.switchAutoVoiceInput);
+        etProfileName = findViewById(R.id.etProfileName);
         etOllamaUrl = findViewById(R.id.etOllamaUrl);
         etBaseName = findViewById(R.id.etBaseName);
         etSpeechLang = findViewById(R.id.etSpeechLang);
@@ -591,6 +608,55 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         btnClearChatterC1.setOnClickListener(v -> clearAvatarImage(REQ_PICK_CHATTER_C1));
         btnClearChatterC2.setOnClickListener(v -> clearAvatarImage(REQ_PICK_CHATTER_C2));
         btnClearChatterC3.setOnClickListener(v -> clearAvatarImage(REQ_PICK_CHATTER_C3));
+        btnResetLogs.setOnClickListener(v -> showResetConversationLogsConfirmation());
+        btnProfileSave.setOnClickListener(v -> {
+            String profileName = etProfileName.getText().toString().trim();
+            if (profileName.isEmpty()) {
+                Toast.makeText(this, "Enter profile name", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            readSettingsFromUi();
+            saveSettings();
+            if (saveSettingsProfile(profileName)) {
+                Toast.makeText(this, "Profile saved", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Failed to save profile", Toast.LENGTH_SHORT).show();
+            }
+        });
+        btnProfileLoad.setOnClickListener(v -> {
+            String profileName = etProfileName.getText().toString().trim();
+            if (profileName.isEmpty()) {
+                Toast.makeText(this, "Enter profile name", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            if (loadSettingsProfile(profileName)) {
+                applySettingsToUi();
+                reinitSystemPrompts();
+                saveSettings();
+                Toast.makeText(this, "Profile loaded", Toast.LENGTH_SHORT).show();
+            } else {
+                Toast.makeText(this, "Profile not found", Toast.LENGTH_SHORT).show();
+            }
+        });
+        btnProfileDelete.setOnClickListener(v -> {
+            String profileName = etProfileName.getText().toString().trim();
+            if (profileName.isEmpty()) {
+                Toast.makeText(this, "Enter profile name", Toast.LENGTH_SHORT).show();
+                return;
+            }
+            new AlertDialog.Builder(this)
+                    .setTitle("Delete Profile")
+                    .setMessage("Delete profile \"" + profileName + "\"?")
+                    .setPositiveButton("Delete", (dialog, which) -> {
+                        if (deleteSettingsProfile(profileName)) {
+                            Toast.makeText(this, "Profile deleted", Toast.LENGTH_SHORT).show();
+                        } else {
+                            Toast.makeText(this, "Profile not found", Toast.LENGTH_SHORT).show();
+                        }
+                    })
+                    .setNegativeButton("Cancel", null)
+                    .show();
+        });
 
         btnHelp.setOnClickListener(v -> showInfoDialog("Help", HELP_TEXT));
         btnPrivacy.setOnClickListener(v -> showInfoDialog("Privacy Policy", PRIVACY_TEXT));
@@ -636,6 +702,41 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 .setPositiveButton("Yes / はい", (dialog, which) -> cancelCurrentRequest())
                 .setNegativeButton("No / いいえ", null)
                 .show();
+    }
+
+    private void showResetConversationLogsConfirmation() {
+        new AlertDialog.Builder(this)
+                .setTitle("Reset Conversation Log")
+                .setMessage("Reset all conversation logs?\n会話ログをすべてリセットしますか？")
+                .setPositiveButton("Reset", (dialog, which) -> resetConversationLogs())
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void resetConversationLogs() {
+        if (currentCall != null) {
+            currentCall.cancel();
+            currentCall = null;
+        }
+        activeStreamingToken = streamingTokenCounter.incrementAndGet();
+        resetStreamBuffer();
+        hideThinkingIndicator();
+        stopTts();
+        isProcessing = false;
+        setStreamingResponse(false, null);
+        pendingAutoVoiceStart = false;
+        pendingAutoChatterAfterTts = false;
+        runOnUiThread(() -> {
+            if (messageContainer != null) {
+                messageContainer.removeAllViews();
+            }
+            currentStreamingBubble = null;
+            currentThinkingBubble = null;
+            initConversationHistory();
+            updateSendButton();
+            requestChatLayoutUpdate();
+            Toast.makeText(this, "Conversation log reset", Toast.LENGTH_SHORT).show();
+        });
     }
 
     private void cancelCurrentRequest() {
@@ -1125,34 +1226,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             String line;
             while ((line = reader.readLine()) != null) sb.append(line);
             reader.close();
-
-            JSONObject s = new JSONObject(sb.toString());
-            ollamaBaseUrl = s.optString("ollamaBaseUrl", ollamaBaseUrl);
-            selectedModel = s.optString("selectedModel", selectedModel);
-            chatterModel = s.optString("chatterModel", chatterModel);
-            streamingEnabled = s.optBoolean("streamingEnabled", streamingEnabled);
-            ttsEnabled = s.optBoolean("ttsEnabled", ttsEnabled);
-            voiceInputEnabled = s.optBoolean("voiceInputEnabled", voiceInputEnabled);
-            autoChatterEnabled = s.optBoolean("autoChatterEnabled", autoChatterEnabled);
-            autoVoiceInputEnabled = s.optBoolean("autoVoiceInputEnabled", autoVoiceInputEnabled);
-            speechLang = s.optString("speechLang", speechLang);
-            speechRate = (float) s.optDouble("speechRate", speechRate);
-            speechPitch = (float) s.optDouble("speechPitch", speechPitch);
-            systemPromptText = s.optString("systemPrompt", systemPromptText);
-            chatterSpeechLang = s.optString("chatterSpeechLang", chatterSpeechLang);
-            chatterSpeechRate = (float) s.optDouble("chatterSpeechRate", chatterSpeechRate);
-            chatterSpeechPitch = (float) s.optDouble("chatterSpeechPitch", chatterSpeechPitch);
-            chatterSystemPromptText = s.optString("chatterSystemPrompt", chatterSystemPromptText);
-            baseName = s.optString("baseName", baseName);
-            chatterName = s.optString("chatterName", chatterName);
-            historyLimit = s.optInt("historyLimit", historyLimit);
-            autoChatterSeconds = s.optInt("autoChatterSeconds", autoChatterSeconds);
-            webSearchEnabled = s.optBoolean("webSearchEnabled", webSearchEnabled);
-            debugEnabled = s.optBoolean("debugEnabled", debugEnabled);
-            webSearchUrl = s.optString("webSearchUrl", webSearchUrl);
-            webSearchApiKey = s.optString("webSearchApiKey", webSearchApiKey);
-            if (historyLimit < 0) historyLimit = 0;
-            if (autoChatterSeconds < 0) autoChatterSeconds = 0;
+            applySettingsJson(new JSONObject(sb.toString()));
         } catch (FileNotFoundException e) {
             // First run: use defaults
         } catch (Exception e) {
@@ -1162,37 +1236,285 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private void saveSettings() {
         try {
-            JSONObject s = new JSONObject();
-            s.put("ollamaBaseUrl", ollamaBaseUrl);
-            s.put("selectedModel", selectedModel);
-            s.put("chatterModel", chatterModel);
-            s.put("streamingEnabled", streamingEnabled);
-            s.put("ttsEnabled", ttsEnabled);
-            s.put("voiceInputEnabled", voiceInputEnabled);
-            s.put("autoChatterEnabled", autoChatterEnabled);
-            s.put("autoVoiceInputEnabled", autoVoiceInputEnabled);
-            s.put("speechLang", speechLang);
-            s.put("speechRate", speechRate);
-            s.put("speechPitch", speechPitch);
-            s.put("systemPrompt", systemPromptText);
-            s.put("chatterSpeechLang", chatterSpeechLang);
-            s.put("chatterSpeechRate", chatterSpeechRate);
-            s.put("chatterSpeechPitch", chatterSpeechPitch);
-            s.put("chatterSystemPrompt", chatterSystemPromptText);
-            s.put("baseName", baseName);
-            s.put("chatterName", chatterName);
-            s.put("historyLimit", historyLimit);
-            s.put("autoChatterSeconds", autoChatterSeconds);
-            s.put("webSearchEnabled", webSearchEnabled);
-            s.put("debugEnabled", debugEnabled);
-            s.put("webSearchUrl", webSearchUrl);
-            s.put("webSearchApiKey", webSearchApiKey);
-
+            JSONObject s = buildSettingsJson();
             FileOutputStream fos = openFileOutput(SETTINGS_FILE, MODE_PRIVATE);
             fos.write(s.toString(2).getBytes(StandardCharsets.UTF_8));
             fos.close();
         } catch (Exception e) {
             Log.e(TAG, "saveSettings error", e);
+        }
+    }
+
+    private JSONObject buildSettingsJson() throws Exception {
+        JSONObject s = new JSONObject();
+        s.put("ollamaBaseUrl", ollamaBaseUrl);
+        s.put("selectedModel", selectedModel);
+        s.put("chatterModel", chatterModel);
+        s.put("streamingEnabled", streamingEnabled);
+        s.put("ttsEnabled", ttsEnabled);
+        s.put("voiceInputEnabled", voiceInputEnabled);
+        s.put("autoChatterEnabled", autoChatterEnabled);
+        s.put("autoVoiceInputEnabled", autoVoiceInputEnabled);
+        s.put("speechLang", speechLang);
+        s.put("speechRate", speechRate);
+        s.put("speechPitch", speechPitch);
+        s.put("systemPrompt", systemPromptText);
+        s.put("chatterSpeechLang", chatterSpeechLang);
+        s.put("chatterSpeechRate", chatterSpeechRate);
+        s.put("chatterSpeechPitch", chatterSpeechPitch);
+        s.put("chatterSystemPrompt", chatterSystemPromptText);
+        s.put("baseName", baseName);
+        s.put("chatterName", chatterName);
+        s.put("historyLimit", historyLimit);
+        s.put("autoChatterSeconds", autoChatterSeconds);
+        s.put("webSearchEnabled", webSearchEnabled);
+        s.put("debugEnabled", debugEnabled);
+        s.put("webSearchUrl", webSearchUrl);
+        s.put("webSearchApiKey", webSearchApiKey);
+        s.put("avatarC0FileInfo", getAvatarFileInfo(avatarC0File));
+        s.put("avatarC1FileInfo", getAvatarFileInfo(avatarC1File));
+        s.put("avatarC2FileInfo", getAvatarFileInfo(avatarC2File));
+        s.put("avatarC3FileInfo", getAvatarFileInfo(avatarC3File));
+        s.put("avatarChatterC0FileInfo", getAvatarFileInfo(avatarChatterC0File));
+        s.put("avatarChatterC1FileInfo", getAvatarFileInfo(avatarChatterC1File));
+        s.put("avatarChatterC2FileInfo", getAvatarFileInfo(avatarChatterC2File));
+        s.put("avatarChatterC3FileInfo", getAvatarFileInfo(avatarChatterC3File));
+        return s;
+    }
+
+    private void applySettingsJson(JSONObject s) {
+        ollamaBaseUrl = s.optString("ollamaBaseUrl", ollamaBaseUrl);
+        selectedModel = s.optString("selectedModel", selectedModel);
+        chatterModel = s.optString("chatterModel", chatterModel);
+        streamingEnabled = s.optBoolean("streamingEnabled", streamingEnabled);
+        ttsEnabled = s.optBoolean("ttsEnabled", ttsEnabled);
+        voiceInputEnabled = s.optBoolean("voiceInputEnabled", voiceInputEnabled);
+        autoChatterEnabled = s.optBoolean("autoChatterEnabled", autoChatterEnabled);
+        autoVoiceInputEnabled = s.optBoolean("autoVoiceInputEnabled", autoVoiceInputEnabled);
+        speechLang = s.optString("speechLang", speechLang);
+        speechRate = (float) s.optDouble("speechRate", speechRate);
+        speechPitch = (float) s.optDouble("speechPitch", speechPitch);
+        systemPromptText = s.optString("systemPrompt", systemPromptText);
+        chatterSpeechLang = s.optString("chatterSpeechLang", chatterSpeechLang);
+        chatterSpeechRate = (float) s.optDouble("chatterSpeechRate", chatterSpeechRate);
+        chatterSpeechPitch = (float) s.optDouble("chatterSpeechPitch", chatterSpeechPitch);
+        chatterSystemPromptText = s.optString("chatterSystemPrompt", chatterSystemPromptText);
+        baseName = s.optString("baseName", baseName);
+        chatterName = s.optString("chatterName", chatterName);
+        historyLimit = s.optInt("historyLimit", historyLimit);
+        autoChatterSeconds = s.optInt("autoChatterSeconds", autoChatterSeconds);
+        webSearchEnabled = s.optBoolean("webSearchEnabled", webSearchEnabled);
+        debugEnabled = s.optBoolean("debugEnabled", debugEnabled);
+        webSearchUrl = s.optString("webSearchUrl", webSearchUrl);
+        webSearchApiKey = s.optString("webSearchApiKey", webSearchApiKey);
+        if (historyLimit < 0) historyLimit = 0;
+        if (autoChatterSeconds < 0) autoChatterSeconds = 0;
+    }
+
+    private String getAvatarFileInfo(File file) {
+        return file != null && file.exists() ? file.getName() : "";
+    }
+
+    private File getSettingsProfileDir(boolean createDir) {
+        File dir = new File(getFilesDir(), SETTINGS_PROFILE_DIR);
+        if (dir.exists()) return dir;
+        if (!createDir) return null;
+        if (dir.mkdirs()) return dir;
+        Log.w(TAG, "Failed to create profile dir: " + dir.getAbsolutePath());
+        return null;
+    }
+
+    private String normalizeProfileName(String profileName) {
+        if (profileName == null) return "";
+        String trimmed = profileName.trim();
+        if (trimmed.isEmpty()) return "";
+        String normalized = trimmed.replaceAll("[\\\\/:*?\"<>|]", "_");
+        if (normalized.startsWith(".")) {
+            normalized = "_" + normalized.substring(1);
+        }
+        return normalized;
+    }
+
+    private File getSettingsProfileFile(String profileName, boolean createDir) {
+        String normalized = normalizeProfileName(profileName);
+        if (normalized.isEmpty()) return null;
+        File dir = getSettingsProfileDir(createDir);
+        if (dir == null) return null;
+        return new File(dir, normalized + SETTINGS_PROFILE_SUFFIX);
+    }
+
+    private String buildProfileAvatarFilename(String normalizedProfileName, String slotFileName) {
+        return PROFILE_AVATAR_PREFIX + normalizedProfileName + "_" + slotFileName;
+    }
+
+    private String saveProfileAvatarFile(String normalizedProfileName, File source, String slotFileName) {
+        if (source == null) return "";
+        File dir = getExternalFilesDir(null);
+        if (dir == null) return "";
+        File backup = new File(dir, buildProfileAvatarFilename(normalizedProfileName, slotFileName));
+        if (!source.exists()) {
+            if (backup.exists()) backup.delete();
+            return "";
+        }
+        if (!copyFile(source, backup)) {
+            return "";
+        }
+        return backup.getName();
+    }
+
+    private void restoreProfileAvatarFile(JSONObject avatars, String key, File target) {
+        if (avatars == null || target == null) return;
+        String filename = avatars.optString(key, "");
+        if (filename == null || filename.trim().isEmpty()) {
+            if (target.exists()) target.delete();
+            return;
+        }
+        File dir = getExternalFilesDir(null);
+        if (dir == null) return;
+        File source = new File(dir, filename);
+        if (!source.exists()) {
+            if (target.exists()) target.delete();
+            return;
+        }
+        if (!copyFile(source, target) && target.exists()) {
+            target.delete();
+        }
+    }
+
+    private void deleteProfileAvatarBackup(JSONObject avatars, String key) {
+        if (avatars == null) return;
+        String filename = avatars.optString(key, "");
+        if (filename == null || filename.trim().isEmpty()) return;
+        File dir = getExternalFilesDir(null);
+        if (dir == null) return;
+        File backup = new File(dir, filename);
+        if (backup.exists()) {
+            backup.delete();
+        }
+    }
+
+    private boolean saveSettingsProfile(String profileName) {
+        try {
+            String normalized = normalizeProfileName(profileName);
+            if (normalized.isEmpty()) return false;
+            File profileFile = getSettingsProfileFile(profileName, true);
+            if (profileFile == null) return false;
+
+            JSONObject root = new JSONObject();
+            root.put("profileName", profileName.trim());
+            root.put("settings", buildSettingsJson());
+
+            JSONObject avatars = new JSONObject();
+            avatars.put(PROFILE_AVATAR_C0_KEY, saveProfileAvatarFile(normalized, avatarC0File, AVATAR_C0_FILE));
+            avatars.put(PROFILE_AVATAR_C1_KEY, saveProfileAvatarFile(normalized, avatarC1File, AVATAR_C1_FILE));
+            avatars.put(PROFILE_AVATAR_C2_KEY, saveProfileAvatarFile(normalized, avatarC2File, AVATAR_C2_FILE));
+            avatars.put(PROFILE_AVATAR_C3_KEY, saveProfileAvatarFile(normalized, avatarC3File, AVATAR_C3_FILE));
+            avatars.put(PROFILE_AVATAR_CHATTER_C0_KEY, saveProfileAvatarFile(normalized, avatarChatterC0File, AVATAR_CHATTER_C0_FILE));
+            avatars.put(PROFILE_AVATAR_CHATTER_C1_KEY, saveProfileAvatarFile(normalized, avatarChatterC1File, AVATAR_CHATTER_C1_FILE));
+            avatars.put(PROFILE_AVATAR_CHATTER_C2_KEY, saveProfileAvatarFile(normalized, avatarChatterC2File, AVATAR_CHATTER_C2_FILE));
+            avatars.put(PROFILE_AVATAR_CHATTER_C3_KEY, saveProfileAvatarFile(normalized, avatarChatterC3File, AVATAR_CHATTER_C3_FILE));
+            root.put("avatarFiles", avatars);
+
+            try (FileOutputStream fos = new FileOutputStream(profileFile)) {
+                fos.write(root.toString(2).getBytes(StandardCharsets.UTF_8));
+                fos.flush();
+            }
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "saveSettingsProfile error", e);
+            return false;
+        }
+    }
+
+    private boolean loadSettingsProfile(String profileName) {
+        try {
+            File profileFile = getSettingsProfileFile(profileName, false);
+            if (profileFile == null || !profileFile.exists()) return false;
+
+            StringBuilder sb = new StringBuilder();
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(profileFile), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) sb.append(line);
+            }
+            JSONObject root = new JSONObject(sb.toString());
+            JSONObject settings = root.optJSONObject("settings");
+            if (settings == null) {
+                settings = root;
+            }
+            applySettingsJson(settings);
+
+            JSONObject avatars = root.optJSONObject("avatarFiles");
+            if (avatars != null) {
+                restoreProfileAvatarFile(avatars, PROFILE_AVATAR_C0_KEY, avatarC0File);
+                restoreProfileAvatarFile(avatars, PROFILE_AVATAR_C1_KEY, avatarC1File);
+                restoreProfileAvatarFile(avatars, PROFILE_AVATAR_C2_KEY, avatarC2File);
+                restoreProfileAvatarFile(avatars, PROFILE_AVATAR_C3_KEY, avatarC3File);
+                restoreProfileAvatarFile(avatars, PROFILE_AVATAR_CHATTER_C0_KEY, avatarChatterC0File);
+                restoreProfileAvatarFile(avatars, PROFILE_AVATAR_CHATTER_C1_KEY, avatarChatterC1File);
+                restoreProfileAvatarFile(avatars, PROFILE_AVATAR_CHATTER_C2_KEY, avatarChatterC2File);
+                restoreProfileAvatarFile(avatars, PROFILE_AVATAR_CHATTER_C3_KEY, avatarChatterC3File);
+            }
+            reloadAvatarBitmaps();
+            updateAllAvatarFilenameDisplays();
+            setAvatarBackground(R.drawable.c0);
+            if (avatarMode == AvatarMode.TALKING) {
+                startTalkAnimation();
+            } else {
+                startIdleAnimation();
+            }
+            updateCounterpartMiniAvatar();
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "loadSettingsProfile error", e);
+            return false;
+        }
+    }
+
+    private boolean deleteSettingsProfile(String profileName) {
+        try {
+            File profileFile = getSettingsProfileFile(profileName, false);
+            if (profileFile == null || !profileFile.exists()) return false;
+
+            try {
+                StringBuilder sb = new StringBuilder();
+                try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(profileFile), StandardCharsets.UTF_8))) {
+                    String line;
+                    while ((line = reader.readLine()) != null) sb.append(line);
+                }
+                JSONObject root = new JSONObject(sb.toString());
+                JSONObject avatars = root.optJSONObject("avatarFiles");
+                deleteProfileAvatarBackup(avatars, PROFILE_AVATAR_C0_KEY);
+                deleteProfileAvatarBackup(avatars, PROFILE_AVATAR_C1_KEY);
+                deleteProfileAvatarBackup(avatars, PROFILE_AVATAR_C2_KEY);
+                deleteProfileAvatarBackup(avatars, PROFILE_AVATAR_C3_KEY);
+                deleteProfileAvatarBackup(avatars, PROFILE_AVATAR_CHATTER_C0_KEY);
+                deleteProfileAvatarBackup(avatars, PROFILE_AVATAR_CHATTER_C1_KEY);
+                deleteProfileAvatarBackup(avatars, PROFILE_AVATAR_CHATTER_C2_KEY);
+                deleteProfileAvatarBackup(avatars, PROFILE_AVATAR_CHATTER_C3_KEY);
+            } catch (Exception e) {
+                Log.w(TAG, "deleteSettingsProfile parse warning", e);
+            }
+            return profileFile.delete();
+        } catch (Exception e) {
+            Log.e(TAG, "deleteSettingsProfile error", e);
+            return false;
+        }
+    }
+
+    private boolean copyFile(File source, File target) {
+        if (source == null || target == null || !source.exists()) return false;
+        try (InputStream in = new FileInputStream(source);
+             FileOutputStream out = new FileOutputStream(target)) {
+            byte[] buffer = new byte[8192];
+            int len;
+            while ((len = in.read(buffer)) != -1) {
+                out.write(buffer, 0, len);
+            }
+            out.flush();
+            return true;
+        } catch (Exception e) {
+            Log.e(TAG, "copyFile error", e);
+            return false;
         }
     }
 
@@ -1574,7 +1896,12 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private String buildSystemPromptWithName(String basePrompt, String name) {
         String trimmed = basePrompt == null ? "" : basePrompt.trim();
         if (name == null || name.trim().isEmpty()) return trimmed;
-        String suffix = "あなたの名前は" + name.trim() + "です。";
+        String normalizedName = name.trim();
+        String suffix = "assistantの名前は" + normalizedName + "です。";
+        String legacySuffix = "あなたの名前は" + normalizedName + "です。";
+        if (!trimmed.isEmpty() && trimmed.contains(legacySuffix)) {
+            trimmed = trimmed.replace(legacySuffix, suffix);
+        }
         if (trimmed.isEmpty()) return suffix;
         if (trimmed.contains(suffix)) return trimmed;
         return trimmed + "\n" + suffix;
