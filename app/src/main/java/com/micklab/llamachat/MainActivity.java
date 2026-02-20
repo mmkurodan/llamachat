@@ -2932,7 +2932,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             uiHandler.postDelayed(() -> flushStreamingBuffer(token), STREAM_FLUSH_INTERVAL_MS);
             return;
         }
-        appendStreamingMessageInternal(chunk, token);
+        appendStreamingMessage(chunk, token);
     }
 
     private void resetStreamBuffer() {
