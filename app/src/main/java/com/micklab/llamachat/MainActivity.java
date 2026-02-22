@@ -53,6 +53,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
@@ -624,19 +625,27 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             }
         });
         btnProfileLoad.setOnClickListener(v -> {
-            String profileName = etProfileName.getText().toString().trim();
-            if (profileName.isEmpty()) {
-                Toast.makeText(this, "Enter profile name", Toast.LENGTH_SHORT).show();
+            List<String> profileNames = getSavedProfileNames();
+            if (profileNames.isEmpty()) {
+                Toast.makeText(this, "No saved profiles", Toast.LENGTH_SHORT).show();
                 return;
             }
-            if (loadSettingsProfile(profileName)) {
-                applySettingsToUi();
-                reinitSystemPrompts();
-                saveSettings();
-                Toast.makeText(this, "Profile loaded", Toast.LENGTH_SHORT).show();
-            } else {
-                Toast.makeText(this, "Profile not found", Toast.LENGTH_SHORT).show();
-            }
+            String[] options = profileNames.toArray(new String[0]);
+            new AlertDialog.Builder(this)
+                    .setTitle("Load Profile")
+                    .setItems(options, (dialog, which) -> {
+                        String profileName = options[which];
+                        etProfileName.setText(profileName);
+                        if (loadSettingsProfile(profileName)) {
+                            applySettingsToUi();
+                            reinitSystemPrompts();
+                            saveSettings();
+                            Toast.makeText(this, "Profile loaded", Toast.LENGTH_SHORT).show();
+                        } else {
+                            Toast.makeText(this, "Profile not found", Toast.LENGTH_SHORT).show();
+                        }
+                    })
+                    .show();
         });
         btnProfileDelete.setOnClickListener(v -> {
             String profileName = etProfileName.getText().toString().trim();
@@ -1343,6 +1352,32 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         return new File(dir, normalized + SETTINGS_PROFILE_SUFFIX);
     }
 
+    private List<String> getSavedProfileNames() {
+        List<String> names = new ArrayList<>();
+        File dir = getSettingsProfileDir(false);
+        if (dir == null || !dir.exists()) return names;
+        File[] profileFiles = dir.listFiles((d, n) -> n.endsWith(SETTINGS_PROFILE_SUFFIX));
+        if (profileFiles == null) return names;
+        for (File profileFile : profileFiles) {
+            String filename = profileFile.getName();
+            String displayName = filename.substring(0, filename.length() - SETTINGS_PROFILE_SUFFIX.length());
+            try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(profileFile), StandardCharsets.UTF_8))) {
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) sb.append(line);
+                String profileName = new JSONObject(sb.toString()).optString("profileName", "").trim();
+                if (!profileName.isEmpty()) {
+                    displayName = profileName;
+                }
+            } catch (Exception e) {
+                Log.w(TAG, "getSavedProfileNames parse warning: " + filename, e);
+            }
+            names.add(displayName);
+        }
+        Collections.sort(names, String.CASE_INSENSITIVE_ORDER);
+        return names;
+    }
+
     private String buildProfileAvatarFilename(String normalizedProfileName, String slotFileName) {
         return PROFILE_AVATAR_PREFIX + normalizedProfileName + "_" + slotFileName;
     }
@@ -1592,8 +1627,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         switchStreaming.setChecked(streamingEnabled);
         switchTts.setChecked(ttsEnabled);
         switchVoiceInput.setChecked(voiceInputEnabled);
-        radioModeChatter.setChecked(autoChatterEnabled);
-        radioModeNormal.setChecked(!autoChatterEnabled);
+        groupMode.check(autoChatterEnabled ? R.id.radioModeChatter : R.id.radioModeNormal);
         switchAutoVoiceInput.setChecked(autoVoiceInputEnabled);
         etBaseName.setText(baseName);
         etSpeechLang.setText(speechLang);
@@ -1626,7 +1660,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             updateCounterpartMiniAvatar();
         } else {
             tabGroup.setVisibility(View.GONE);
-            tabBase.setChecked(true);
+            tabGroup.check(R.id.tabBase);
             baseSettingsGroup.setVisibility(View.VISIBLE);
             chatterSettingsGroup.setVisibility(View.GONE);
             cancelAutoChatter();
@@ -1862,11 +1896,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             try {
                 JSONObject sys = new JSONObject();
                 sys.put("role", "system");
-                sys.put("content", buildSystemPromptWithName(systemPromptText, baseName));
+                sys.put("content", buildSystemPromptWithName(systemPromptText, baseName, autoChatterEnabled ? chatterName : ""));
                 conversationHistory.add(sys);
                 JSONObject chatterSys = new JSONObject();
                 chatterSys.put("role", "system");
-                chatterSys.put("content", buildSystemPromptWithName(chatterSystemPromptText, chatterName));
+                chatterSys.put("content", buildSystemPromptWithName(chatterSystemPromptText, chatterName, autoChatterEnabled ? baseName : ""));
                 chatterHistory.add(chatterSys);
             } catch (Exception e) {
                 Log.e(TAG, "initHistory error", e);
@@ -1876,8 +1910,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private void reinitSystemPrompts() {
         synchronized (historyLock) {
-            updateSystemPrompt(conversationHistory, buildSystemPromptWithName(systemPromptText, baseName));
-            updateSystemPrompt(chatterHistory, buildSystemPromptWithName(chatterSystemPromptText, chatterName));
+            updateSystemPrompt(conversationHistory, buildSystemPromptWithName(systemPromptText, baseName, autoChatterEnabled ? chatterName : ""));
+            updateSystemPrompt(chatterHistory, buildSystemPromptWithName(chatterSystemPromptText, chatterName, autoChatterEnabled ? baseName : ""));
         }
     }
 
@@ -1893,18 +1927,23 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
     }
 
-    private String buildSystemPromptWithName(String basePrompt, String name) {
-        String trimmed = basePrompt == null ? "" : basePrompt.trim();
-        if (name == null || name.trim().isEmpty()) return trimmed;
-        String normalizedName = name.trim();
-        String suffix = "assistantの名前は" + normalizedName + "です。";
-        String legacySuffix = "あなたの名前は" + normalizedName + "です。";
-        if (!trimmed.isEmpty() && trimmed.contains(legacySuffix)) {
-            trimmed = trimmed.replace(legacySuffix, suffix);
+    private String buildSystemPromptWithName(String basePrompt, String name, String counterpartName) {
+        String trimmedPrompt = basePrompt == null ? "" : basePrompt.trim();
+        String trimmedName = name == null ? "" : name.trim();
+        String trimmedCounterpartName = counterpartName == null ? "" : counterpartName.trim();
+        StringBuilder result = new StringBuilder();
+        if (!trimmedName.isEmpty()) {
+            result.append("あなたは").append(trimmedName).append("という名前です。");
         }
-        if (trimmed.isEmpty()) return suffix;
-        if (trimmed.contains(suffix)) return trimmed;
-        return trimmed + "\n" + suffix;
+        if (!trimmedPrompt.isEmpty()) {
+            if (result.length() > 0) result.append("\n");
+            result.append(trimmedPrompt);
+        }
+        if (!trimmedCounterpartName.isEmpty()) {
+            if (result.length() > 0) result.append("\n");
+            result.append("相手の名前は").append(trimmedCounterpartName).append("です。");
+        }
+        return result.toString();
     }
 
     private void addToHistory(List<JSONObject> history, String role, String content) {
