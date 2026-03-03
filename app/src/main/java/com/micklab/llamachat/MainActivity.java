@@ -890,11 +890,16 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     bottom = insets.getSystemWindowInsetBottom();
                 }
                 mainLayout.setPadding(0, top, 0, bottom);
-                // Keep the mini avatar below the status bar
+                // Keep floating buttons below the status bar
                 if (counterpartMiniContainer != null) {
                     FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) counterpartMiniContainer.getLayoutParams();
                     lp.topMargin = top + dpToPx(8);
                     counterpartMiniContainer.setLayoutParams(lp);
+                }
+                if (btnSettings != null) {
+                    FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) btnSettings.getLayoutParams();
+                    lp.topMargin = top + dpToPx(4);
+                    btnSettings.setLayoutParams(lp);
                 }
                 return insets;
             }
