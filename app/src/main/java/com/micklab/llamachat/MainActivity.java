@@ -10,6 +10,7 @@ import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.Rect;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Handler;
@@ -708,6 +709,29 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (imm != null && token != null) {
             imm.hideSoftInputFromWindow(token, 0);
         }
+    }
+
+    @Override
+    public boolean dispatchTouchEvent(MotionEvent ev) {
+        if (ev.getAction() == MotionEvent.ACTION_DOWN) {
+            View focused = getCurrentFocus();
+            if (focused instanceof EditText) {
+                Rect outRect = new Rect();
+                focused.getGlobalVisibleRect(outRect);
+                boolean touchedOutside = !outRect.contains((int) ev.getRawX(), (int) ev.getRawY());
+                // deliver to children first so their click handlers still run
+                boolean handled = super.dispatchTouchEvent(ev);
+                if (touchedOutside) {
+                    focused.clearFocus();
+                    InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
+                    if (imm != null) {
+                        imm.hideSoftInputFromWindow(focused.getWindowToken(), 0);
+                    }
+                }
+                return handled;
+            }
+        }
+        return super.dispatchTouchEvent(ev);
     }
 
     private void updateCounterpartMiniSize() {
