@@ -146,7 +146,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private RadioGroup groupMode, tabGroup;
     private RadioButton radioModeNormal, radioModeChatter, tabBase, tabChatter;
     private LinearLayout baseSettingsGroup, chatterSettingsGroup;
-    private Switch switchStreaming, switchTts, switchVoiceInput, switchAutoVoiceInput, switchHideKeyboard, switchWebSearch, switchDebug;
+    private Switch switchStreaming, switchTts, switchVoiceInput, switchAutoVoiceInput, switchWebSearch, switchDebug;
     private EditText etOllamaUrl, etSpeechLang, etSpeechRate, etSpeechPitch, etSystemPrompt;
     private EditText etChatterSpeechLang, etChatterSpeechRate, etChatterSpeechPitch, etChatterSystemPrompt;
     private EditText etBaseName, etChatterName;
@@ -167,7 +167,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private boolean voiceInputEnabled = true;
     private boolean autoChatterEnabled = false;
     private boolean autoVoiceInputEnabled = false;
-    private boolean hideKeyboardOnSend = false;
     private boolean webSearchEnabled = false;
     private boolean debugEnabled = false;
     private String webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
@@ -434,8 +433,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         requestWindowFeature(Window.FEATURE_NO_TITLE);
-        getWindow().setFlags(WindowManager.LayoutParams.FLAG_FULLSCREEN,
-                WindowManager.LayoutParams.FLAG_FULLSCREEN);
+        getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         setContentView(R.layout.activity_main);
 
         initViews();
@@ -517,7 +515,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         switchTts = findViewById(R.id.switchTts);
         switchVoiceInput = findViewById(R.id.switchVoiceInput);
         switchAutoVoiceInput = findViewById(R.id.switchAutoVoiceInput);
-        switchHideKeyboard = findViewById(R.id.switchHideKeyboard);
         etProfileName = findViewById(R.id.etProfileName);
         etOllamaUrl = findViewById(R.id.etOllamaUrl);
         etBaseName = findViewById(R.id.etBaseName);
@@ -1314,7 +1311,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         s.put("voiceInputEnabled", voiceInputEnabled);
         s.put("autoChatterEnabled", autoChatterEnabled);
         s.put("autoVoiceInputEnabled", autoVoiceInputEnabled);
-        s.put("hideKeyboardOnSend", hideKeyboardOnSend);
         s.put("speechLang", speechLang);
         s.put("speechRate", speechRate);
         s.put("speechPitch", speechPitch);
@@ -1351,7 +1347,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         voiceInputEnabled = s.optBoolean("voiceInputEnabled", voiceInputEnabled);
         autoChatterEnabled = s.optBoolean("autoChatterEnabled", autoChatterEnabled);
         autoVoiceInputEnabled = s.optBoolean("autoVoiceInputEnabled", autoVoiceInputEnabled);
-        hideKeyboardOnSend = s.optBoolean("hideKeyboardOnSend", hideKeyboardOnSend);
         speechLang = s.optString("speechLang", speechLang);
         speechRate = (float) s.optDouble("speechRate", speechRate);
         speechPitch = (float) s.optDouble("speechPitch", speechPitch);
@@ -1613,7 +1608,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         voiceInputEnabled = switchVoiceInput.isChecked();
         autoChatterEnabled = radioModeChatter.isChecked();
         autoVoiceInputEnabled = switchAutoVoiceInput.isChecked();
-        hideKeyboardOnSend = switchHideKeyboard.isChecked();
         baseName = etBaseName.getText().toString().trim();
         if (baseName.isEmpty()) baseName = "アシスタント";
         speechLang = etSpeechLang.getText().toString().trim();
@@ -1682,7 +1676,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         switchVoiceInput.setChecked(voiceInputEnabled);
         groupMode.check(autoChatterEnabled ? R.id.radioModeChatter : R.id.radioModeNormal);
         switchAutoVoiceInput.setChecked(autoVoiceInputEnabled);
-        switchHideKeyboard.setChecked(hideKeyboardOnSend);
         etBaseName.setText(baseName);
         etSpeechLang.setText(speechLang);
         etSpeechRate.setText(String.valueOf(speechRate));
@@ -2068,10 +2061,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (userMsg == null || userMsg.trim().isEmpty()) return;
         cancelAutoChatter();
         etInput.setText("");
-        if (hideKeyboardOnSend) {
-            etInput.clearFocus();
-            hideKeyboard(etInput);
-        }
         appendUserMessage(userMsg);
         addToHistory(conversationHistory, "user", userMsg);
 
