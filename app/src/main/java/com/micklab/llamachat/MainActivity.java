@@ -12,6 +12,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.Rect;
 import android.net.Uri;
+import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
@@ -25,6 +26,7 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
+import android.view.WindowInsets;
 import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.ArrayAdapter;
@@ -139,6 +141,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private View settingsPanel;
     private View topPanel;
     private LinearLayout chatPanel;
+    private LinearLayout mainLayout;
     private View mainLayer;
     private View chatDragArea;
     private View chatDragHandle;
@@ -437,6 +440,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         setContentView(R.layout.activity_main);
 
         initViews();
+        setupWindowInsets();
         initAvatarAssets();
         initAvatarAnimation();
         loadSettings();
@@ -494,6 +498,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         settingsPanel = findViewById(R.id.settingsPanel);
         topPanel = findViewById(R.id.topPanel);
         chatPanel = findViewById(R.id.chatPanel);
+        mainLayout = findViewById(R.id.mainLayout);
         mainLayer = findViewById(android.R.id.content);
         if (mainLayer != null) {
             mainLayer.setFocusable(true);
@@ -864,6 +869,36 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         updateAvatarFilenameDisplay(REQ_PICK_CHATTER_C1, avatarChatterC1File != null && avatarChatterC1File.exists() ? avatarChatterC1File.getName() : null);
         updateAvatarFilenameDisplay(REQ_PICK_CHATTER_C2, avatarChatterC2File != null && avatarChatterC2File.exists() ? avatarChatterC2File.getName() : null);
         updateAvatarFilenameDisplay(REQ_PICK_CHATTER_C3, avatarChatterC3File != null && avatarChatterC3File.exists() ? avatarChatterC3File.getName() : null);
+    }
+
+    // ========== Window Insets (SafeArea + Keyboard) ==========
+
+    @SuppressWarnings("deprecation")
+    private void setupWindowInsets() {
+        if (mainLayout == null) return;
+        mainLayout.setOnApplyWindowInsetsListener(new View.OnApplyWindowInsetsListener() {
+            @Override
+            public WindowInsets onApplyWindowInsets(View v, WindowInsets insets) {
+                int top, bottom;
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                    android.graphics.Insets sys = insets.getInsets(WindowInsets.Type.systemBars());
+                    android.graphics.Insets ime = insets.getInsets(WindowInsets.Type.ime());
+                    top = sys.top;
+                    bottom = Math.max(sys.bottom, ime.bottom);
+                } else {
+                    top = insets.getSystemWindowInsetTop();
+                    bottom = insets.getSystemWindowInsetBottom();
+                }
+                mainLayout.setPadding(0, top, 0, bottom);
+                // Keep the mini avatar below the status bar
+                if (counterpartMiniContainer != null) {
+                    FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) counterpartMiniContainer.getLayoutParams();
+                    lp.topMargin = top + dpToPx(8);
+                    counterpartMiniContainer.setLayoutParams(lp);
+                }
+                return insets;
+            }
+        });
     }
 
     // ========== Avatar ==========
