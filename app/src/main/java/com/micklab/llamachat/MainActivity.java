@@ -701,10 +701,12 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     private void hideKeyboard(View target) {
-        if (target == null) return;
         InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-        if (imm != null && target.getWindowToken() != null) {
-            imm.hideSoftInputFromWindow(target.getWindowToken(), 0);
+        android.os.IBinder token = (target != null && target.getWindowToken() != null)
+                ? target.getWindowToken()
+                : (getWindow() != null ? getWindow().getDecorView().getWindowToken() : null);
+        if (imm != null && token != null) {
+            imm.hideSoftInputFromWindow(token, 0);
         }
     }
 
