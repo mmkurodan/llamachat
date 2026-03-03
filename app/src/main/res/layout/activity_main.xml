@@ -200,6 +200,10 @@
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:text="Auto Voice Input (after response)" android:layout_marginTop="4dp"/>
 
+                    <Switch android:id="@+id/switchHideKeyboard"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="Hide Keyboard (on send)" android:layout_marginTop="4dp"/>
+
                     <Switch android:id="@+id/switchWebSearch"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:text="Web Search" android:layout_marginTop="4dp"/>
