@@ -139,6 +139,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private View settingsPanel;
     private View topPanel;
     private LinearLayout chatPanel;
+    private View mainLayer;
     private View chatDragArea;
     private View chatDragHandle;
     private Spinner spinnerModel, spinnerChatterModel;
@@ -495,6 +496,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         settingsPanel = findViewById(R.id.settingsPanel);
         topPanel = findViewById(R.id.topPanel);
         chatPanel = findViewById(R.id.chatPanel);
+        mainLayer = findViewById(android.R.id.content);
+        if (mainLayer != null) {
+            mainLayer.setFocusable(true);
+            mainLayer.setFocusableInTouchMode(true);
+        }
         chatDragArea = findViewById(R.id.chatDragArea);
         chatDragHandle = findViewById(R.id.chatDragHandle);
         spinnerModel = findViewById(R.id.spinnerModel);
@@ -563,7 +569,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 saveSettings();
                 settingsPanel.setVisibility(View.GONE);
                 reinitSystemPrompts();
-                focusChatInputAfterSettings();
+                focusMainLayerAfterSettings();
             } else {
                 settingsPanel.setVisibility(View.VISIBLE);
             }
@@ -578,11 +584,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (chatDragArea != null) {
             chatDragArea.setOnClickListener(v -> setChatExpanded(!chatExpanded));
         }
-        etInput.setOnFocusChangeListener((v, hasFocus) -> {
-            if (!hasFocus) {
-                hideKeyboard(v);
-            }
-        });
+        View contentView = findViewById(android.R.id.content);
+        if (contentView != null) {
+            contentView.getViewTreeObserver().addOnGlobalFocusChangeListener((oldFocus, newFocus) -> {
+                if (oldFocus instanceof EditText && !(newFocus instanceof EditText)) {
+                    hideKeyboard(oldFocus);
+                }
+            });
+        }
 
         btnSend.setOnClickListener(v -> {
             if (isProcessing) {
@@ -680,25 +689,22 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         btnRights.setOnClickListener(v -> showInfoDialog("Rights", RIGHTS_TEXT));
     }
 
-    private void focusChatInputAfterSettings() {
+    private void focusMainLayerAfterSettings() {
         View focused = getCurrentFocus();
         if (focused != null) {
             focused.clearFocus();
             hideKeyboard(focused);
         }
-        if (etInput == null) return;
-        etInput.post(() -> {
-            etInput.requestFocus();
-            etInput.setSelection(etInput.getText().length());
-            if (hideKeyboardOnSend) {
-                hideKeyboard(etInput);
-            } else {
-                InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-                if (imm != null) {
-                    imm.showSoftInput(etInput, InputMethodManager.SHOW_IMPLICIT);
-                }
-            }
-        });
+        focusMainLayer();
+    }
+
+    private void focusMainLayer() {
+        View target = mainLayer != null ? mainLayer : findViewById(android.R.id.content);
+        if (target != null) {
+            target.setFocusable(true);
+            target.setFocusableInTouchMode(true);
+            target.requestFocus();
+        }
     }
 
     private void hideKeyboard(View target) {
@@ -722,10 +728,12 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 // deliver to children first so their click handlers still run
                 boolean handled = super.dispatchTouchEvent(ev);
                 if (touchedOutside) {
-                    focused.clearFocus();
-                    InputMethodManager imm = (InputMethodManager) getSystemService(Context.INPUT_METHOD_SERVICE);
-                    if (imm != null) {
-                        imm.hideSoftInputFromWindow(focused.getWindowToken(), 0);
+                    View newFocus = getCurrentFocus();
+                    boolean movedToAnotherEditText = newFocus instanceof EditText && newFocus != focused;
+                    if (!movedToAnotherEditText) {
+                        focused.clearFocus();
+                        focusMainLayer();
+                        hideKeyboard(focused);
                     }
                 }
                 return handled;
