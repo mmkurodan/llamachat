@@ -572,10 +572,23 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 settingsPanel.setVisibility(View.GONE);
                 reinitSystemPrompts();
                 focusMainLayerAfterSettings();
+                btnSettings.setText("⚙");
+                btnSettings.setContentDescription("Open settings");
             } else {
                 settingsPanel.setVisibility(View.VISIBLE);
+                btnSettings.setText("CLOSE");
+                btnSettings.setContentDescription("Close settings");
             }
         });
+
+        // Initialize settings button label based on panel visibility
+        if (settingsPanel.getVisibility() == View.VISIBLE) {
+            btnSettings.setText("CLOSE");
+            btnSettings.setContentDescription("Close settings");
+        } else {
+            btnSettings.setText("⚙");
+            btnSettings.setContentDescription("Open settings");
+        }
 
         groupMode.setOnCheckedChangeListener((group, checkedId) -> {
             autoChatterEnabled = checkedId == R.id.radioModeChatter;
