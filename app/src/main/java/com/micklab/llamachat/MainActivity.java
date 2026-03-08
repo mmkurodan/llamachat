@@ -551,6 +551,22 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         etWebSearchUrl = findViewById(R.id.etWebSearchUrl);
         etWebSearchApiKey = findViewById(R.id.etWebSearchApiKey);
         etWebSearchModel = findViewById(R.id.etWebSearchModel);
+        // Long-press the Web Search Model field to pick a model from /api/tags results
+        etWebSearchModel.setOnLongClickListener(v -> {
+            if (modelList.isEmpty()) {
+                Toast.makeText(MainActivity.this, "モデルリストを読み込み中です...", Toast.LENGTH_SHORT).show();
+                return true;
+            }
+            final String[] items = modelList.toArray(new String[0]);
+            AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
+            builder.setTitle("Web Search Model を選択");
+            builder.setItems(items, (dialog, which) -> {
+                etWebSearchModel.setText(items[which]);
+            });
+            builder.setNegativeButton("キャンセル", null);
+            builder.show();
+            return true;
+        });
         chatDragThresholdPx = dpToPx(24);
         chatPanelMarginPx = dpToPx(12);
         autoScrollThresholdPx = dpToPx(64);
