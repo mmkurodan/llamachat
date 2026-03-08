@@ -588,6 +588,18 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         modelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
         modelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerModel.setAdapter(modelAdapter);
+        spinnerModel.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+            @Override
+            public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                Object obj = parent.getItemAtPosition(position);
+                String model = obj != null ? obj.toString() : "";
+                String current = etWebSearchModel.getText() != null ? etWebSearchModel.getText().toString().trim() : "";
+                if (model != null && !model.isEmpty() && (current.isEmpty() || "default".equals(current))) {
+                    etWebSearchModel.setText(model);
+                }
+            }
+            @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
+        });
         chatterModelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
         chatterModelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerChatterModel.setAdapter(chatterModelAdapter);
