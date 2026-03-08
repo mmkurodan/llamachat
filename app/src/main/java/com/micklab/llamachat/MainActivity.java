@@ -154,7 +154,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private EditText etChatterSpeechLang, etChatterSpeechRate, etChatterSpeechPitch, etChatterSystemPrompt;
     private EditText etBaseName, etChatterName;
     private EditText etHistoryLimit, etAutoChatterSeconds;
-    private EditText etWebSearchUrl, etWebSearchApiKey, etProfileName;
+    private EditText etWebSearchUrl, etWebSearchApiKey, etWebSearchModel, etProfileName;
     private ImageView ivAvatarBackground;
     private ImageView ivAvatar;
     private FrameLayout counterpartMiniContainer;
@@ -174,6 +174,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private boolean debugEnabled = false;
     private String webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
     private String webSearchApiKey = "";
+    private String webSearchModel = "default";
     private String speechLang = "ja-JP";
     private float speechRate = 1.0f;
     private float speechPitch = 1.0f;
@@ -185,7 +186,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private String baseName = "アシスタント";
     private String chatterName = "おしゃべり相手";
     private int historyLimit = 10;
-    private int autoChatterSeconds = 30;
+    private int autoChatterSeconds = 10;
 
     // --- TTS ---
     private TextToSpeech tts;
@@ -336,12 +337,17 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     // --- Help/Privacy/Rights Content ---
     private static final String HELP_TEXT =
-            "【使い方 / How to Use】\n\n" +
+            "AI x2 Chat — 【使い方 / How to Use】\n\n" +
             "■ 画面 / Screen\n" +
-            "・⚙️ Settings を押すと設定を開閉します。\n" +
-            "・Tap ⚙️ Settings to open/close the settings panel.\n\n" +
+            "・⚙️ で設定を開き、💾で保存して閉じます。\n" +
+            "・Tap ⚙️ to open settings, then 💾 to save and close.\n\n" +
             "・ログ上部のバーをタップするとチャットエリアが拡大/縮小します。\n" +
             "・Tap the top handle of the log area to expand/collapse the chat panel.\n\n" +
+            "■ 設定 / Settings\n" +
+            "・RESET CONVERSATION LOG ボタンは設定画面の最上部にあります。\n" +
+            "・RESET CONVERSATION LOG is placed at the top of settings.\n\n" +
+            "・Config Profileの下にある SELECT Template でテンプレートを読み込みます。\n" +
+            "・Use SELECT Template under Config Profile to load templates.\n\n" +
             "■ 送信 / Sending\n" +
             "・メッセージ入力後にSendで送信します。\n" +
             "・Enter a message and press Send.\n\n" +
@@ -374,8 +380,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "■ Web Search\n" +
             "・Web Searchを有効にすると検索APIを使います。\n" +
             "・Enable Web Search to use the configured search API.\n" +
-            "・URLとAPI Keyを入力します。\n" +
-            "・Set the Web Search API URL and API Key.\n\n" +
+            "・URL/API Keyに加えてWeb Search Modelを個別指定できます（初期値: default）。\n" +
+            "・You can set URL/API Key and a dedicated Web Search Model (default: default).\n" +
+            "・Brave URLの場合はBrave向けに最適化した検索処理を使います。\n" +
+            "・Brave endpoints use Brave-optimized search handling.\n\n" +
             "■ アバター / Avatar\n" +
             "・c0: 背景 / Background\n" +
             "・c1: 基本表情 / Base\n" +
@@ -392,24 +400,26 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "・Settings and images are stored locally on the device.";
 
     private static final String PRIVACY_TEXT =
-            "【プライバシーポリシー / Privacy Policy】\n\n" +
+            "AI x2 Chat — 【プライバシーポリシー / Privacy Policy】\n\n" +
             "■ データの収集 / Data Collection\n" +
-            "・本アプリはユーザーの会話データをサーバーに送信しません。\n" +
-            "・This app does not send conversation data to any server.\n\n" +
+            "・開発者は会話データを収集しません。\n" +
+            "・The developer does not collect your conversation data.\n\n" +
             "・すべての会話は設定されたOllamaサーバーとの間でのみ行われます。\n" +
             "・All conversations occur only with your configured Ollama server.\n\n" +
             "■ ローカルデータ / Local Data\n" +
-            "・設定とアバター画像はデバイス内にのみ保存されます。\n" +
-            "・Settings and avatar images are stored locally on device only.\n\n" +
+            "・設定、テンプレート名、アバター画像はデバイス内に保存されます。\n" +
+            "・Settings, template names, and avatar images are stored locally on device.\n\n" +
             "■ Web検索 / Web Search\n" +
             "・Web検索機能を使用する場合、検索クエリは設定されたAPIに送信されます。\n" +
-            "・When using Web Search, queries are sent to your configured API.\n\n" +
+            "・When using Web Search, queries are sent to your configured API.\n" +
+            "・Brave URLを設定した場合はBrave Search API形式で送信されます。\n" +
+            "・If a Brave URL is configured, requests follow Brave Search API format.\n\n" +
             "■ 音声認識 / Voice Recognition\n" +
             "・音声認識はデバイスのシステム機能を使用します。\n" +
             "・Voice recognition uses your device's system features.";
 
     private static final String RIGHTS_TEXT =
-            "【権利情報 / Rights Information】\n\n" +
+            "AI x2 Chat — 【権利情報 / Rights Information】\n\n" +
             "■ アプリケーション / Application\n" +
             "・本アプリはオープンソースソフトウェアです。\n" +
             "・This application is open source software.\n\n" +
@@ -538,6 +548,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         switchDebug = findViewById(R.id.switchDebug);
         etWebSearchUrl = findViewById(R.id.etWebSearchUrl);
         etWebSearchApiKey = findViewById(R.id.etWebSearchApiKey);
+        etWebSearchModel = findViewById(R.id.etWebSearchModel);
         chatDragThresholdPx = dpToPx(24);
         chatPanelMarginPx = dpToPx(12);
         autoScrollThresholdPx = dpToPx(64);
@@ -576,15 +587,15 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 btnSettings.setContentDescription("Open settings");
             } else {
                 settingsPanel.setVisibility(View.VISIBLE);
-                btnSettings.setText("CLOSE");
-                btnSettings.setContentDescription("Close settings");
+                btnSettings.setText("💾");
+                btnSettings.setContentDescription("Save settings");
             }
         });
 
         // Initialize settings button label based on panel visibility
         if (settingsPanel.getVisibility() == View.VISIBLE) {
-            btnSettings.setText("CLOSE");
-            btnSettings.setContentDescription("Close settings");
+            btnSettings.setText("💾");
+            btnSettings.setContentDescription("Save settings");
         } else {
             btnSettings.setText("⚙");
             btnSettings.setContentDescription("Open settings");
@@ -1380,6 +1391,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         s.put("debugEnabled", debugEnabled);
         s.put("webSearchUrl", webSearchUrl);
         s.put("webSearchApiKey", webSearchApiKey);
+        s.put("webSearchModel", webSearchModel);
         s.put("avatarC0FileInfo", getAvatarFileInfo(avatarC0File));
         s.put("avatarC1FileInfo", getAvatarFileInfo(avatarC1File));
         s.put("avatarC2FileInfo", getAvatarFileInfo(avatarC2File));
@@ -1416,6 +1428,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         debugEnabled = s.optBoolean("debugEnabled", debugEnabled);
         webSearchUrl = s.optString("webSearchUrl", webSearchUrl);
         webSearchApiKey = s.optString("webSearchApiKey", webSearchApiKey);
+        webSearchModel = s.optString("webSearchModel", webSearchModel);
+        if (webSearchModel.trim().isEmpty()) webSearchModel = "default";
         if (historyLimit < 0) historyLimit = 0;
         if (autoChatterSeconds < 0) autoChatterSeconds = 0;
     }
@@ -1700,7 +1714,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         try {
             autoChatterSeconds = Integer.parseInt(etAutoChatterSeconds.getText().toString());
         } catch (Exception e) {
-            autoChatterSeconds = 30;
+            autoChatterSeconds = 10;
         }
         if (autoChatterSeconds < 0) autoChatterSeconds = 0;
         webSearchEnabled = switchWebSearch.isChecked();
@@ -1708,6 +1722,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         webSearchUrl = etWebSearchUrl.getText().toString().trim();
         if (webSearchUrl.isEmpty()) webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
         webSearchApiKey = etWebSearchApiKey.getText().toString().trim();
+        webSearchModel = etWebSearchModel.getText().toString().trim();
+        if (webSearchModel.isEmpty()) webSearchModel = "default";
         if (!autoChatterEnabled) {
             cancelAutoChatter();
         }
@@ -1745,6 +1761,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         switchDebug.setChecked(debugEnabled);
         etWebSearchUrl.setText(webSearchUrl);
         etWebSearchApiKey.setText(webSearchApiKey);
+        etWebSearchModel.setText(webSearchModel);
 
         int idx = modelList.indexOf(selectedModel);
         if (idx >= 0) spinnerModel.setSelection(idx);
@@ -2164,9 +2181,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     /** api/generate を使って検索キーワードを抽出。NONE なら null を返す */
     private String extractSearchKeywords(String userMsg) {
         try {
-            if (spinnerModel.getSelectedItem() != null) {
-                selectedModel = spinnerModel.getSelectedItem().toString();
-            }
+            String modelForWebSearch = webSearchModel != null ? webSearchModel.trim() : "";
+            if (modelForWebSearch.isEmpty()) modelForWebSearch = "default";
             String prompt = "あなたの役割は「ユーザーの質問がインターネット検索を必要とするか判定し、必要なら検索キーワードを抽出する」ことです。\n\n"
                     + "出力は必ず次のどちらか一つだけにしてください：\n\n"
                     + "1. 検索が必要な場合：\nSEARCH: <検索キーワード>\n\n"
@@ -2180,7 +2196,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     + "ユーザーの質問：\n「" + userMsg + "」";
 
             JSONObject body = new JSONObject();
-            body.put("model", selectedModel);
+            body.put("model", modelForWebSearch);
             body.put("prompt", prompt);
             body.put("stream", false);
 
@@ -2221,6 +2237,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     /** Call Web Search API and get structured results (generic) */
     private String callWebSearchApi(String keywords) {
+        if (isBraveWebSearchUrl(webSearchUrl)) {
+            return callBraveWebSearchApi(keywords);
+        }
         try {
             String url = webSearchUrl + "?q=" + java.net.URLEncoder.encode(keywords, "UTF-8");
 
@@ -2265,6 +2284,85 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             return result;
         } catch (Exception e) {
             Log.e(TAG, "callWebSearchApi error", e);
+            return null;
+        }
+    }
+
+    private boolean isBraveWebSearchUrl(String url) {
+        if (url == null || url.trim().isEmpty()) return false;
+        String normalized = url.trim().toLowerCase(Locale.ROOT);
+        if (normalized.contains("search.brave.com/res/v1/web/search")) return true;
+        Uri uri = Uri.parse(url.trim());
+        String host = uri.getHost();
+        return host != null && host.toLowerCase(Locale.ROOT).contains("search.brave.com");
+    }
+
+    private String callBraveWebSearchApi(String keywords) {
+        try {
+            String url = webSearchUrl + "?q=" + java.net.URLEncoder.encode(keywords, "UTF-8")
+                    + "&count=8&search_lang=ja&country=JP";
+            Request.Builder reqBuilder = new Request.Builder()
+                    .url(url)
+                    .get()
+                    .addHeader("Accept", "application/json")
+                    .addHeader("Accept-Language", "ja-JP");
+            if (!webSearchApiKey.isEmpty()) {
+                reqBuilder.addHeader("X-Subscription-Token", webSearchApiKey);
+            }
+
+            Request request = reqBuilder.build();
+            if (debugEnabled) {
+                appendDebug("Web API Request (Brave)", buildRequestDebugText(request, null));
+            }
+            Response response = client.newCall(request).execute();
+            String respBody = response.body() != null ? response.body().string() : "";
+            if (debugEnabled) {
+                appendDebug("Web API Response (Brave)", buildResponseDebugText(response, respBody));
+            }
+            if (!response.isSuccessful()) {
+                Log.w(TAG, "callBraveWebSearchApi HTTP error: " + response.code());
+                return null;
+            }
+
+            JSONObject json = new JSONObject(respBody);
+            JSONObject web = json.optJSONObject("web");
+            JSONArray results = web != null ? web.optJSONArray("results") : null;
+            if (results == null || results.length() == 0) return null;
+
+            StringBuilder extracted = new StringBuilder();
+            int limit = Math.min(results.length(), 8);
+            for (int i = 0; i < limit; i++) {
+                JSONObject item = results.optJSONObject(i);
+                if (item == null) continue;
+                String title = item.optString("title", "").trim();
+                String description = item.optString("description", "").trim();
+                String resultUrl = item.optString("url", "").trim();
+                JSONArray snippets = item.optJSONArray("extra_snippets");
+
+                if (title.isEmpty() && description.isEmpty() && resultUrl.isEmpty()) continue;
+                if (extracted.length() > 0) extracted.append("\n\n");
+                extracted.append("[").append(i + 1).append("]");
+                if (!title.isEmpty()) extracted.append(" ").append(title);
+                if (!description.isEmpty()) extracted.append("\n").append(description);
+                if (!resultUrl.isEmpty()) extracted.append("\n").append(resultUrl);
+                if (snippets != null) {
+                    for (int j = 0; j < snippets.length() && j < 2; j++) {
+                        String snippet = snippets.optString(j, "").trim();
+                        if (!snippet.isEmpty()) {
+                            extracted.append("\n").append(snippet);
+                        }
+                    }
+                }
+            }
+
+            String extractedText = extracted.toString().trim();
+            if (extractedText.isEmpty()) return null;
+
+            String result = "SEARCH_RESULTS:\n" + extractedText;
+            Log.d(TAG, "Brave web search results: " + result);
+            return result;
+        } catch (Exception e) {
+            Log.e(TAG, "callBraveWebSearchApi error", e);
             return null;
         }
     }

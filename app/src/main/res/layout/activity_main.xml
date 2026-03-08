@@ -87,10 +87,24 @@
                         android:text="⚙️ Settings" android:textSize="16sp" android:textStyle="bold"
                         android:layout_marginBottom="8dp"/>
 
+                    <Button
+                        android:id="@+id/btnResetLogs"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="Reset Conversation Log"/>
+
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Config Profile"/>
+                        android:text="Config Profile"
+                        android:layout_marginTop="8dp"/>
+                    <Button
+                        android:id="@+id/btnProfileLoad"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="SELECT Template"
+                        android:layout_marginTop="4dp"/>
                     <EditText android:id="@+id/etProfileName"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
                         android:inputType="text" android:singleLine="true"/>
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -103,13 +117,6 @@
                             android:layout_weight="1"
                             android:layout_height="wrap_content"
                             android:text="Save"/>
-                        <Button
-                            android:id="@+id/btnProfileLoad"
-                            android:layout_width="0dp"
-                            android:layout_weight="1"
-                            android:layout_height="wrap_content"
-                            android:text="Load"
-                            android:layout_marginStart="4dp"/>
                         <Button
                             android:id="@+id/btnProfileDelete"
                             android:layout_width="0dp"
@@ -152,12 +159,6 @@
                     <EditText android:id="@+id/etHistoryLimit"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:inputType="number" android:singleLine="true"/>
-                    <Button
-                        android:id="@+id/btnResetLogs"
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:text="Reset Conversation Log"
-                        android:layout_marginTop="8dp"/>
 
                     <Switch android:id="@+id/switchStreaming"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -190,6 +191,12 @@
                     <EditText android:id="@+id/etWebSearchApiKey"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:inputType="textPassword" android:singleLine="true"/>
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Web Search Model" android:layout_marginTop="4dp"/>
+                    <EditText android:id="@+id/etWebSearchModel"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="text" android:singleLine="true"/>
 
                     <Switch android:id="@+id/switchDebug"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
