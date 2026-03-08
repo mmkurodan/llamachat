@@ -155,6 +155,12 @@
                     </RadioGroup>
 
                     <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="User Name" android:layout_marginTop="4dp"/>
+                    <EditText android:id="@+id/etUserName"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="text" android:singleLine="true"/>
+
+                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="History Limit" android:layout_marginTop="4dp"/>
                     <EditText android:id="@+id/etHistoryLimit"
                         android:layout_width="match_parent" android:layout_height="wrap_content"

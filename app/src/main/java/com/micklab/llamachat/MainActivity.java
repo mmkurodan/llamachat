@@ -154,7 +154,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private EditText etChatterSpeechLang, etChatterSpeechRate, etChatterSpeechPitch, etChatterSystemPrompt;
     private EditText etBaseName, etChatterName;
     private EditText etHistoryLimit, etAutoChatterSeconds;
-    private EditText etWebSearchUrl, etWebSearchApiKey, etWebSearchModel, etProfileName;
+    private EditText etWebSearchUrl, etWebSearchApiKey, etWebSearchModel, etProfileName, etUserName;
     private ImageView ivAvatarBackground;
     private ImageView ivAvatar;
     private FrameLayout counterpartMiniContainer;
@@ -183,8 +183,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private float chatterSpeechRate = 1.0f;
     private float chatterSpeechPitch = 1.0f;
     private String chatterSystemPromptText = "あなたはユーザの若い女性秘書です";
-    private String baseName = "アシスタント";
-    private String chatterName = "おしゃべり相手";
+    private String baseName = "藍";
+    private String chatterName = "リサ";
+    private String userName = "ユーザ";
     private int historyLimit = 10;
     private int autoChatterSeconds = 10;
 
@@ -337,7 +338,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     // --- Help/Privacy/Rights Content ---
     private static final String HELP_TEXT =
-            "AI x2 Chat — 【使い方 / How to Use】\n\n" +
+            "Dual AI Chat — 【使い方 / How to Use】\n\n" +
             "■ 画面 / Screen\n" +
             "・⚙️ で設定を開き、💾で保存して閉じます。\n" +
             "・Tap ⚙️ to open settings, then 💾 to save and close.\n\n" +
@@ -400,7 +401,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "・Settings and images are stored locally on the device.";
 
     private static final String PRIVACY_TEXT =
-            "AI x2 Chat — 【プライバシーポリシー / Privacy Policy】\n\n" +
+            "Dual AI Chat — 【プライバシーポリシー / Privacy Policy】\n\n" +
             "■ データの収集 / Data Collection\n" +
             "・開発者は会話データを収集しません。\n" +
             "・The developer does not collect your conversation data.\n\n" +
@@ -419,7 +420,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "・Voice recognition uses your device's system features.";
 
     private static final String RIGHTS_TEXT =
-            "AI x2 Chat — 【権利情報 / Rights Information】\n\n" +
+            "Dual AI Chat — 【権利情報 / Rights Information】\n\n" +
             "■ アプリケーション / Application\n" +
             "・本アプリはオープンソースソフトウェアです。\n" +
             "・This application is open source software.\n\n" +
@@ -532,6 +533,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         switchAutoVoiceInput = findViewById(R.id.switchAutoVoiceInput);
         etProfileName = findViewById(R.id.etProfileName);
         etOllamaUrl = findViewById(R.id.etOllamaUrl);
+        etUserName = findViewById(R.id.etUserName);
         etBaseName = findViewById(R.id.etBaseName);
         etSpeechLang = findViewById(R.id.etSpeechLang);
         etSpeechRate = findViewById(R.id.etSpeechRate);
@@ -1385,6 +1387,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         s.put("chatterSystemPrompt", chatterSystemPromptText);
         s.put("baseName", baseName);
         s.put("chatterName", chatterName);
+        s.put("userName", userName);
         s.put("historyLimit", historyLimit);
         s.put("autoChatterSeconds", autoChatterSeconds);
         s.put("webSearchEnabled", webSearchEnabled);
@@ -1422,6 +1425,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         chatterSystemPromptText = s.optString("chatterSystemPrompt", chatterSystemPromptText);
         baseName = s.optString("baseName", baseName);
         chatterName = s.optString("chatterName", chatterName);
+        userName = s.optString("userName", userName);
         historyLimit = s.optInt("historyLimit", historyLimit);
         autoChatterSeconds = s.optInt("autoChatterSeconds", autoChatterSeconds);
         webSearchEnabled = s.optBoolean("webSearchEnabled", webSearchEnabled);
@@ -1429,6 +1433,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         webSearchUrl = s.optString("webSearchUrl", webSearchUrl);
         webSearchApiKey = s.optString("webSearchApiKey", webSearchApiKey);
         webSearchModel = s.optString("webSearchModel", webSearchModel);
+        if (baseName.trim().isEmpty()) baseName = "藍";
+        if (chatterName.trim().isEmpty()) chatterName = "リサ";
+        if (userName.trim().isEmpty()) userName = "ユーザ";
         if (webSearchModel.trim().isEmpty()) webSearchModel = "default";
         if (historyLimit < 0) historyLimit = 0;
         if (autoChatterSeconds < 0) autoChatterSeconds = 0;
@@ -1675,8 +1682,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         voiceInputEnabled = switchVoiceInput.isChecked();
         autoChatterEnabled = radioModeChatter.isChecked();
         autoVoiceInputEnabled = switchAutoVoiceInput.isChecked();
+        userName = etUserName.getText().toString().trim();
+        if (userName.isEmpty()) userName = "ユーザ";
         baseName = etBaseName.getText().toString().trim();
-        if (baseName.isEmpty()) baseName = "アシスタント";
+        if (baseName.isEmpty()) baseName = "藍";
         speechLang = etSpeechLang.getText().toString().trim();
         if (speechLang.isEmpty()) speechLang = "ja-JP";
         try {
@@ -1691,7 +1700,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
         systemPromptText = etSystemPrompt.getText().toString().trim();
         chatterName = etChatterName.getText().toString().trim();
-        if (chatterName.isEmpty()) chatterName = "おしゃべり相手";
+        if (chatterName.isEmpty()) chatterName = "リサ";
         chatterSpeechLang = etChatterSpeechLang.getText().toString().trim();
         if (chatterSpeechLang.isEmpty()) chatterSpeechLang = "ja-JP";
         try {
@@ -1745,6 +1754,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         switchVoiceInput.setChecked(voiceInputEnabled);
         groupMode.check(autoChatterEnabled ? R.id.radioModeChatter : R.id.radioModeNormal);
         switchAutoVoiceInput.setChecked(autoVoiceInputEnabled);
+        etUserName.setText(userName);
         etBaseName.setText(baseName);
         etSpeechLang.setText(speechLang);
         etSpeechRate.setText(String.valueOf(speechRate));
@@ -2048,6 +2058,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         String trimmedPrompt = basePrompt == null ? "" : basePrompt.trim();
         String trimmedName = name == null ? "" : name.trim();
         String trimmedCounterpartName = counterpartName == null ? "" : counterpartName.trim();
+        String trimmedUserName = userName == null ? "" : userName.trim();
         StringBuilder result = new StringBuilder();
         if (!trimmedName.isEmpty()) {
             result.append("あなたは").append(trimmedName).append("という名前です。");
@@ -2059,6 +2070,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (!trimmedCounterpartName.isEmpty()) {
             if (result.length() > 0) result.append("\n");
             result.append("相手の名前は").append(trimmedCounterpartName).append("です。");
+        }
+        if (!trimmedUserName.isEmpty()) {
+            if (result.length() > 0) result.append("\n");
+            result.append("ユーザの名前は").append(trimmedUserName).append("です。");
         }
         return result.toString();
     }
@@ -2918,7 +2933,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     private void appendUserMessage(String text) {
-        appendMessage("You", text, true, true);
+        String name = (userName == null || userName.trim().isEmpty()) ? "ユーザ" : userName.trim();
+        appendMessage(name, text, true, true);
     }
 
     private void appendAssistantMessage(ChatSpeaker speaker, String text) {
