@@ -145,7 +145,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private View mainLayer;
     private View chatDragArea;
     private View chatDragHandle;
-    private Spinner spinnerModel, spinnerChatterModel;
+    private Spinner spinnerModel, spinnerChatterModel, spinnerWebSearchModel;
     private RadioGroup groupMode, tabGroup;
     private RadioButton radioModeNormal, radioModeChatter, tabBase, tabChatter;
     private LinearLayout baseSettingsGroup, chatterSettingsGroup;
@@ -154,7 +154,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private EditText etChatterSpeechLang, etChatterSpeechRate, etChatterSpeechPitch, etChatterSystemPrompt;
     private EditText etBaseName, etChatterName;
     private EditText etHistoryLimit, etAutoChatterSeconds;
-    private EditText etWebSearchUrl, etWebSearchApiKey, etWebSearchModel, etProfileName, etUserName;
+    private EditText etWebSearchUrl, etWebSearchApiKey, etProfileName, etUserName;
     private ImageView ivAvatarBackground;
     private ImageView ivAvatar;
     private FrameLayout counterpartMiniContainer;
@@ -289,6 +289,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private final List<String> modelList = new ArrayList<>();
     private ArrayAdapter<String> modelAdapter;
     private ArrayAdapter<String> chatterModelAdapter;
+    private ArrayAdapter<String> webSearchModelAdapter;
 
     // --- Chat ---
     private final List<JSONObject> conversationHistory = new ArrayList<>();
@@ -381,8 +382,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "■ Web Search\n" +
             "・Web Searchを有効にすると検索APIを使います。\n" +
             "・Enable Web Search to use the configured search API.\n" +
-            "・URL/API Keyに加えてWeb Search Modelを個別指定できます（初期値: default）。\n" +
-            "・You can set URL/API Key and a dedicated Web Search Model (default: default).\n" +
+            "・Web Search Modelは/api/tagsの一覧から選択できます（初期値: default）。\n" +
+            "・Web Search Model is selected from /api/tags list (default: default).\n" +
             "・Brave URLの場合はBrave向けに最適化した検索処理を使います。\n" +
             "・Brave endpoints use Brave-optimized search handling.\n\n" +
             "■ アバター / Avatar\n" +
@@ -550,23 +551,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         switchDebug = findViewById(R.id.switchDebug);
         etWebSearchUrl = findViewById(R.id.etWebSearchUrl);
         etWebSearchApiKey = findViewById(R.id.etWebSearchApiKey);
-        etWebSearchModel = findViewById(R.id.etWebSearchModel);
-        // Long-press the Web Search Model field to pick a model from /api/tags results
-        etWebSearchModel.setOnLongClickListener(v -> {
-            if (modelList.isEmpty()) {
-                Toast.makeText(MainActivity.this, "モデルリストを読み込み中です...", Toast.LENGTH_SHORT).show();
-                return true;
-            }
-            final String[] items = modelList.toArray(new String[0]);
-            AlertDialog.Builder builder = new AlertDialog.Builder(MainActivity.this);
-            builder.setTitle("Web Search Model を選択");
-            builder.setItems(items, (dialog, which) -> {
-                etWebSearchModel.setText(items[which]);
-            });
-            builder.setNegativeButton("キャンセル", null);
-            builder.show();
-            return true;
-        });
+        spinnerWebSearchModel = findViewById(R.id.etWebSearchModel);
         chatDragThresholdPx = dpToPx(24);
         chatPanelMarginPx = dpToPx(12);
         autoScrollThresholdPx = dpToPx(64);
@@ -593,9 +578,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
                 Object obj = parent.getItemAtPosition(position);
                 String model = obj != null ? obj.toString() : "";
-                String current = etWebSearchModel.getText() != null ? etWebSearchModel.getText().toString().trim() : "";
+                String current = spinnerWebSearchModel.getSelectedItem() != null
+                        ? spinnerWebSearchModel.getSelectedItem().toString().trim() : "";
                 if (model != null && !model.isEmpty() && (current.isEmpty() || "default".equals(current))) {
-                    etWebSearchModel.setText(model);
+                    int webSearchIdx = modelList.indexOf(model);
+                    if (webSearchIdx >= 0) spinnerWebSearchModel.setSelection(webSearchIdx);
                 }
             }
             @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
@@ -603,6 +590,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         chatterModelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
         chatterModelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerChatterModel.setAdapter(chatterModelAdapter);
+        webSearchModelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
+        webSearchModelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerWebSearchModel.setAdapter(webSearchModelAdapter);
     }
 
     private void setupListeners() {
@@ -1759,7 +1749,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         webSearchUrl = etWebSearchUrl.getText().toString().trim();
         if (webSearchUrl.isEmpty()) webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
         webSearchApiKey = etWebSearchApiKey.getText().toString().trim();
-        webSearchModel = etWebSearchModel.getText().toString().trim();
+        webSearchModel = spinnerWebSearchModel.getSelectedItem() != null
+                ? spinnerWebSearchModel.getSelectedItem().toString().trim() : "";
         if (webSearchModel.isEmpty()) webSearchModel = "default";
         if (!autoChatterEnabled) {
             cancelAutoChatter();
@@ -1799,12 +1790,17 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         switchDebug.setChecked(debugEnabled);
         etWebSearchUrl.setText(webSearchUrl);
         etWebSearchApiKey.setText(webSearchApiKey);
-        etWebSearchModel.setText(webSearchModel);
 
         int idx = modelList.indexOf(selectedModel);
         if (idx >= 0) spinnerModel.setSelection(idx);
         int chatterIdx = modelList.indexOf(chatterModel);
         if (chatterIdx >= 0) spinnerChatterModel.setSelection(chatterIdx);
+        int webSearchIdx = modelList.indexOf(webSearchModel);
+        if (webSearchIdx >= 0) {
+            spinnerWebSearchModel.setSelection(webSearchIdx);
+        } else {
+            spinnerWebSearchModel.setSelection(0);
+        }
         updateChatterModeUi();
     }
 
@@ -2148,10 +2144,18 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                         modelList.addAll(names);
                         modelAdapter.notifyDataSetChanged();
                         chatterModelAdapter.notifyDataSetChanged();
+                        webSearchModelAdapter.notifyDataSetChanged();
                         int idx = modelList.indexOf(selectedModel);
                         if (idx >= 0) spinnerModel.setSelection(idx);
                         int chatterIdx = modelList.indexOf(chatterModel);
                         if (chatterIdx >= 0) spinnerChatterModel.setSelection(chatterIdx);
+                        int webSearchIdx = modelList.indexOf(webSearchModel);
+                        if (webSearchIdx >= 0) {
+                            spinnerWebSearchModel.setSelection(webSearchIdx);
+                        } else {
+                            webSearchModel = "default";
+                            spinnerWebSearchModel.setSelection(0);
+                        }
                     });
                 } catch (Exception e) {
                     Log.w(TAG, "fetchModels parse error", e);
@@ -2226,6 +2230,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         try {
             String modelForWebSearch = webSearchModel != null ? webSearchModel.trim() : "";
             if (modelForWebSearch.isEmpty()) modelForWebSearch = "default";
+            if (!modelList.contains(modelForWebSearch)) modelForWebSearch = "default";
             String prompt = "あなたの役割は「ユーザーの質問がインターネット検索を必要とするか判定し、必要なら検索キーワードを抽出する」ことです。\n\n"
                     + "出力は必ず次のどちらか一つだけにしてください：\n\n"
                     + "1. 検索が必要な場合：\nSEARCH: <検索キーワード>\n\n"
