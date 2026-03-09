@@ -2348,7 +2348,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private String callBraveWebSearchApi(String keywords) {
         try {
             String url = webSearchUrl + "?q=" + java.net.URLEncoder.encode(keywords, "UTF-8")
-                    + "&count=8&search_lang=ja&country=JP";
+                    + "&count=8";
             Request.Builder reqBuilder = new Request.Builder()
                     .url(url)
                     .get()
