@@ -185,7 +185,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private String chatterSystemPromptText = "あなたはユーザの若い女性秘書です";
     private String baseName = "藍";
     private String chatterName = "リサ";
-    private String userName = "ユーザ";
+    private String userName = "";
     private int historyLimit = 10;
     private int autoChatterSeconds = 10;
 
@@ -1453,7 +1453,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         webSearchModel = s.optString("webSearchModel", webSearchModel);
         if (baseName.trim().isEmpty()) baseName = "藍";
         if (chatterName.trim().isEmpty()) chatterName = "リサ";
-        if (userName.trim().isEmpty()) userName = "ユーザ";
+
         if (webSearchModel.trim().isEmpty()) webSearchModel = "default";
         if (historyLimit < 0) historyLimit = 0;
         if (autoChatterSeconds < 0) autoChatterSeconds = 0;
@@ -1701,7 +1701,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         autoChatterEnabled = radioModeChatter.isChecked();
         autoVoiceInputEnabled = switchAutoVoiceInput.isChecked();
         userName = etUserName.getText().toString().trim();
-        if (userName.isEmpty()) userName = "ユーザ";
         baseName = etBaseName.getText().toString().trim();
         if (baseName.isEmpty()) baseName = "藍";
         speechLang = etSpeechLang.getText().toString().trim();
