@@ -162,7 +162,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private ImageView ivCounterpartMiniAvatar;
 
     // --- Settings (defaults) ---
-    private String ollamaBaseUrl = "http://localhost:11434";
+    private String ollamaBaseUrl = "http://127.0.0.1:11434";
     private String selectedModel = "default";
     private String chatterModel = "default";
     private boolean streamingEnabled = true;
@@ -1694,7 +1694,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private void readSettingsFromUi() {
         ollamaBaseUrl = etOllamaUrl.getText().toString().trim();
-        if (ollamaBaseUrl.isEmpty()) ollamaBaseUrl = "http://localhost:11434";
+        if (ollamaBaseUrl.isEmpty()) ollamaBaseUrl = "http://127.0.0.1:11434";
         streamingEnabled = switchStreaming.isChecked();
         ttsEnabled = switchTts.isChecked();
         voiceInputEnabled = switchVoiceInput.isChecked();
