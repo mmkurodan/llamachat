@@ -350,6 +350,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "・RESET CONVERSATION LOG is placed at the top of settings.\n\n" +
             "・Config Profileの下にある SELECT Template でテンプレートを読み込みます。\n" +
             "・Use SELECT Template under Config Profile to load templates.\n\n" +
+            "・設定画面を開くたびに/api/tagsを再取得し、Base/Chatter PartnerのModel一覧を更新します。\n" +
+            "・Each time settings opens, /api/tags refreshes Base/Chatter Partner model lists.\n\n" +
             "■ 送信 / Sending\n" +
             "・メッセージ入力後にSendで送信します。\n" +
             "・Enter a message and press Send.\n\n" +
@@ -408,6 +410,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "・The developer does not collect your conversation data.\n\n" +
             "・すべての会話は設定されたOllamaサーバーとの間でのみ行われます。\n" +
             "・All conversations occur only with your configured Ollama server.\n\n" +
+            "・設定画面を開くと、モデル一覧更新のため設定済みOllamaサーバーの/api/tagsにGETリクエストを送信します。\n" +
+            "・When opening settings, the app sends a GET request to /api/tags on your configured Ollama server to refresh model lists.\n" +
+            "・このリクエストに会話本文は含まれません。\n" +
+            "・This request does not include conversation message content.\n\n" +
             "■ ローカルデータ / Local Data\n" +
             "・設定、テンプレート名、アバター画像はデバイス内に保存されます。\n" +
             "・Settings, template names, and avatar images are stored locally on device.\n\n" +
@@ -607,6 +613,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 btnSettings.setContentDescription("Open settings");
             } else {
                 settingsPanel.setVisibility(View.VISIBLE);
+                fetchModels();
                 btnSettings.setText("💾");
                 btnSettings.setContentDescription("Save settings");
             }
