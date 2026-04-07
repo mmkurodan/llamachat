@@ -149,6 +149,18 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private RadioGroup groupMode, tabGroup;
     private RadioButton radioModeNormal, radioModeChatter, tabBase, tabChatter;
     private LinearLayout baseSettingsGroup, chatterSettingsGroup;
+    private LinearLayout sectionGeneralContent, sectionChatContent, sectionExpertContent;
+    private TextView tvSettingsTitle, tvSectionGeneral, tvSectionChat, tvSectionExpert, tvSectionInfo;
+    private TextView tvLabelLanguage, tvLabelConfigProfile, tvLabelOllamaUrl, tvLabelUserName;
+    private TextView tvLabelMode, tvLabelHistoryLimit, tvLabelChatterInterval;
+    private TextView tvLabelWebSearchUrl, tvLabelWebSearchApiKey, tvLabelWebSearchModel;
+    private TextView tvBaseSettingsTitle, tvBaseNameLabel, tvBaseModelLabel;
+    private TextView tvBaseSpeechLangLabel, tvBaseSpeechRateLabel, tvBaseSpeechPitchLabel, tvBaseSystemPromptLabel, tvBaseAvatarTitle;
+    private TextView tvChatterSettingsTitle, tvChatterNameLabel, tvChatterModelLabel;
+    private TextView tvChatterSpeechLangLabel, tvChatterSpeechRateLabel, tvChatterSpeechPitchLabel, tvChatterSystemPromptLabel, tvChatterAvatarTitle;
+    private RadioGroup radioGroupLanguage;
+    private RadioButton radioLangJa, radioLangEn;
+    private View sectionGeneralHeader, sectionChatHeader, sectionExpertHeader;
     private Switch switchStreaming, switchTts, switchVoiceInput, switchAutoVoiceInput, switchWebSearch, switchDebug;
     private EditText etOllamaUrl, etSpeechLang, etSpeechRate, etSpeechPitch, etSystemPrompt;
     private EditText etChatterSpeechLang, etChatterSpeechRate, etChatterSpeechPitch, etChatterSystemPrompt;
@@ -188,6 +200,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private String userName = "";
     private int historyLimit = 10;
     private int autoChatterSeconds = 10;
+    private String appLanguage = Locale.getDefault().getLanguage().startsWith("ja") ? "ja" : "en";
+    private boolean sectionGeneralExpanded = true;
+    private boolean sectionChatExpanded = true;
+    private boolean sectionExpertExpanded = false;
 
     // --- TTS ---
     private TextToSpeech tts;
@@ -338,108 +354,142 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private boolean currentPreferOffline = true;
 
     // --- Help/Privacy/Rights Content ---
-    private static final String HELP_TEXT =
-            "Dual AI Chat — 【使い方 / How to Use】\n\n" +
-            "■ 画面 / Screen\n" +
-            "・⚙️ で設定を開き、💾で保存して閉じます。\n" +
-            "・Tap ⚙️ to open settings, then 💾 to save and close.\n\n" +
-            "・ログ上部のバーをタップするとチャットエリアが拡大/縮小します。\n" +
+    private static final String HELP_TEXT_EN =
+            "Dual AI Chat — How to Use\n\n" +
+            "■ Screen\n" +
+            "・Tap ⚙️ to open settings, then 💾 to save and close.\n" +
             "・Tap the top handle of the log area to expand/collapse the chat panel.\n\n" +
-            "■ 設定 / Settings\n" +
-            "・RESET CONVERSATION LOG ボタンは設定画面の最上部にあります。\n" +
-            "・RESET CONVERSATION LOG is placed at the top of settings.\n\n" +
-            "・Config Profileの下にある SELECT Template でテンプレートを読み込みます。\n" +
-            "・Use SELECT Template under Config Profile to load templates.\n\n" +
-            "・設定画面を開くたびに/api/tagsを再取得し、Base/Chatter PartnerのModel一覧を更新します。\n" +
+            "■ Settings\n" +
+            "・RESET CONVERSATION LOG is placed at the top of settings.\n" +
+            "・Use SELECT Template under Config Profile to load templates.\n" +
             "・Each time settings opens, /api/tags refreshes Base/Chatter Partner model lists.\n\n" +
-            "■ 送信 / Sending\n" +
-            "・メッセージ入力後にSendで送信します。\n" +
-            "・Enter a message and press Send.\n\n" +
-            "・送信中はボタンがSTOPになり、タップで中止できます。\n" +
+            "■ Sending\n" +
+            "・Enter a message and press Send.\n" +
             "・While processing, the button shows STOP and can cancel the request.\n\n" +
-            "■ 音声 / Voice\n" +
-            "・Voice Inputを有効にすると空欄送信で音声入力します。\n" +
-            "・When Voice Input is enabled, sending empty starts voice input.\n\n" +
-            "・Auto Voice Inputは応答後に自動で音声入力を開始します。\n" +
+            "■ Voice\n" +
+            "・When Voice Input is enabled, sending empty starts voice input.\n" +
             "・Auto Voice Input starts voice input after each response.\n\n" +
-            "■ モード / Modes\n" +
-            "・Normal: 1つのモデルでチャットします。\n" +
+            "■ Modes\n" +
             "・Normal: Chat with a single model.\n" +
-            "・Chatter: BaseとChatter Partnerが交互に会話します。\n" +
             "・Chatter: Base and Chatter Partner alternate turns.\n" +
-            "・Chatter Intervalで発話間隔（秒）を設定します。\n" +
             "・Chatter Interval sets the delay between turns (seconds).\n\n" +
-            "■ 設定タブ / Settings Tabs\n" +
-            "・Base/Chatter Partnerのタブで各モデル設定を切り替えます。\n" +
-            "・Use the Base/Chatter Partner tabs to switch settings.\n\n" +
-            "・Model/Name/System Prompt/Speech Language/Rate/Pitchを設定できます。\n" +
+            "■ Settings Tabs\n" +
+            "・Use the Base/Chatter Partner tabs to switch settings.\n" +
             "・Configure Model/Name/System Prompt/Speech Language/Rate/Pitch.\n\n" +
-            "■ 応答 / Response\n" +
-            "・Streaming: 応答をリアルタイム表示します。\n" +
-            "・Streaming shows responses in real time.\n\n" +
-            "・Text-to-Speech: 応答を音声で読み上げます。\n" +
-            "・Text-to-Speech reads responses aloud.\n\n" +
-            "・History Limitで送信する履歴数を調整します。\n" +
+            "■ Response\n" +
+            "・Streaming shows responses in real time.\n" +
+            "・Text-to-Speech reads responses aloud.\n" +
             "・History Limit controls how many past messages are sent.\n\n" +
-            "■ Web Search\n" +
-            "・Web Searchを有効にすると検索APIを使います。\n" +
-            "・Enable Web Search to use the configured search API.\n" +
-            "・Web Search Modelは/api/tagsの一覧から選択できます（初期値: default）。\n" +
+            "■ Expert Settings\n" +
+            "・Web Search: Enable to use the configured search API.\n" +
             "・Web Search Model is selected from /api/tags list (default: default).\n" +
-            "・Brave URLの場合はBrave向けに最適化した検索処理を使います。\n" +
-            "・Brave endpoints use Brave-optimized search handling.\n\n" +
-            "■ アバター / Avatar\n" +
-            "・c0: 背景 / Background\n" +
-            "・c1: 基本表情 / Base\n" +
-            "・c2: まばたき / Blink\n" +
-            "・c3: 会話中 / Talking\n" +
-            "・BaseとChatter Partnerで別々に設定できます。\n" +
+            "・Brave endpoints use Brave-optimized search handling.\n" +
+            "・Debug Mode shows API request/response logs.\n\n" +
+            "■ Avatar\n" +
+            "・c0: Background\n" +
+            "・c1: Base\n" +
+            "・c2: Blink\n" +
+            "・c3: Talking\n" +
             "・You can set different images for Base and Chatter Partner.\n" +
-            "・Clearでデフォルトに戻します。\n" +
             "・Press Clear to reset to default.\n\n" +
-            "■ その他 / Other\n" +
-            "・Debug Modeで通信ログを表示します。\n" +
-            "・Debug Mode shows API request/response logs.\n" +
-            "・設定と画像は端末内に保存されます。\n" +
+            "■ Other\n" +
             "・Settings and images are stored locally on the device.";
 
-    private static final String PRIVACY_TEXT =
-            "Dual AI Chat — 【プライバシーポリシー / Privacy Policy】\n\n" +
-            "■ データの収集 / Data Collection\n" +
-            "・開発者は会話データを収集しません。\n" +
-            "・The developer does not collect your conversation data.\n\n" +
-            "・すべての会話は設定されたOllamaサーバーとの間でのみ行われます。\n" +
-            "・All conversations occur only with your configured Ollama server.\n\n" +
-            "・設定画面を開くと、モデル一覧更新のため設定済みOllamaサーバーの/api/tagsにGETリクエストを送信します。\n" +
+    private static final String HELP_TEXT_JA =
+            "Dual AI Chat — 使い方\n\n" +
+            "■ 画面\n" +
+            "・⚙️ で設定を開き、💾で保存して閉じます。\n" +
+            "・ログ上部のバーをタップするとチャットエリアが拡大/縮小します。\n\n" +
+            "■ 設定\n" +
+            "・RESET CONVERSATION LOG ボタンは設定画面の最上部にあります。\n" +
+            "・Config Profileの下にある SELECT Template でテンプレートを読み込みます。\n" +
+            "・設定画面を開くたびに/api/tagsを再取得し、Base/Chatter PartnerのModel一覧を更新します。\n\n" +
+            "■ 送信\n" +
+            "・メッセージ入力後にSendで送信します。\n" +
+            "・送信中はボタンがSTOPになり、タップで中止できます。\n\n" +
+            "■ 音声\n" +
+            "・Voice Inputを有効にすると空欄送信で音声入力します。\n" +
+            "・Auto Voice Inputは応答後に自動で音声入力を開始します。\n\n" +
+            "■ モード\n" +
+            "・Normal: 1つのモデルでチャットします。\n" +
+            "・Chatter: BaseとChatter Partnerが交互に会話します。\n" +
+            "・Chatter Intervalで発話間隔（秒）を設定します。\n\n" +
+            "■ 設定タブ\n" +
+            "・Base/Chatter Partnerのタブで各モデル設定を切り替えます。\n" +
+            "・Model/Name/System Prompt/Speech Language/Rate/Pitchを設定できます。\n\n" +
+            "■ 応答\n" +
+            "・Streaming: 応答をリアルタイム表示します。\n" +
+            "・Text-to-Speech: 応答を音声で読み上げます。\n" +
+            "・History Limitで送信する履歴数を調整します。\n\n" +
+            "■ エキスパート設定\n" +
+            "・Web Search: 有効にすると検索APIを使います。\n" +
+            "・Web Search Modelは/api/tagsの一覧から選択できます（初期値: default）。\n" +
+            "・Brave URLの場合はBrave向けに最適化した検索処理を使います。\n" +
+            "・Debug Modeで通信ログを表示します。\n\n" +
+            "■ アバター\n" +
+            "・c0: 背景\n" +
+            "・c1: 基本表情\n" +
+            "・c2: まばたき\n" +
+            "・c3: 会話中\n" +
+            "・BaseとChatter Partnerで別々に設定できます。\n" +
+            "・Clearでデフォルトに戻します。\n\n" +
+            "■ その他\n" +
+            "・設定と画像は端末内に保存されます。";
+
+    private static final String PRIVACY_TEXT_EN =
+            "Dual AI Chat — Privacy Policy\n\n" +
+            "■ Data Collection\n" +
+            "・The developer does not collect your conversation data.\n" +
+            "・All conversations occur only with your configured Ollama server.\n" +
             "・When opening settings, the app sends a GET request to /api/tags on your configured Ollama server to refresh model lists.\n" +
-            "・このリクエストに会話本文は含まれません。\n" +
             "・This request does not include conversation message content.\n\n" +
-            "■ ローカルデータ / Local Data\n" +
-            "・設定、テンプレート名、アバター画像はデバイス内に保存されます。\n" +
+            "■ Local Data\n" +
             "・Settings, template names, and avatar images are stored locally on device.\n\n" +
-            "■ Web検索 / Web Search\n" +
-            "・Web検索機能を使用する場合、検索クエリは設定されたAPIに送信されます。\n" +
+            "■ Web Search\n" +
             "・When using Web Search, queries are sent to your configured API.\n" +
-            "・Brave URLを設定した場合はBrave Search API形式で送信されます。\n" +
             "・If a Brave URL is configured, requests follow Brave Search API format.\n\n" +
-            "■ 音声認識 / Voice Recognition\n" +
-            "・音声認識はデバイスのシステム機能を使用します。\n" +
+            "■ Voice Recognition\n" +
             "・Voice recognition uses your device's system features.";
 
-    private static final String RIGHTS_TEXT =
-            "Dual AI Chat — 【権利情報 / Rights Information】\n\n" +
-            "■ アプリケーション / Application\n" +
-            "・本アプリはオープンソースソフトウェアです。\n" +
+    private static final String PRIVACY_TEXT_JA =
+            "Dual AI Chat — プライバシーポリシー\n\n" +
+            "■ データの収集\n" +
+            "・開発者は会話データを収集しません。\n" +
+            "・すべての会話は設定されたOllamaサーバーとの間でのみ行われます。\n" +
+            "・設定画面を開くと、モデル一覧更新のため設定済みOllamaサーバーの/api/tagsにGETリクエストを送信します。\n" +
+            "・このリクエストに会話本文は含まれません。\n\n" +
+            "■ ローカルデータ\n" +
+            "・設定、テンプレート名、アバター画像はデバイス内に保存されます。\n\n" +
+            "■ Web検索\n" +
+            "・Web検索機能を使用する場合、検索クエリは設定されたAPIに送信されます。\n" +
+            "・Brave URLを設定した場合はBrave Search API形式で送信されます。\n\n" +
+            "■ 音声認識\n" +
+            "・音声認識はデバイスのシステム機能を使用します.";
+
+    private static final String RIGHTS_TEXT_EN =
+            "Dual AI Chat — Rights Information\n\n" +
+            "■ Application\n" +
             "・This application is open source software.\n\n" +
-            "■ 使用ライブラリ / Libraries Used\n" +
+            "■ Libraries Used\n" +
             "・OkHttp - Apache License 2.0\n" +
             "・Android SDK - Apache License 2.0\n\n" +
-            "■ 免責事項 / Disclaimer\n" +
-            "・AIの応答内容について開発者は責任を負いません。\n" +
-            "・Developer is not responsible for AI response content.\n\n" +
-            "・本アプリの使用は自己責任でお願いします。\n" +
+            "■ Disclaimer\n" +
+            "・Developer is not responsible for AI response content.\n" +
             "・Use this app at your own risk.\n\n" +
-            "■ 連絡先 / Contact\n" +
+            "■ Contact\n" +
+            "・GitHub: https://github.com/micklab";
+
+    private static final String RIGHTS_TEXT_JA =
+            "Dual AI Chat — 権利情報\n\n" +
+            "■ アプリケーション\n" +
+            "・本アプリはオープンソースソフトウェアです。\n\n" +
+            "■ 使用ライブラリ\n" +
+            "・OkHttp - Apache License 2.0\n" +
+            "・Android SDK - Apache License 2.0\n\n" +
+            "■ 免責事項\n" +
+            "・AIの応答内容について開発者は責任を負いません。\n" +
+            "・本アプリの使用は自己責任でお願いします。\n\n" +
+            "■ 連絡先\n" +
             "・GitHub: https://github.com/micklab";
 
     // --- Network ---
@@ -558,6 +608,46 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         etWebSearchUrl = findViewById(R.id.etWebSearchUrl);
         etWebSearchApiKey = findViewById(R.id.etWebSearchApiKey);
         spinnerWebSearchModel = findViewById(R.id.etWebSearchModel);
+        sectionGeneralHeader = findViewById(R.id.sectionGeneralHeader);
+        sectionChatHeader = findViewById(R.id.sectionChatHeader);
+        sectionExpertHeader = findViewById(R.id.sectionExpertHeader);
+        sectionGeneralContent = findViewById(R.id.sectionGeneralContent);
+        sectionChatContent = findViewById(R.id.sectionChatContent);
+        sectionExpertContent = findViewById(R.id.sectionExpertContent);
+        tvSettingsTitle = findViewById(R.id.tvSettingsTitle);
+        tvSectionGeneral = findViewById(R.id.tvSectionGeneral);
+        tvSectionChat = findViewById(R.id.tvSectionChat);
+        tvSectionExpert = findViewById(R.id.tvSectionExpert);
+        tvSectionInfo = findViewById(R.id.tvSectionInfo);
+        tvLabelLanguage = findViewById(R.id.tvLabelLanguage);
+        tvLabelConfigProfile = findViewById(R.id.tvLabelConfigProfile);
+        tvLabelOllamaUrl = findViewById(R.id.tvLabelOllamaUrl);
+        tvLabelUserName = findViewById(R.id.tvLabelUserName);
+        tvLabelMode = findViewById(R.id.tvLabelMode);
+        tvLabelHistoryLimit = findViewById(R.id.tvLabelHistoryLimit);
+        tvLabelChatterInterval = findViewById(R.id.tvLabelChatterInterval);
+        tvLabelWebSearchUrl = findViewById(R.id.tvLabelWebSearchUrl);
+        tvLabelWebSearchApiKey = findViewById(R.id.tvLabelWebSearchApiKey);
+        tvLabelWebSearchModel = findViewById(R.id.tvLabelWebSearchModel);
+        tvBaseSettingsTitle = findViewById(R.id.tvBaseSettingsTitle);
+        tvBaseNameLabel = findViewById(R.id.tvBaseNameLabel);
+        tvBaseModelLabel = findViewById(R.id.tvBaseModelLabel);
+        tvBaseSpeechLangLabel = findViewById(R.id.tvBaseSpeechLangLabel);
+        tvBaseSpeechRateLabel = findViewById(R.id.tvBaseSpeechRateLabel);
+        tvBaseSpeechPitchLabel = findViewById(R.id.tvBaseSpeechPitchLabel);
+        tvBaseSystemPromptLabel = findViewById(R.id.tvBaseSystemPromptLabel);
+        tvBaseAvatarTitle = findViewById(R.id.tvBaseAvatarTitle);
+        tvChatterSettingsTitle = findViewById(R.id.tvChatterSettingsTitle);
+        tvChatterNameLabel = findViewById(R.id.tvChatterNameLabel);
+        tvChatterModelLabel = findViewById(R.id.tvChatterModelLabel);
+        tvChatterSpeechLangLabel = findViewById(R.id.tvChatterSpeechLangLabel);
+        tvChatterSpeechRateLabel = findViewById(R.id.tvChatterSpeechRateLabel);
+        tvChatterSpeechPitchLabel = findViewById(R.id.tvChatterSpeechPitchLabel);
+        tvChatterSystemPromptLabel = findViewById(R.id.tvChatterSystemPromptLabel);
+        tvChatterAvatarTitle = findViewById(R.id.tvChatterAvatarTitle);
+        radioGroupLanguage = findViewById(R.id.radioGroupLanguage);
+        radioLangJa = findViewById(R.id.radioLangJa);
+        radioLangEn = findViewById(R.id.radioLangEn);
         chatDragThresholdPx = dpToPx(24);
         chatPanelMarginPx = dpToPx(12);
         autoScrollThresholdPx = dpToPx(64);
@@ -634,6 +724,36 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         });
 
         tabGroup.setOnCheckedChangeListener((group, checkedId) -> updateSettingsTab());
+        if (sectionGeneralHeader != null) {
+            sectionGeneralHeader.setOnClickListener(v -> {
+                sectionGeneralExpanded = !sectionGeneralExpanded;
+                sectionGeneralContent.setVisibility(sectionGeneralExpanded ? View.VISIBLE : View.GONE);
+                tvSectionGeneral.setText((sectionGeneralExpanded ? "▼ " : "▶ ") + t("General", "一般"));
+            });
+        }
+        if (sectionChatHeader != null) {
+            sectionChatHeader.setOnClickListener(v -> {
+                sectionChatExpanded = !sectionChatExpanded;
+                sectionChatContent.setVisibility(sectionChatExpanded ? View.VISIBLE : View.GONE);
+                tvSectionChat.setText((sectionChatExpanded ? "▼ " : "▶ ") + t("Chat", "チャット"));
+            });
+        }
+        if (sectionExpertHeader != null) {
+            sectionExpertHeader.setOnClickListener(v -> {
+                sectionExpertExpanded = !sectionExpertExpanded;
+                sectionExpertContent.setVisibility(sectionExpertExpanded ? View.VISIBLE : View.GONE);
+                tvSectionExpert.setText((sectionExpertExpanded ? "▼ " : "▶ ") + t("Expert", "エキスパート"));
+            });
+        }
+        if (radioGroupLanguage != null) {
+            radioGroupLanguage.setOnCheckedChangeListener((group, checkedId) -> {
+                String newLang = (checkedId == R.id.radioLangJa) ? "ja" : "en";
+                if (!newLang.equals(appLanguage)) {
+                    appLanguage = newLang;
+                    applyLanguageToUi();
+                }
+            });
+        }
         if (chatDragArea != null) {
             chatDragArea.setOnClickListener(v -> setChatExpanded(!chatExpanded));
         }
@@ -656,7 +776,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 if (voiceInputEnabled) {
                     startVoiceRecognition(true);
                 } else {
-                    Toast.makeText(this, "Please enter a message", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, t("Please enter a message", "メッセージを入力してください"), Toast.LENGTH_SHORT).show();
                 }
                 return;
             }
@@ -683,26 +803,26 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         btnProfileSave.setOnClickListener(v -> {
             String profileName = etProfileName.getText().toString().trim();
             if (profileName.isEmpty()) {
-                Toast.makeText(this, "Enter profile name", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, t("Enter profile name", "プロフィール名を入力してください"), Toast.LENGTH_SHORT).show();
                 return;
             }
             readSettingsFromUi();
             saveSettings();
             if (saveSettingsProfile(profileName)) {
-                Toast.makeText(this, "Profile saved", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, t("Profile saved", "プロフィールを保存しました"), Toast.LENGTH_SHORT).show();
             } else {
-                Toast.makeText(this, "Failed to save profile", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, t("Failed to save profile", "プロフィールの保存に失敗しました"), Toast.LENGTH_SHORT).show();
             }
         });
         btnProfileLoad.setOnClickListener(v -> {
             List<String> profileNames = getSavedProfileNames();
             if (profileNames.isEmpty()) {
-                Toast.makeText(this, "No saved profiles", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, t("No saved profiles", "保存済みプロフィールがありません"), Toast.LENGTH_SHORT).show();
                 return;
             }
             String[] options = profileNames.toArray(new String[0]);
             new AlertDialog.Builder(this)
-                    .setTitle("Load Profile")
+                    .setTitle(t("Load Profile", "プロフィールの読み込み"))
                     .setItems(options, (dialog, which) -> {
                         String profileName = options[which];
                         etProfileName.setText(profileName);
@@ -710,9 +830,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                             applySettingsToUi();
                             reinitSystemPrompts();
                             saveSettings();
-                            Toast.makeText(this, "Profile loaded", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(this, t("Profile loaded", "プロフィールを読み込みました"), Toast.LENGTH_SHORT).show();
                         } else {
-                            Toast.makeText(this, "Profile not found", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(this, t("Profile not found", "プロフィールが見つかりません"), Toast.LENGTH_SHORT).show();
                         }
                     })
                     .show();
@@ -720,26 +840,32 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         btnProfileDelete.setOnClickListener(v -> {
             String profileName = etProfileName.getText().toString().trim();
             if (profileName.isEmpty()) {
-                Toast.makeText(this, "Enter profile name", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, t("Enter profile name", "プロフィール名を入力してください"), Toast.LENGTH_SHORT).show();
                 return;
             }
             new AlertDialog.Builder(this)
-                    .setTitle("Delete Profile")
-                    .setMessage("Delete profile \"" + profileName + "\"?")
-                    .setPositiveButton("Delete", (dialog, which) -> {
+                    .setTitle(t("Delete Profile", "プロフィールの削除"))
+                    .setMessage(t("Delete profile", "プロフィール") + " \"" + profileName + "\" " + t("?", "を削除しますか？"))
+                    .setPositiveButton(t("Delete", "削除"), (dialog, which) -> {
                         if (deleteSettingsProfile(profileName)) {
-                            Toast.makeText(this, "Profile deleted", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(this, t("Profile deleted", "プロフィールを削除しました"), Toast.LENGTH_SHORT).show();
                         } else {
-                            Toast.makeText(this, "Profile not found", Toast.LENGTH_SHORT).show();
+                            Toast.makeText(this, t("Profile not found", "プロフィールが見つかりません"), Toast.LENGTH_SHORT).show();
                         }
                     })
-                    .setNegativeButton("Cancel", null)
+                    .setNegativeButton(t("Cancel", "キャンセル"), null)
                     .show();
         });
 
-        btnHelp.setOnClickListener(v -> showInfoDialog("Help", HELP_TEXT));
-        btnPrivacy.setOnClickListener(v -> showInfoDialog("Privacy Policy", PRIVACY_TEXT));
-        btnRights.setOnClickListener(v -> showInfoDialog("Rights", RIGHTS_TEXT));
+        btnHelp.setOnClickListener(v -> showInfoDialog(
+                t("Help", "ヘルプ"),
+                "ja".equals(appLanguage) ? HELP_TEXT_JA : HELP_TEXT_EN));
+        btnPrivacy.setOnClickListener(v -> showInfoDialog(
+                t("Privacy Policy", "プライバシーポリシー"),
+                "ja".equals(appLanguage) ? PRIVACY_TEXT_JA : PRIVACY_TEXT_EN));
+        btnRights.setOnClickListener(v -> showInfoDialog(
+                t("Rights", "権利情報"),
+                "ja".equals(appLanguage) ? RIGHTS_TEXT_JA : RIGHTS_TEXT_EN));
     }
 
     private void focusMainLayerAfterSettings() {
@@ -758,6 +884,66 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             target.setFocusableInTouchMode(true);
             target.requestFocus();
         }
+    }
+
+    private String t(String en, String ja) {
+        return "ja".equals(appLanguage) ? ja : en;
+    }
+
+    private void applyLanguageToUi() {
+        if (tvSettingsTitle != null) tvSettingsTitle.setText("⚙️ " + t("Settings", "設定"));
+        if (tvSectionGeneral != null) tvSectionGeneral.setText((sectionGeneralExpanded ? "▼ " : "▶ ") + t("General", "一般"));
+        if (tvSectionChat != null) tvSectionChat.setText((sectionChatExpanded ? "▼ " : "▶ ") + t("Chat", "チャット"));
+        if (tvSectionExpert != null) tvSectionExpert.setText((sectionExpertExpanded ? "▼ " : "▶ ") + t("Expert", "エキスパート"));
+        if (tvSectionInfo != null) tvSectionInfo.setText(t("Information", "情報"));
+        if (tvLabelLanguage != null) tvLabelLanguage.setText(t("Language", "言語"));
+        if (tvLabelConfigProfile != null) tvLabelConfigProfile.setText(t("Config Profile", "設定テンプレート"));
+        if (tvLabelOllamaUrl != null) tvLabelOllamaUrl.setText("Ollama URL");
+        if (tvLabelUserName != null) tvLabelUserName.setText(t("User Name", "ユーザー名"));
+        if (tvLabelMode != null) tvLabelMode.setText(t("Mode", "モード"));
+        if (tvLabelHistoryLimit != null) tvLabelHistoryLimit.setText(t("History Limit", "履歴制限"));
+        if (tvLabelChatterInterval != null) tvLabelChatterInterval.setText(t("Chatter Interval (sec)", "チャット間隔（秒）"));
+        if (tvLabelWebSearchUrl != null) tvLabelWebSearchUrl.setText(t("Web Search API URL", "Web検索 API URL"));
+        if (tvLabelWebSearchApiKey != null) tvLabelWebSearchApiKey.setText(t("Web Search API Key", "Web検索 APIキー"));
+        if (tvLabelWebSearchModel != null) tvLabelWebSearchModel.setText(t("Web Search Model", "Web検索モデル"));
+        if (tvBaseSettingsTitle != null) tvBaseSettingsTitle.setText(t("Base Settings", "Baseの設定"));
+        if (tvBaseNameLabel != null) tvBaseNameLabel.setText(t("Name", "名前"));
+        if (tvBaseModelLabel != null) tvBaseModelLabel.setText(t("Model", "モデル"));
+        if (tvBaseSpeechLangLabel != null) tvBaseSpeechLangLabel.setText(t("Speech Language", "音声言語"));
+        if (tvBaseSpeechRateLabel != null) tvBaseSpeechRateLabel.setText(t("Speech Rate", "話速"));
+        if (tvBaseSpeechPitchLabel != null) tvBaseSpeechPitchLabel.setText(t("Speech Pitch", "ピッチ"));
+        if (tvBaseSystemPromptLabel != null) tvBaseSystemPromptLabel.setText(t("System Prompt", "システムプロンプト"));
+        if (tvBaseAvatarTitle != null) tvBaseAvatarTitle.setText(t("Avatar Images", "アバター画像"));
+        if (tvChatterSettingsTitle != null) tvChatterSettingsTitle.setText(t("Chatter Partner Settings", "Chatter Partnerの設定"));
+        if (tvChatterNameLabel != null) tvChatterNameLabel.setText(t("Name", "名前"));
+        if (tvChatterModelLabel != null) tvChatterModelLabel.setText(t("Model", "モデル"));
+        if (tvChatterSpeechLangLabel != null) tvChatterSpeechLangLabel.setText(t("Speech Language", "音声言語"));
+        if (tvChatterSpeechRateLabel != null) tvChatterSpeechRateLabel.setText(t("Speech Rate", "話速"));
+        if (tvChatterSpeechPitchLabel != null) tvChatterSpeechPitchLabel.setText(t("Speech Pitch", "ピッチ"));
+        if (tvChatterSystemPromptLabel != null) tvChatterSystemPromptLabel.setText(t("System Prompt", "システムプロンプト"));
+        if (tvChatterAvatarTitle != null) tvChatterAvatarTitle.setText(t("Avatar Images", "アバター画像"));
+        if (btnResetLogs != null) btnResetLogs.setText(t("Reset Conversation Log", "会話ログをリセット"));
+        if (btnProfileLoad != null) btnProfileLoad.setText(t("SELECT Template", "テンプレート選択"));
+        if (btnProfileSave != null) btnProfileSave.setText(t("Save", "保存"));
+        if (btnProfileDelete != null) btnProfileDelete.setText(t("Delete", "削除"));
+        if (btnHelp != null) btnHelp.setText(t("Help", "ヘルプ"));
+        if (btnPrivacy != null) btnPrivacy.setText(t("Privacy", "プライバシー"));
+        if (btnRights != null) btnRights.setText(t("Rights", "権利情報"));
+        if (switchStreaming != null) switchStreaming.setText("Streaming");
+        if (switchTts != null) switchTts.setText(t("Text-to-Speech", "音声読み上げ"));
+        if (switchVoiceInput != null) switchVoiceInput.setText(t("Voice Input (on empty send)", "音声入力（空送信）"));
+        if (switchAutoVoiceInput != null) switchAutoVoiceInput.setText(t("Auto Voice Input (after response)", "自動音声入力（応答後）"));
+        if (switchWebSearch != null) switchWebSearch.setText(t("Web Search", "Web検索"));
+        if (switchDebug != null) switchDebug.setText(t("Debug Mode", "デバッグモード"));
+        if (radioModeNormal != null) radioModeNormal.setText(t("Normal", "ノーマル"));
+        if (radioModeChatter != null) radioModeChatter.setText(t("Chatter", "チャッター"));
+        if (tabBase != null) tabBase.setText("Base");
+        if (tabChatter != null) tabChatter.setText("Chatter Partner");
+        if (etInput != null) etInput.setHint(t("Enter message", "メッセージを入力"));
+        if (sectionGeneralContent != null) sectionGeneralContent.setVisibility(sectionGeneralExpanded ? View.VISIBLE : View.GONE);
+        if (sectionChatContent != null) sectionChatContent.setVisibility(sectionChatExpanded ? View.VISIBLE : View.GONE);
+        if (sectionExpertContent != null) sectionExpertContent.setVisibility(sectionExpertExpanded ? View.VISIBLE : View.GONE);
+        updateSendButton();
     }
 
     private void hideKeyboard(View target) {
@@ -809,19 +995,19 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private void showCancelConfirmation() {
         new AlertDialog.Builder(this)
-                .setTitle("Cancel Request")
-                .setMessage("Do you want to cancel the current request?\n現在のリクエストをキャンセルしますか？")
-                .setPositiveButton("Yes / はい", (dialog, which) -> cancelCurrentRequest())
-                .setNegativeButton("No / いいえ", null)
+                .setTitle(t("Cancel Request", "リクエストのキャンセル"))
+                .setMessage(t("Do you want to cancel the current request?", "現在のリクエストをキャンセルしますか？"))
+                .setPositiveButton(t("Yes", "はい"), (dialog, which) -> cancelCurrentRequest())
+                .setNegativeButton(t("No", "いいえ"), null)
                 .show();
     }
 
     private void showResetConversationLogsConfirmation() {
         new AlertDialog.Builder(this)
-                .setTitle("Reset Conversation Log")
-                .setMessage("Reset all conversation logs?\n会話ログをすべてリセットしますか？")
-                .setPositiveButton("Reset", (dialog, which) -> resetConversationLogs())
-                .setNegativeButton("Cancel", null)
+                .setTitle(t("Reset Conversation Log", "会話ログをリセット"))
+                .setMessage(t("Reset all conversation logs?", "会話ログをすべてリセットしますか？"))
+                .setPositiveButton(t("Reset", "リセット"), (dialog, which) -> resetConversationLogs())
+                .setNegativeButton(t("Cancel", "キャンセル"), null)
                 .show();
     }
 
@@ -847,7 +1033,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             initConversationHistory();
             updateSendButton();
             requestChatLayoutUpdate();
-            Toast.makeText(this, "Conversation log reset", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, t("Conversation log reset", "会話ログをリセットしました"), Toast.LENGTH_SHORT).show();
         });
     }
 
@@ -863,7 +1049,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         setStreamingResponse(false, null);
         stopTts();
         updateSendButton();
-        appendSystemMessage("System", "Request cancelled / リクエストがキャンセルされました");
+        appendSystemMessage("System", t("Request cancelled", "リクエストがキャンセルされました"));
     }
 
     private void showInfoDialog(String title, String content) {
@@ -875,7 +1061,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             ClipData clip = ClipData.newPlainText(title, content);
             clipboard.setPrimaryClip(clip);
-            Toast.makeText(this, "Copied to clipboard", Toast.LENGTH_SHORT).show();
+            Toast.makeText(this, t("Copied to clipboard", "クリップボードにコピーしました"), Toast.LENGTH_SHORT).show();
         });
         builder.show();
     }
@@ -1415,6 +1601,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         s.put("userName", userName);
         s.put("historyLimit", historyLimit);
         s.put("autoChatterSeconds", autoChatterSeconds);
+        s.put("appLanguage", appLanguage);
         s.put("webSearchEnabled", webSearchEnabled);
         s.put("debugEnabled", debugEnabled);
         s.put("webSearchUrl", webSearchUrl);
@@ -1453,6 +1640,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         userName = s.optString("userName", userName);
         historyLimit = s.optInt("historyLimit", historyLimit);
         autoChatterSeconds = s.optInt("autoChatterSeconds", autoChatterSeconds);
+        appLanguage = s.optString("appLanguage", appLanguage);
         webSearchEnabled = s.optBoolean("webSearchEnabled", webSearchEnabled);
         debugEnabled = s.optBoolean("debugEnabled", debugEnabled);
         webSearchUrl = s.optString("webSearchUrl", webSearchUrl);
@@ -1758,6 +1946,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         webSearchModel = spinnerWebSearchModel.getSelectedItem() != null
                 ? spinnerWebSearchModel.getSelectedItem().toString().trim() : "";
         if (webSearchModel.isEmpty()) webSearchModel = "default";
+        if (radioGroupLanguage != null) {
+            appLanguage = (radioGroupLanguage.getCheckedRadioButtonId() == R.id.radioLangJa) ? "ja" : "en";
+        }
         if (!autoChatterEnabled) {
             cancelAutoChatter();
         }
@@ -1808,6 +1999,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             spinnerWebSearchModel.setSelection(0);
         }
         updateChatterModeUi();
+        if (radioGroupLanguage != null) {
+            radioGroupLanguage.check("ja".equals(appLanguage) ? R.id.radioLangJa : R.id.radioLangEn);
+        }
+        applyLanguageToUi();
     }
 
     private void updateChatterModeUi() {
@@ -2176,7 +2371,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         runOnUiThread(() -> {
             if (btnSend == null) return;
             btnSend.setEnabled(true);
-            btnSend.setText(isProcessing ? "STOP" : "Send");
+            btnSend.setText(isProcessing ? "STOP" : t("Send", "送信"));
         });
     }
 
@@ -3304,7 +3499,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 startVoiceRecognition(true);
             } else {
                 pendingVoiceStart = false;
-                Toast.makeText(this, "Microphone permission required", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, t("Microphone permission required", "マイクの権限が必要です"), Toast.LENGTH_SHORT).show();
             }
         }
     }
