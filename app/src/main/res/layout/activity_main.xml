@@ -83,9 +83,35 @@
                     android:orientation="vertical"
                     android:padding="12dp">
 
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="⚙️ Settings" android:textSize="16sp" android:textStyle="bold"
+                    <TextView
+                        android:id="@+id/tvSettingsTitle"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="⚙️ Settings"
+                        android:textSize="16sp"
+                        android:textStyle="bold"
                         android:layout_marginBottom="8dp"/>
+
+                    <LinearLayout
+                        android:id="@+id/sectionGeneralHeader"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:paddingTop="4dp"
+                        android:paddingBottom="4dp">
+                        <TextView
+                            android:id="@+id/tvSectionGeneral"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="▼ General"
+                            android:textStyle="bold"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/sectionGeneralContent"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
 
                     <Button
                         android:id="@+id/btnResetLogs"
@@ -161,7 +187,9 @@
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:inputType="textUri" android:singleLine="true"/>
 
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    <TextView
+                        android:id="@+id/tvLabelMode"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Mode" android:layout_marginTop="4dp"/>
                     <RadioGroup
                         android:id="@+id/groupMode"
@@ -191,11 +219,36 @@
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:inputType="text" android:singleLine="true"/>
 
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    <TextView
+                        android:id="@+id/tvLabelHistoryLimit"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="History Limit" android:layout_marginTop="4dp"/>
                     <EditText android:id="@+id/etHistoryLimit"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:inputType="number" android:singleLine="true"/>
+
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/sectionChatHeader"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:paddingTop="12dp"
+                        android:paddingBottom="4dp">
+                        <TextView
+                            android:id="@+id/tvSectionChat"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="▼ Chat"
+                            android:textStyle="bold"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/sectionChatContent"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical">
 
                     <Switch android:id="@+id/switchStreaming"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -213,32 +266,9 @@
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:text="Auto Voice Input (after response)" android:layout_marginTop="4dp"/>
 
-                    <Switch android:id="@+id/switchWebSearch"
-                        android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:text="Web Search" android:layout_marginTop="4dp"/>
-
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Web Search API URL" android:layout_marginTop="4dp"/>
-                    <EditText android:id="@+id/etWebSearchUrl"
-                        android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:inputType="textUri" android:singleLine="true"/>
-
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Web Search API Key" android:layout_marginTop="4dp"/>
-                    <EditText android:id="@+id/etWebSearchApiKey"
-                        android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:inputType="textPassword" android:singleLine="true"/>
-
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Web Search Model" android:layout_marginTop="4dp"/>
-                    <Spinner android:id="@+id/etWebSearchModel"
-                        android:layout_width="match_parent" android:layout_height="wrap_content"/>
-
-                    <Switch android:id="@+id/switchDebug"
-                        android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:text="Debug Mode" android:layout_marginTop="8dp"/>
-
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    <TextView
+                        android:id="@+id/tvLabelChatterInterval"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Chatter Interval (sec)" android:layout_marginTop="4dp"/>
                     <EditText android:id="@+id/etAutoChatterSeconds"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -272,45 +302,61 @@
                         android:orientation="vertical"
                         android:layout_marginTop="4dp">
 
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        <TextView
+                            android:id="@+id/tvBaseSettingsTitle"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Base Settings" android:textStyle="bold" android:layout_marginTop="4dp"/>
 
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        <TextView
+                            android:id="@+id/tvBaseNameLabel"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Name" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etBaseName"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="text" android:singleLine="true"/>
 
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        <TextView
+                            android:id="@+id/tvBaseModelLabel"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Model" android:layout_marginTop="4dp"/>
                         <Spinner android:id="@+id/spinnerModel"
                             android:layout_width="match_parent" android:layout_height="wrap_content"/>
 
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        <TextView
+                            android:id="@+id/tvBaseSpeechLangLabel"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Speech Language" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etSpeechLang"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="text" android:singleLine="true"/>
 
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        <TextView
+                            android:id="@+id/tvBaseSpeechRateLabel"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Speech Rate" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etSpeechRate"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="numberDecimal" android:singleLine="true"/>
 
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        <TextView
+                            android:id="@+id/tvBaseSpeechPitchLabel"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Speech Pitch" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etSpeechPitch"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="numberDecimal" android:singleLine="true"/>
 
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        <TextView
+                            android:id="@+id/tvBaseSystemPromptLabel"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="System Prompt" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etSystemPrompt"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="textMultiLine" android:minLines="2"/>
 
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        <TextView
+                            android:id="@+id/tvBaseAvatarTitle"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Avatar Images" android:textStyle="bold" android:layout_marginTop="8dp"/>
 
                         <LinearLayout
@@ -471,45 +517,61 @@
                         android:layout_marginTop="4dp"
                         android:visibility="gone">
 
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        <TextView
+                            android:id="@+id/tvChatterSettingsTitle"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Chatter Partner Settings" android:textStyle="bold" android:layout_marginTop="4dp"/>
 
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        <TextView
+                            android:id="@+id/tvChatterNameLabel"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Name" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etChatterName"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="text" android:singleLine="true"/>
 
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        <TextView
+                            android:id="@+id/tvChatterModelLabel"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Model" android:layout_marginTop="4dp"/>
                         <Spinner android:id="@+id/spinnerChatterModel"
                             android:layout_width="match_parent" android:layout_height="wrap_content"/>
 
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        <TextView
+                            android:id="@+id/tvChatterSpeechLangLabel"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Speech Language" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etChatterSpeechLang"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="text" android:singleLine="true"/>
 
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        <TextView
+                            android:id="@+id/tvChatterSpeechRateLabel"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Speech Rate" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etChatterSpeechRate"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="numberDecimal" android:singleLine="true"/>
 
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        <TextView
+                            android:id="@+id/tvChatterSpeechPitchLabel"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Speech Pitch" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etChatterSpeechPitch"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="numberDecimal" android:singleLine="true"/>
 
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        <TextView
+                            android:id="@+id/tvChatterSystemPromptLabel"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="System Prompt" android:layout_marginTop="4dp"/>
                         <EditText android:id="@+id/etChatterSystemPrompt"
                             android:layout_width="match_parent" android:layout_height="wrap_content"
                             android:inputType="textMultiLine" android:minLines="2"/>
 
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        <TextView
+                            android:id="@+id/tvChatterAvatarTitle"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="Avatar Images" android:textStyle="bold" android:layout_marginTop="8dp"/>
 
                         <LinearLayout
@@ -662,9 +724,69 @@
 
                     </LinearLayout>
 
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/sectionExpertHeader"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:paddingTop="12dp"
+                        android:paddingBottom="4dp">
+                        <TextView
+                            android:id="@+id/tvSectionExpert"
+                            android:layout_width="wrap_content"
+                            android:layout_height="wrap_content"
+                            android:text="▶ Expert"
+                            android:textStyle="bold"/>
+                    </LinearLayout>
+
+                    <LinearLayout
+                        android:id="@+id/sectionExpertContent"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="vertical"
+                        android:visibility="gone">
+
+                    <Switch android:id="@+id/switchWebSearch"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="Web Search" android:layout_marginTop="4dp"/>
+
+                    <TextView
+                        android:id="@+id/tvLabelWebSearchUrl"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Web Search API URL" android:layout_marginTop="4dp"/>
+                    <EditText android:id="@+id/etWebSearchUrl"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="textUri" android:singleLine="true"/>
+
+                    <TextView
+                        android:id="@+id/tvLabelWebSearchApiKey"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Web Search API Key" android:layout_marginTop="4dp"/>
+                    <EditText android:id="@+id/etWebSearchApiKey"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="textPassword" android:singleLine="true"/>
+
+                    <TextView
+                        android:id="@+id/tvLabelWebSearchModel"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Web Search Model" android:layout_marginTop="4dp"/>
+                    <Spinner android:id="@+id/etWebSearchModel"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"/>
+
+                    <Switch android:id="@+id/switchDebug"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:text="Debug Mode" android:layout_marginTop="8dp"/>
+
                     <!-- Help/Privacy/Rights Section -->
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="Information" android:textStyle="bold" android:layout_marginTop="16dp"/>
+                    <TextView
+                        android:id="@+id/tvSectionInfo"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Information"
+                        android:textStyle="bold"
+                        android:layout_marginTop="16dp"/>
 
                     <LinearLayout
                         android:layout_width="match_parent"
@@ -691,6 +813,8 @@
                             android:layout_height="wrap_content"
                             android:text="Rights"
                             android:layout_marginStart="4dp"/>
+                    </LinearLayout>
+
                     </LinearLayout>
 
                 </LinearLayout>
