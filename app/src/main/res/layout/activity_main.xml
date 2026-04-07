@@ -93,7 +93,34 @@
                         android:layout_height="wrap_content"
                         android:text="Reset Conversation Log"/>
 
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    <TextView
+                        android:id="@+id/tvLabelLanguage"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="Language"
+                        android:layout_marginTop="8dp"/>
+                    <RadioGroup
+                        android:id="@+id/radioGroupLanguage"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal">
+                        <RadioButton
+                            android:id="@+id/radioLangEn"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="EN"
+                            android:checked="true"/>
+                        <RadioButton
+                            android:id="@+id/radioLangJa"
+                            android:layout_width="0dp"
+                            android:layout_height="wrap_content"
+                            android:layout_weight="1"
+                            android:text="JA"/>
+                    </RadioGroup>
+
+                    <TextView
+                        android:id="@+id/tvLabelConfigProfile"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Config Profile"
                         android:layout_marginTop="8dp"/>
                     <Button
@@ -126,7 +153,9 @@
                             android:layout_marginStart="4dp"/>
                     </LinearLayout>
 
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    <TextView
+                        android:id="@+id/tvLabelOllamaUrl"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Ollama URL"/>
                     <EditText android:id="@+id/etOllamaUrl"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -154,7 +183,9 @@
                             android:text="Chatter"/>
                     </RadioGroup>
 
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    <TextView
+                        android:id="@+id/tvLabelUserName"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="User Name" android:layout_marginTop="4dp"/>
                     <EditText android:id="@+id/etUserName"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
