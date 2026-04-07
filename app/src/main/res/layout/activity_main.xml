@@ -211,22 +211,6 @@
                             android:text="Chatter"/>
                     </RadioGroup>
 
-                    <TextView
-                        android:id="@+id/tvLabelUserName"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="User Name" android:layout_marginTop="4dp"/>
-                    <EditText android:id="@+id/etUserName"
-                        android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:inputType="text" android:singleLine="true"/>
-
-                    <TextView
-                        android:id="@+id/tvLabelHistoryLimit"
-                        android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="History Limit" android:layout_marginTop="4dp"/>
-                    <EditText android:id="@+id/etHistoryLimit"
-                        android:layout_width="match_parent" android:layout_height="wrap_content"
-                        android:inputType="number" android:singleLine="true"/>
-
                     </LinearLayout>
 
                     <LinearLayout
@@ -249,6 +233,22 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:orientation="vertical">
+
+                    <TextView
+                        android:id="@+id/tvLabelUserName"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="User Name" android:layout_marginTop="4dp"/>
+                    <EditText android:id="@+id/etUserName"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="text" android:singleLine="true"/>
+
+                    <TextView
+                        android:id="@+id/tvLabelHistoryLimit"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:text="History Limit" android:layout_marginTop="4dp"/>
+                    <EditText android:id="@+id/etHistoryLimit"
+                        android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:inputType="number" android:singleLine="true"/>
 
                     <Switch android:id="@+id/switchStreaming"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
@@ -726,6 +726,42 @@
 
                     </LinearLayout>
 
+                    <!-- Help/Privacy/Rights Section -->
+                    <TextView
+                        android:id="@+id/tvSectionInfo"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="Information"
+                        android:textStyle="bold"
+                        android:layout_marginTop="16dp"/>
+
+                    <LinearLayout
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:orientation="horizontal"
+                        android:layout_marginTop="8dp">
+                        <Button
+                            android:id="@+id/btnHelp"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="Help"/>
+                        <Button
+                            android:id="@+id/btnPrivacy"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="Privacy"
+                            android:layout_marginStart="4dp"/>
+                        <Button
+                            android:id="@+id/btnRights"
+                            android:layout_width="0dp"
+                            android:layout_weight="1"
+                            android:layout_height="wrap_content"
+                            android:text="Rights"
+                            android:layout_marginStart="4dp"/>
+                    </LinearLayout>
+
                     <LinearLayout
                         android:id="@+id/sectionExpertHeader"
                         android:layout_width="match_parent"
@@ -778,42 +814,6 @@
                     <Switch android:id="@+id/switchDebug"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
                         android:text="Debug Mode" android:layout_marginTop="8dp"/>
-
-                    <!-- Help/Privacy/Rights Section -->
-                    <TextView
-                        android:id="@+id/tvSectionInfo"
-                        android:layout_width="wrap_content"
-                        android:layout_height="wrap_content"
-                        android:text="Information"
-                        android:textStyle="bold"
-                        android:layout_marginTop="16dp"/>
-
-                    <LinearLayout
-                        android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal"
-                        android:layout_marginTop="8dp">
-                        <Button
-                            android:id="@+id/btnHelp"
-                            android:layout_width="0dp"
-                            android:layout_weight="1"
-                            android:layout_height="wrap_content"
-                            android:text="Help"/>
-                        <Button
-                            android:id="@+id/btnPrivacy"
-                            android:layout_width="0dp"
-                            android:layout_weight="1"
-                            android:layout_height="wrap_content"
-                            android:text="Privacy"
-                            android:layout_marginStart="4dp"/>
-                        <Button
-                            android:id="@+id/btnRights"
-                            android:layout_width="0dp"
-                            android:layout_weight="1"
-                            android:layout_height="wrap_content"
-                            android:text="Rights"
-                            android:layout_marginStart="4dp"/>
-                    </LinearLayout>
 
                     </LinearLayout>
 

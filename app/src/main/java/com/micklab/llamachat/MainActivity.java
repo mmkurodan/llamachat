@@ -115,6 +115,12 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final String AVATAR_CHATTER_C1_FILE = "avatar_chatter_c1.jpg";
     private static final String AVATAR_CHATTER_C2_FILE = "avatar_chatter_c2.jpg";
     private static final String AVATAR_CHATTER_C3_FILE = "avatar_chatter_c3.jpg";
+    private static final String DEFAULT_BASE_NAME_JA = "藍";
+    private static final String DEFAULT_BASE_NAME_EN = "Ai";
+    private static final String DEFAULT_CHATTER_NAME_JA = "リサ";
+    private static final String DEFAULT_CHATTER_NAME_EN = "Lisa";
+    private static final String DEFAULT_SPEECH_LANG_JA = "ja-JP";
+    private static final String DEFAULT_SPEECH_LANG_EN = "en-US";
     private static final int TTS_WARMUP_MS = 120;
     private static final int AVATAR_TALK_FRAME_MS = 120;
     private static final int AVATAR_BLINK_MIN_MS = 3000;
@@ -187,16 +193,16 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private String webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
     private String webSearchApiKey = "";
     private String webSearchModel = "default";
-    private String speechLang = "ja-JP";
+    private String speechLang = DEFAULT_SPEECH_LANG_JA;
     private float speechRate = 1.0f;
     private float speechPitch = 1.0f;
     private String systemPromptText = "あなたはユーザの若い女性秘書です";
-    private String chatterSpeechLang = "ja-JP";
+    private String chatterSpeechLang = DEFAULT_SPEECH_LANG_JA;
     private float chatterSpeechRate = 1.0f;
     private float chatterSpeechPitch = 1.0f;
     private String chatterSystemPromptText = "あなたはユーザの若い女性秘書です";
-    private String baseName = "藍";
-    private String chatterName = "リサ";
+    private String baseName = DEFAULT_BASE_NAME_JA;
+    private String chatterName = DEFAULT_CHATTER_NAME_JA;
     private String userName = "";
     private int historyLimit = 10;
     private int autoChatterSeconds = 10;
@@ -403,7 +409,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "■ 設定\n" +
             "・RESET CONVERSATION LOG ボタンは設定画面の最上部にあります。\n" +
             "・Config Profileの下にある SELECT Template でテンプレートを読み込みます。\n" +
-            "・設定画面を開くたびに/api/tagsを再取得し、Base/Chatter PartnerのModel一覧を更新します。\n\n" +
+            "・設定画面を開くたびに/api/tagsを再取得し、Base/おしゃべり相手のModel一覧を更新します。\n\n" +
             "■ 送信\n" +
             "・メッセージ入力後にSendで送信します。\n" +
             "・送信中はボタンがSTOPになり、タップで中止できます。\n\n" +
@@ -412,10 +418,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "・Auto Voice Inputは応答後に自動で音声入力を開始します。\n\n" +
             "■ モード\n" +
             "・Normal: 1つのモデルでチャットします。\n" +
-            "・Chatter: BaseとChatter Partnerが交互に会話します。\n" +
-            "・Chatter Intervalで発話間隔（秒）を設定します。\n\n" +
+            "・おしゃべり: Baseとおしゃべり相手が交互に会話します。\n" +
+            "・おしゃべり間隔で発話間隔（秒）を設定します。\n\n" +
             "■ 設定タブ\n" +
-            "・Base/Chatter Partnerのタブで各モデル設定を切り替えます。\n" +
+            "・Base/おしゃべり相手のタブで各モデル設定を切り替えます。\n" +
             "・Model/Name/System Prompt/Speech Language/Rate/Pitchを設定できます。\n\n" +
             "■ 応答\n" +
             "・Streaming: 応答をリアルタイム表示します。\n" +
@@ -431,7 +437,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "・c1: 基本表情\n" +
             "・c2: まばたき\n" +
             "・c3: 会話中\n" +
-            "・BaseとChatter Partnerで別々に設定できます。\n" +
+            "・Baseとおしゃべり相手で別々に設定できます。\n" +
             "・Clearでデフォルトに戻します。\n\n" +
             "■ その他\n" +
             "・設定と画像は端末内に保存されます。";
@@ -750,6 +756,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 String newLang = (checkedId == R.id.radioLangJa) ? "ja" : "en";
                 if (!newLang.equals(appLanguage)) {
                     appLanguage = newLang;
+                    applyLanguageSpecificDefaults();
+                    syncLanguageSpecificFieldsToUi();
                     applyLanguageToUi();
                 }
             });
@@ -890,6 +898,40 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         return "ja".equals(appLanguage) ? ja : en;
     }
 
+    private String defaultBaseNameForCurrentLanguage() {
+        return "ja".equals(appLanguage) ? DEFAULT_BASE_NAME_JA : DEFAULT_BASE_NAME_EN;
+    }
+
+    private String defaultChatterNameForCurrentLanguage() {
+        return "ja".equals(appLanguage) ? DEFAULT_CHATTER_NAME_JA : DEFAULT_CHATTER_NAME_EN;
+    }
+
+    private String defaultSpeechLangForCurrentLanguage() {
+        return "ja".equals(appLanguage) ? DEFAULT_SPEECH_LANG_JA : DEFAULT_SPEECH_LANG_EN;
+    }
+
+    private boolean isDefaultBaseName(String value) {
+        return DEFAULT_BASE_NAME_JA.equals(value) || DEFAULT_BASE_NAME_EN.equals(value);
+    }
+
+    private boolean isDefaultChatterName(String value) {
+        return DEFAULT_CHATTER_NAME_JA.equals(value) || DEFAULT_CHATTER_NAME_EN.equals(value);
+    }
+
+    private void applyLanguageSpecificDefaults() {
+        if (isDefaultBaseName(baseName)) baseName = defaultBaseNameForCurrentLanguage();
+        if (isDefaultChatterName(chatterName)) chatterName = defaultChatterNameForCurrentLanguage();
+        speechLang = defaultSpeechLangForCurrentLanguage();
+        chatterSpeechLang = defaultSpeechLangForCurrentLanguage();
+    }
+
+    private void syncLanguageSpecificFieldsToUi() {
+        if (etBaseName != null) etBaseName.setText(baseName);
+        if (etChatterName != null) etChatterName.setText(chatterName);
+        if (etSpeechLang != null) etSpeechLang.setText(speechLang);
+        if (etChatterSpeechLang != null) etChatterSpeechLang.setText(chatterSpeechLang);
+    }
+
     private void applyLanguageToUi() {
         if (tvSettingsTitle != null) tvSettingsTitle.setText("⚙️ " + t("Settings", "設定"));
         if (tvSectionGeneral != null) tvSectionGeneral.setText((sectionGeneralExpanded ? "▼ " : "▶ ") + t("General", "一般"));
@@ -902,7 +944,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (tvLabelUserName != null) tvLabelUserName.setText(t("User Name", "ユーザー名"));
         if (tvLabelMode != null) tvLabelMode.setText(t("Mode", "モード"));
         if (tvLabelHistoryLimit != null) tvLabelHistoryLimit.setText(t("History Limit", "履歴制限"));
-        if (tvLabelChatterInterval != null) tvLabelChatterInterval.setText(t("Chatter Interval (sec)", "チャット間隔（秒）"));
+        if (tvLabelChatterInterval != null) tvLabelChatterInterval.setText(t("Chatter Interval (sec)", "おしゃべり間隔（秒）"));
         if (tvLabelWebSearchUrl != null) tvLabelWebSearchUrl.setText(t("Web Search API URL", "Web検索 API URL"));
         if (tvLabelWebSearchApiKey != null) tvLabelWebSearchApiKey.setText(t("Web Search API Key", "Web検索 APIキー"));
         if (tvLabelWebSearchModel != null) tvLabelWebSearchModel.setText(t("Web Search Model", "Web検索モデル"));
@@ -914,7 +956,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (tvBaseSpeechPitchLabel != null) tvBaseSpeechPitchLabel.setText(t("Speech Pitch", "ピッチ"));
         if (tvBaseSystemPromptLabel != null) tvBaseSystemPromptLabel.setText(t("System Prompt", "システムプロンプト"));
         if (tvBaseAvatarTitle != null) tvBaseAvatarTitle.setText(t("Avatar Images", "アバター画像"));
-        if (tvChatterSettingsTitle != null) tvChatterSettingsTitle.setText(t("Chatter Partner Settings", "Chatter Partnerの設定"));
+        if (tvChatterSettingsTitle != null) tvChatterSettingsTitle.setText(t("Chatter Partner Settings", "おしゃべり相手の設定"));
         if (tvChatterNameLabel != null) tvChatterNameLabel.setText(t("Name", "名前"));
         if (tvChatterModelLabel != null) tvChatterModelLabel.setText(t("Model", "モデル"));
         if (tvChatterSpeechLangLabel != null) tvChatterSpeechLangLabel.setText(t("Speech Language", "音声言語"));
@@ -936,9 +978,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (switchWebSearch != null) switchWebSearch.setText(t("Web Search", "Web検索"));
         if (switchDebug != null) switchDebug.setText(t("Debug Mode", "デバッグモード"));
         if (radioModeNormal != null) radioModeNormal.setText(t("Normal", "ノーマル"));
-        if (radioModeChatter != null) radioModeChatter.setText(t("Chatter", "チャッター"));
+        if (radioModeChatter != null) radioModeChatter.setText(t("Chatter", "おしゃべり"));
         if (tabBase != null) tabBase.setText("Base");
-        if (tabChatter != null) tabChatter.setText("Chatter Partner");
+        if (tabChatter != null) tabChatter.setText(t("Chatter Partner", "おしゃべり相手"));
         if (etInput != null) etInput.setHint(t("Enter message", "メッセージを入力"));
         if (sectionGeneralContent != null) sectionGeneralContent.setVisibility(sectionGeneralExpanded ? View.VISIBLE : View.GONE);
         if (sectionChatContent != null) sectionChatContent.setVisibility(sectionChatExpanded ? View.VISIBLE : View.GONE);
@@ -1646,8 +1688,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         webSearchUrl = s.optString("webSearchUrl", webSearchUrl);
         webSearchApiKey = s.optString("webSearchApiKey", webSearchApiKey);
         webSearchModel = s.optString("webSearchModel", webSearchModel);
-        if (baseName.trim().isEmpty()) baseName = "藍";
-        if (chatterName.trim().isEmpty()) chatterName = "リサ";
+        if (speechLang.trim().isEmpty()) speechLang = defaultSpeechLangForCurrentLanguage();
+        if (chatterSpeechLang.trim().isEmpty()) chatterSpeechLang = defaultSpeechLangForCurrentLanguage();
+        if (baseName.trim().isEmpty()) baseName = defaultBaseNameForCurrentLanguage();
+        if (chatterName.trim().isEmpty()) chatterName = defaultChatterNameForCurrentLanguage();
 
         if (webSearchModel.trim().isEmpty()) webSearchModel = "default";
         if (historyLimit < 0) historyLimit = 0;
@@ -1897,9 +1941,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         autoVoiceInputEnabled = switchAutoVoiceInput.isChecked();
         userName = etUserName.getText().toString().trim();
         baseName = etBaseName.getText().toString().trim();
-        if (baseName.isEmpty()) baseName = "藍";
+        if (baseName.isEmpty()) baseName = defaultBaseNameForCurrentLanguage();
         speechLang = etSpeechLang.getText().toString().trim();
-        if (speechLang.isEmpty()) speechLang = "ja-JP";
+        if (speechLang.isEmpty()) speechLang = defaultSpeechLangForCurrentLanguage();
         try {
             speechRate = Float.parseFloat(etSpeechRate.getText().toString());
         } catch (Exception e) {
@@ -1912,9 +1956,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
         systemPromptText = etSystemPrompt.getText().toString().trim();
         chatterName = etChatterName.getText().toString().trim();
-        if (chatterName.isEmpty()) chatterName = "リサ";
+        if (chatterName.isEmpty()) chatterName = defaultChatterNameForCurrentLanguage();
         chatterSpeechLang = etChatterSpeechLang.getText().toString().trim();
-        if (chatterSpeechLang.isEmpty()) chatterSpeechLang = "ja-JP";
+        if (chatterSpeechLang.isEmpty()) chatterSpeechLang = defaultSpeechLangForCurrentLanguage();
         try {
             chatterSpeechRate = Float.parseFloat(etChatterSpeechRate.getText().toString());
         } catch (Exception e) {
@@ -1964,6 +2008,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     private void applySettingsToUi() {
+        applyLanguageSpecificDefaults();
         etOllamaUrl.setText(ollamaBaseUrl);
         switchStreaming.setChecked(streamingEnabled);
         switchTts.setChecked(ttsEnabled);
