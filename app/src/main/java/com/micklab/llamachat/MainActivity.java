@@ -31,6 +31,7 @@ import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.ArrayAdapter;
 import android.widget.Button;
+import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.ImageView;
@@ -121,6 +122,13 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final String DEFAULT_CHATTER_NAME_EN = "Lisa";
     private static final String DEFAULT_SPEECH_LANG_JA = "ja-JP";
     private static final String DEFAULT_SPEECH_LANG_EN = "en-US";
+    private static final String DEFAULT_SYSTEM_PROMPT_JA = "あなたはユーザの若い女性秘書です";
+    private static final String DEFAULT_SYSTEM_PROMPT_EN = "You are the user's young female secretary.";
+    private static final String OLLAMA_STATUS_AVAILABLE_TEXT = "LLM API Available";
+    private static final String OLLAMA_STATUS_UNAVAILABLE_TEXT = "LLM API NOT Available";
+    private static final int OLLAMA_STATUS_AVAILABLE_BG = 0xFF81C784;
+    private static final int OLLAMA_STATUS_UNAVAILABLE_BG = 0xFFFFF59D;
+    private static final int OLLAMA_STATUS_TEXT_COLOR = 0xFF000000;
     private static final int TTS_WARMUP_MS = 120;
     private static final int AVATAR_TALK_FRAME_MS = 120;
     private static final int AVATAR_BLINK_MIN_MS = 3000;
@@ -151,21 +159,19 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private View mainLayer;
     private View chatDragArea;
     private View chatDragHandle;
-    private Spinner spinnerModel, spinnerChatterModel, spinnerWebSearchModel;
+    private Spinner spinnerLanguage, spinnerModel, spinnerChatterModel, spinnerWebSearchModel;
     private RadioGroup groupMode, tabGroup;
     private RadioButton radioModeNormal, radioModeChatter, tabBase, tabChatter;
     private LinearLayout baseSettingsGroup, chatterSettingsGroup;
     private LinearLayout sectionGeneralContent, sectionChatContent, sectionExpertContent;
     private TextView tvSettingsTitle, tvSectionGeneral, tvSectionChat, tvSectionExpert, tvSectionInfo;
-    private TextView tvLabelLanguage, tvLabelConfigProfile, tvLabelOllamaUrl, tvLabelUserName;
+    private TextView tvLabelLanguage, tvLabelConfigProfile, tvLabelOllamaUrl, tvLabelUserName, tvOllamaStatus;
     private TextView tvLabelMode, tvLabelHistoryLimit, tvLabelChatterInterval;
     private TextView tvLabelWebSearchUrl, tvLabelWebSearchApiKey, tvLabelWebSearchModel;
     private TextView tvBaseSettingsTitle, tvBaseNameLabel, tvBaseModelLabel;
     private TextView tvBaseSpeechLangLabel, tvBaseSpeechRateLabel, tvBaseSpeechPitchLabel, tvBaseSystemPromptLabel, tvBaseAvatarTitle;
     private TextView tvChatterSettingsTitle, tvChatterNameLabel, tvChatterModelLabel;
     private TextView tvChatterSpeechLangLabel, tvChatterSpeechRateLabel, tvChatterSpeechPitchLabel, tvChatterSystemPromptLabel, tvChatterAvatarTitle;
-    private RadioGroup radioGroupLanguage;
-    private RadioButton radioLangJa, radioLangEn;
     private View sectionGeneralHeader, sectionChatHeader, sectionExpertHeader;
     private Switch switchStreaming, switchTts, switchVoiceInput, switchAutoVoiceInput, switchWebSearch, switchDebug;
     private EditText etOllamaUrl, etSpeechLang, etSpeechRate, etSpeechPitch, etSystemPrompt;
@@ -196,11 +202,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private String speechLang = DEFAULT_SPEECH_LANG_JA;
     private float speechRate = 1.0f;
     private float speechPitch = 1.0f;
-    private String systemPromptText = "あなたはユーザの若い女性秘書です";
+    private String systemPromptText = DEFAULT_SYSTEM_PROMPT_JA;
     private String chatterSpeechLang = DEFAULT_SPEECH_LANG_JA;
     private float chatterSpeechRate = 1.0f;
     private float chatterSpeechPitch = 1.0f;
-    private String chatterSystemPromptText = "あなたはユーザの若い女性秘書です";
+    private String chatterSystemPromptText = DEFAULT_SYSTEM_PROMPT_JA;
     private String baseName = DEFAULT_BASE_NAME_JA;
     private String chatterName = DEFAULT_CHATTER_NAME_JA;
     private String userName = "";
@@ -210,6 +216,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private boolean sectionGeneralExpanded = true;
     private boolean sectionChatExpanded = true;
     private boolean sectionExpertExpanded = false;
+    private boolean suppressQuickStartPopup = false;
+    private boolean ollamaApiAvailable = false;
 
     // --- TTS ---
     private TextToSpeech tts;
@@ -361,20 +369,25 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     // --- Help/Privacy/Rights Content ---
     private static final String HELP_TEXT_EN =
-            "Dual AI Chat — How to Use\n\n" +
+            "Dual AI Chat — Manual\n\n" +
+            "■ Quick Start\n" +
+            "・At startup, the app shows a Quick Start popup unless you choose Do not show again.\n" +
+            "・Before chatting, install and start LLM Tester with llama.cpp or Ollama, then enable the API server.\n\n" +
             "■ Screen\n" +
             "・Tap ⚙️ to open settings, then 💾 to save and close.\n" +
             "・Tap the top handle of the log area to expand/collapse the chat panel.\n\n" +
             "■ Settings\n" +
-            "・RESET CONVERSATION LOG is placed at the top of settings.\n" +
+            "・Choose the app language from the dropdown as English or 日本語.\n" +
+            "・The tile under Ollama URL shows the /api/tags status.\n" +
+            "・Use Settings to configure connection settings and avatar images.\n" +
             "・Use SELECT Template under Config Profile to load templates.\n" +
-            "・Each time settings opens, /api/tags refreshes Base/Chatter Partner model lists.\n\n" +
+            "・On startup and each time settings opens, /api/tags refreshes model lists and the API status tile.\n\n" +
             "■ Sending\n" +
             "・Enter a message and press Send.\n" +
+            "・If Voice Input is enabled, pressing Send with empty input starts voice input.\n" +
             "・While processing, the button shows STOP and can cancel the request.\n\n" +
-            "■ Voice\n" +
-            "・When Voice Input is enabled, sending empty starts voice input.\n" +
-            "・Auto Voice Input starts voice input after each response.\n\n" +
+            "■ Reset\n" +
+            "・To reset the conversation, press Reset Conversation Log in Settings.\n\n" +
             "■ Modes\n" +
             "・Normal: Chat with a single model.\n" +
             "・Chatter: Base and Chatter Partner alternate turns.\n" +
@@ -399,23 +412,28 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "・You can set different images for Base and Chatter Partner.\n" +
             "・Press Clear to reset to default.\n\n" +
             "■ Other\n" +
-            "・Settings and images are stored locally on the device.";
+            "・Settings, templates, popup preferences, and images are stored locally on the device.";
 
     private static final String HELP_TEXT_JA =
-            "Dual AI Chat — 使い方\n\n" +
+            "Dual AI Chat — マニュアル\n\n" +
+            "■ クイックスタート\n" +
+            "・起動時に、次回から表示しないを選ぶまでクイックスタートを表示します。\n" +
+            "・チャットを使う前に、LLM Tester with llama.cppまたはOllamaをインストール/起動し、APIサーバを有効化してください。\n\n" +
             "■ 画面\n" +
             "・⚙️ で設定を開き、💾で保存して閉じます。\n" +
             "・ログ上部のバーをタップするとチャットエリアが拡大/縮小します。\n\n" +
             "■ 設定\n" +
-            "・RESET CONVERSATION LOG ボタンは設定画面の最上部にあります。\n" +
+            "・言語はプルダウンからEnglishまたは日本語を選択します。\n" +
+            "・Ollama URLの下に/api/tagsの接続状態をタイル表示します。\n" +
+            "・設定画面で接続設定やアバター画像を設定できます。\n" +
             "・Config Profileの下にある SELECT Template でテンプレートを読み込みます。\n" +
-            "・設定画面を開くたびに/api/tagsを再取得し、Base/おしゃべり相手のModel一覧を更新します。\n\n" +
+            "・起動時と設定画面を開くたびに/api/tagsを再取得し、モデル一覧とAPI状態を更新します。\n\n" +
             "■ 送信\n" +
             "・メッセージ入力後にSendで送信します。\n" +
-            "・送信中はボタンがSTOPになり、タップで中止できます。\n\n" +
-            "■ 音声\n" +
-            "・Voice Inputを有効にすると空欄送信で音声入力します。\n" +
-            "・Auto Voice Inputは応答後に自動で音声入力を開始します。\n\n" +
+            "・Voice Inputを有効にすると、未入力のままSendで音声入力を開始します。\n" +
+            "・処理中はボタンがSTOPになり、タップで中止できます。\n\n" +
+            "■ リセット\n" +
+            "・会話をリセットしたい場合は、設定画面のReset Conversation Logを押してください。\n\n" +
             "■ モード\n" +
             "・Normal: 1つのモデルでチャットします。\n" +
             "・おしゃべり: Baseとおしゃべり相手が交互に会話します。\n" +
@@ -440,17 +458,17 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "・Baseとおしゃべり相手で別々に設定できます。\n" +
             "・Clearでデフォルトに戻します。\n\n" +
             "■ その他\n" +
-            "・設定と画像は端末内に保存されます。";
+            "・設定、テンプレート、ポップアップ表示設定、画像は端末内に保存されます。";
 
     private static final String PRIVACY_TEXT_EN =
             "Dual AI Chat — Privacy Policy\n\n" +
             "■ Data Collection\n" +
             "・The developer does not collect your conversation data.\n" +
-            "・All conversations occur only with your configured Ollama server.\n" +
-            "・When opening settings, the app sends a GET request to /api/tags on your configured Ollama server to refresh model lists.\n" +
+            "・All conversations occur only with your configured Ollama-compatible server.\n" +
+            "・On startup and when opening settings, the app sends a GET request to /api/tags to refresh model lists and update the API status tile.\n" +
             "・This request does not include conversation message content.\n\n" +
             "■ Local Data\n" +
-            "・Settings, template names, and avatar images are stored locally on device.\n\n" +
+            "・Settings, language selection, template names, quick start popup preference, and avatar images are stored locally on device.\n\n" +
             "■ Web Search\n" +
             "・When using Web Search, queries are sent to your configured API.\n" +
             "・If a Brave URL is configured, requests follow Brave Search API format.\n\n" +
@@ -461,11 +479,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "Dual AI Chat — プライバシーポリシー\n\n" +
             "■ データの収集\n" +
             "・開発者は会話データを収集しません。\n" +
-            "・すべての会話は設定されたOllamaサーバーとの間でのみ行われます。\n" +
-            "・設定画面を開くと、モデル一覧更新のため設定済みOllamaサーバーの/api/tagsにGETリクエストを送信します。\n" +
+            "・すべての会話は設定されたOllama互換サーバーとの間でのみ行われます。\n" +
+            "・起動時と設定画面を開いたときに、モデル一覧更新とAPI状態表示のため/api/tagsにGETリクエストを送信します。\n" +
             "・このリクエストに会話本文は含まれません。\n\n" +
             "■ ローカルデータ\n" +
-            "・設定、テンプレート名、アバター画像はデバイス内に保存されます。\n\n" +
+            "・設定、言語選択、テンプレート名、クイックスタートの表示設定、アバター画像はデバイス内に保存されます。\n\n" +
             "■ Web検索\n" +
             "・Web検索機能を使用する場合、検索クエリは設定されたAPIに送信されます。\n" +
             "・Brave URLを設定した場合はBrave Search API形式で送信されます。\n\n" +
@@ -522,6 +540,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         initTts();
         initConversationHistory();
         setupListeners();
+        if (savedInstanceState == null) {
+            showQuickStartDialogIfNeeded();
+        }
         fetchModels();
     }
 
@@ -580,6 +601,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
         chatDragArea = findViewById(R.id.chatDragArea);
         chatDragHandle = findViewById(R.id.chatDragHandle);
+        spinnerLanguage = findViewById(R.id.spinnerLanguage);
         spinnerModel = findViewById(R.id.spinnerModel);
         spinnerChatterModel = findViewById(R.id.spinnerChatterModel);
         groupMode = findViewById(R.id.groupMode);
@@ -628,6 +650,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         tvLabelLanguage = findViewById(R.id.tvLabelLanguage);
         tvLabelConfigProfile = findViewById(R.id.tvLabelConfigProfile);
         tvLabelOllamaUrl = findViewById(R.id.tvLabelOllamaUrl);
+        tvOllamaStatus = findViewById(R.id.tvOllamaStatus);
         tvLabelUserName = findViewById(R.id.tvLabelUserName);
         tvLabelMode = findViewById(R.id.tvLabelMode);
         tvLabelHistoryLimit = findViewById(R.id.tvLabelHistoryLimit);
@@ -651,9 +674,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         tvChatterSpeechPitchLabel = findViewById(R.id.tvChatterSpeechPitchLabel);
         tvChatterSystemPromptLabel = findViewById(R.id.tvChatterSystemPromptLabel);
         tvChatterAvatarTitle = findViewById(R.id.tvChatterAvatarTitle);
-        radioGroupLanguage = findViewById(R.id.radioGroupLanguage);
-        radioLangJa = findViewById(R.id.radioLangJa);
-        radioLangEn = findViewById(R.id.radioLangEn);
         chatDragThresholdPx = dpToPx(24);
         chatPanelMarginPx = dpToPx(12);
         autoScrollThresholdPx = dpToPx(64);
@@ -670,6 +690,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             chatDragArea.bringToFront();
         }
         updateCounterpartMiniSize();
+
+        ArrayAdapter<String> languageAdapter = new ArrayAdapter<>(
+                this,
+                android.R.layout.simple_spinner_item,
+                new String[]{"English", "日本語"}
+        );
+        languageAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerLanguage.setAdapter(languageAdapter);
 
         modelList.add("default");
         modelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
@@ -695,6 +723,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         webSearchModelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
         webSearchModelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerWebSearchModel.setAdapter(webSearchModelAdapter);
+        updateOllamaStatusTile(ollamaApiAvailable);
     }
 
     private void setupListeners() {
@@ -751,14 +780,21 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 tvSectionExpert.setText((sectionExpertExpanded ? "▼ " : "▶ ") + t("Expert", "エキスパート"));
             });
         }
-        if (radioGroupLanguage != null) {
-            radioGroupLanguage.setOnCheckedChangeListener((group, checkedId) -> {
-                String newLang = (checkedId == R.id.radioLangJa) ? "ja" : "en";
-                if (!newLang.equals(appLanguage)) {
-                    appLanguage = newLang;
-                    applyLanguageSpecificDefaults();
-                    syncLanguageSpecificFieldsToUi();
-                    applyLanguageToUi();
+        if (spinnerLanguage != null) {
+            spinnerLanguage.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
+                @Override
+                public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
+                    String newLang = position == 1 ? "ja" : "en";
+                    if (!newLang.equals(appLanguage)) {
+                        appLanguage = newLang;
+                        applyLanguageSpecificDefaults();
+                        syncLanguageSpecificFieldsToUi();
+                        applyLanguageToUi();
+                    }
+                }
+
+                @Override
+                public void onNothingSelected(android.widget.AdapterView<?> parent) {
                 }
             });
         }
@@ -910,6 +946,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         return "ja".equals(appLanguage) ? DEFAULT_SPEECH_LANG_JA : DEFAULT_SPEECH_LANG_EN;
     }
 
+    private String defaultSystemPromptForCurrentLanguage() {
+        return "ja".equals(appLanguage) ? DEFAULT_SYSTEM_PROMPT_JA : DEFAULT_SYSTEM_PROMPT_EN;
+    }
+
+    private String defaultUserLabel() {
+        return t("User", "ユーザ");
+    }
+
     private boolean isDefaultBaseName(String value) {
         return DEFAULT_BASE_NAME_JA.equals(value) || DEFAULT_BASE_NAME_EN.equals(value);
     }
@@ -918,9 +962,15 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         return DEFAULT_CHATTER_NAME_JA.equals(value) || DEFAULT_CHATTER_NAME_EN.equals(value);
     }
 
+    private boolean isDefaultSystemPrompt(String value) {
+        return DEFAULT_SYSTEM_PROMPT_JA.equals(value) || DEFAULT_SYSTEM_PROMPT_EN.equals(value);
+    }
+
     private void applyLanguageSpecificDefaults() {
         if (isDefaultBaseName(baseName)) baseName = defaultBaseNameForCurrentLanguage();
         if (isDefaultChatterName(chatterName)) chatterName = defaultChatterNameForCurrentLanguage();
+        if (isDefaultSystemPrompt(systemPromptText)) systemPromptText = defaultSystemPromptForCurrentLanguage();
+        if (isDefaultSystemPrompt(chatterSystemPromptText)) chatterSystemPromptText = defaultSystemPromptForCurrentLanguage();
         speechLang = defaultSpeechLangForCurrentLanguage();
         chatterSpeechLang = defaultSpeechLangForCurrentLanguage();
     }
@@ -930,6 +980,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (etChatterName != null) etChatterName.setText(chatterName);
         if (etSpeechLang != null) etSpeechLang.setText(speechLang);
         if (etChatterSpeechLang != null) etChatterSpeechLang.setText(chatterSpeechLang);
+        if (etSystemPrompt != null) etSystemPrompt.setText(systemPromptText);
+        if (etChatterSystemPrompt != null) etChatterSystemPrompt.setText(chatterSystemPromptText);
     }
 
     private void applyLanguageToUi() {
@@ -986,6 +1038,98 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (sectionChatContent != null) sectionChatContent.setVisibility(sectionChatExpanded ? View.VISIBLE : View.GONE);
         if (sectionExpertContent != null) sectionExpertContent.setVisibility(sectionExpertExpanded ? View.VISIBLE : View.GONE);
         updateSendButton();
+    }
+
+    private int languageSpinnerPositionForCurrentLanguage() {
+        return "ja".equals(appLanguage) ? 1 : 0;
+    }
+
+    private void updateOllamaStatusTile(boolean available) {
+        ollamaApiAvailable = available;
+        runOnUiThread(() -> {
+            if (tvOllamaStatus == null) return;
+            tvOllamaStatus.setText(available ? OLLAMA_STATUS_AVAILABLE_TEXT : OLLAMA_STATUS_UNAVAILABLE_TEXT);
+            tvOllamaStatus.setTextColor(OLLAMA_STATUS_TEXT_COLOR);
+            if (tvOllamaStatus.getBackground() != null) {
+                tvOllamaStatus.getBackground().mutate().setTint(
+                        available ? OLLAMA_STATUS_AVAILABLE_BG : OLLAMA_STATUS_UNAVAILABLE_BG
+                );
+            }
+        });
+    }
+
+    private String getApiUnavailableAssistantMessage() {
+        return t(
+                "I'm very sorry, but the LLM API is not available. Please install or start LLM Tester with llama.cpp or Ollama and enable the API server. You can also check the details in Settings.",
+                "大変申し訳ありませんが、LLM APIが有効になっておりません。LLM Tester with llama.cppまたはOllamaをインストール/起動し、APIサーバを有効化して下さい。また、詳細は設定画面からご確認下さい。"
+        );
+    }
+
+    private void appendApiUnavailableAssistantMessage() {
+        switchActiveSpeaker(ChatSpeaker.BASE);
+        appendAssistantMessage(ChatSpeaker.BASE, getApiUnavailableAssistantMessage());
+    }
+
+    private String getQuickStartMessage() {
+        return t(
+                "Before you begin:\n" +
+                        "- Install and start LLM Tester with llama.cpp or Ollama, then enable the API server.\n" +
+                        "- Check the Ollama URL tile in Settings. \"" + OLLAMA_STATUS_AVAILABLE_TEXT + "\" means /api/tags succeeded.\n\n" +
+                        "Chat controls:\n" +
+                        "- The Send button sends the message you typed.\n" +
+                        "- If Voice Input is enabled, pressing Send with an empty input starts voice input.\n" +
+                        "- While a response is being processed, the button changes to STOP so you can cancel it.\n\n" +
+                        "Settings:\n" +
+                        "- Use Settings to configure connection settings and avatar images.\n" +
+                        "- To reset the conversation, press Reset Conversation Log in Settings.",
+                "はじめに:\n" +
+                        "- LLM Tester with llama.cppまたはOllamaをインストール/起動し、APIサーバを有効化してください。\n" +
+                        "- 設定画面のOllama URL欄にあるステータスタイルで接続状態を確認できます。\n\n" +
+                        "チャット操作:\n" +
+                        "- Sendボタンで入力したメッセージを送信します。\n" +
+                        "- Voice Inputが有効な場合、未入力のままSendを押すと音声入力を開始します。\n" +
+                        "- 応答処理中はボタンがSTOPに変わり、タップで中断できます。\n\n" +
+                        "設定:\n" +
+                        "- 設定画面で接続設定やアバター画像を設定できます。\n" +
+                        "- 会話をリセットしたい場合は、設定画面のReset Conversation Logを押してください。"
+        );
+    }
+
+    private void showQuickStartDialogIfNeeded() {
+        if (suppressQuickStartPopup) return;
+
+        int horizontalPadding = dpToPx(20);
+        int topPadding = dpToPx(16);
+        int bottomPadding = dpToPx(8);
+
+        LinearLayout content = new LinearLayout(this);
+        content.setOrientation(LinearLayout.VERTICAL);
+        content.setPadding(horizontalPadding, topPadding, horizontalPadding, bottomPadding);
+
+        TextView messageView = new TextView(this);
+        messageView.setText(getQuickStartMessage());
+        messageView.setTextSize(15f);
+
+        CheckBox checkBox = new CheckBox(this);
+        checkBox.setText(t("Do not show again", "次回から表示しない"));
+        checkBox.setPadding(0, dpToPx(12), 0, 0);
+
+        content.addView(messageView);
+        content.addView(checkBox);
+
+        ScrollView quickStartScrollView = new ScrollView(this);
+        quickStartScrollView.addView(content);
+
+        new AlertDialog.Builder(this)
+                .setTitle(t("Quick Start", "クイックスタート"))
+                .setView(quickStartScrollView)
+                .setPositiveButton(t("Close", "閉じる"), (dialog, which) -> {
+                    if (checkBox.isChecked()) {
+                        suppressQuickStartPopup = true;
+                        saveSettings();
+                    }
+                })
+                .show();
     }
 
     private void hideKeyboard(View target) {
@@ -1098,8 +1242,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         AlertDialog.Builder builder = new AlertDialog.Builder(this);
         builder.setTitle(title);
         builder.setMessage(content);
-        builder.setPositiveButton("Close", null);
-        builder.setNeutralButton("Copy", (dialog, which) -> {
+        builder.setPositiveButton(t("Close", "閉じる"), null);
+        builder.setNeutralButton(t("Copy", "コピー"), (dialog, which) -> {
             ClipboardManager clipboard = (ClipboardManager) getSystemService(Context.CLIPBOARD_SERVICE);
             ClipData clip = ClipData.newPlainText(title, content);
             clipboard.setPrimaryClip(clip);
@@ -1649,6 +1793,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         s.put("webSearchUrl", webSearchUrl);
         s.put("webSearchApiKey", webSearchApiKey);
         s.put("webSearchModel", webSearchModel);
+        s.put("suppressQuickStartPopup", suppressQuickStartPopup);
         s.put("avatarC0FileInfo", getAvatarFileInfo(avatarC0File));
         s.put("avatarC1FileInfo", getAvatarFileInfo(avatarC1File));
         s.put("avatarC2FileInfo", getAvatarFileInfo(avatarC2File));
@@ -1688,6 +1833,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         webSearchUrl = s.optString("webSearchUrl", webSearchUrl);
         webSearchApiKey = s.optString("webSearchApiKey", webSearchApiKey);
         webSearchModel = s.optString("webSearchModel", webSearchModel);
+        suppressQuickStartPopup = s.optBoolean("suppressQuickStartPopup", suppressQuickStartPopup);
         if (speechLang.trim().isEmpty()) speechLang = defaultSpeechLangForCurrentLanguage();
         if (chatterSpeechLang.trim().isEmpty()) chatterSpeechLang = defaultSpeechLangForCurrentLanguage();
         if (baseName.trim().isEmpty()) baseName = defaultBaseNameForCurrentLanguage();
@@ -1815,7 +1961,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
             JSONObject root = new JSONObject();
             root.put("profileName", profileName.trim());
-            root.put("settings", buildSettingsJson());
+            JSONObject settingsJson = buildSettingsJson();
+            settingsJson.remove("suppressQuickStartPopup");
+            root.put("settings", settingsJson);
 
             JSONObject avatars = new JSONObject();
             avatars.put(PROFILE_AVATAR_C0_KEY, saveProfileAvatarFile(normalized, avatarC0File, AVATAR_C0_FILE));
@@ -1854,7 +2002,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             if (settings == null) {
                 settings = root;
             }
+            boolean currentSuppressQuickStart = suppressQuickStartPopup;
             applySettingsJson(settings);
+            suppressQuickStartPopup = currentSuppressQuickStart;
 
             JSONObject avatars = root.optJSONObject("avatarFiles");
             if (avatars != null) {
@@ -1990,8 +2140,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         webSearchModel = spinnerWebSearchModel.getSelectedItem() != null
                 ? spinnerWebSearchModel.getSelectedItem().toString().trim() : "";
         if (webSearchModel.isEmpty()) webSearchModel = "default";
-        if (radioGroupLanguage != null) {
-            appLanguage = (radioGroupLanguage.getCheckedRadioButtonId() == R.id.radioLangJa) ? "ja" : "en";
+        if (spinnerLanguage != null) {
+            appLanguage = spinnerLanguage.getSelectedItemPosition() == 1 ? "ja" : "en";
         }
         if (!autoChatterEnabled) {
             cancelAutoChatter();
@@ -2044,10 +2194,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             spinnerWebSearchModel.setSelection(0);
         }
         updateChatterModeUi();
-        if (radioGroupLanguage != null) {
-            radioGroupLanguage.check("ja".equals(appLanguage) ? R.id.radioLangJa : R.id.radioLangEn);
+        if (spinnerLanguage != null) {
+            spinnerLanguage.setSelection(languageSpinnerPositionForCurrentLanguage());
         }
         applyLanguageToUi();
+        updateOllamaStatusTile(ollamaApiAvailable);
     }
 
     private void updateChatterModeUi() {
@@ -2330,8 +2481,13 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         String trimmedCounterpartName = counterpartName == null ? "" : counterpartName.trim();
         String trimmedUserName = userName == null ? "" : userName.trim();
         StringBuilder result = new StringBuilder();
+        boolean isJapanese = "ja".equals(appLanguage);
         if (!trimmedName.isEmpty()) {
-            result.append("あなたは").append(trimmedName).append("という名前です。");
+            if (isJapanese) {
+                result.append("あなたは").append(trimmedName).append("という名前です。");
+            } else {
+                result.append("Your name is ").append(trimmedName).append(".");
+            }
         }
         if (!trimmedPrompt.isEmpty()) {
             if (result.length() > 0) result.append("\n");
@@ -2339,11 +2495,19 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
         if (!trimmedCounterpartName.isEmpty()) {
             if (result.length() > 0) result.append("\n");
-            result.append("相手の名前は").append(trimmedCounterpartName).append("です。");
+            if (isJapanese) {
+                result.append("相手の名前は").append(trimmedCounterpartName).append("です。");
+            } else {
+                result.append("The other speaker's name is ").append(trimmedCounterpartName).append(".");
+            }
         }
         if (!trimmedUserName.isEmpty()) {
             if (result.length() > 0) result.append("\n");
-            result.append("ユーザの名前は").append(trimmedUserName).append("です。");
+            if (isJapanese) {
+                result.append("ユーザの名前は").append(trimmedUserName).append("です。");
+            } else {
+                result.append("The user's name is ").append(trimmedUserName).append(".");
+            }
         }
         return result.toString();
     }
@@ -2364,50 +2528,65 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     // ========== Model Fetch (/api/tags) ==========
 
     private void fetchModels() {
-        String url = ollamaBaseUrl + "/api/tags";
-        Request request = new Request.Builder().url(url).get().build();
+        try {
+            String url = ollamaBaseUrl + "/api/tags";
+            Request request = new Request.Builder().url(url).get().build();
 
-        client.newCall(request).enqueue(new Callback() {
-            @Override
-            public void onFailure(Call call, IOException e) {
-                Log.w(TAG, "fetchModels failed: " + e.getMessage());
-            }
-
-            @Override
-            public void onResponse(Call call, Response response) throws IOException {
-                try {
-                    String body = response.body().string();
-                    JSONObject json = new JSONObject(body);
-                    JSONArray models = json.getJSONArray("models");
-                    List<String> names = new ArrayList<>();
-                    names.add("default");
-                    for (int i = 0; i < models.length(); i++) {
-                        String name = models.getJSONObject(i).getString("name");
-                        if (!names.contains(name)) names.add(name);
-                    }
-                    runOnUiThread(() -> {
-                        modelList.clear();
-                        modelList.addAll(names);
-                        modelAdapter.notifyDataSetChanged();
-                        chatterModelAdapter.notifyDataSetChanged();
-                        webSearchModelAdapter.notifyDataSetChanged();
-                        int idx = modelList.indexOf(selectedModel);
-                        if (idx >= 0) spinnerModel.setSelection(idx);
-                        int chatterIdx = modelList.indexOf(chatterModel);
-                        if (chatterIdx >= 0) spinnerChatterModel.setSelection(chatterIdx);
-                        int webSearchIdx = modelList.indexOf(webSearchModel);
-                        if (webSearchIdx >= 0) {
-                            spinnerWebSearchModel.setSelection(webSearchIdx);
-                        } else {
-                            webSearchModel = "default";
-                            spinnerWebSearchModel.setSelection(0);
-                        }
-                    });
-                } catch (Exception e) {
-                    Log.w(TAG, "fetchModels parse error", e);
+            client.newCall(request).enqueue(new Callback() {
+                @Override
+                public void onFailure(Call call, IOException e) {
+                    Log.w(TAG, "fetchModels failed: " + e.getMessage(), e);
+                    updateOllamaStatusTile(false);
                 }
-            }
-        });
+
+                @Override
+                public void onResponse(Call call, Response response) throws IOException {
+                    try {
+                        if (!response.isSuccessful()) {
+                            updateOllamaStatusTile(false);
+                            return;
+                        }
+
+                        String body = response.body() != null ? response.body().string() : "";
+                        JSONObject json = new JSONObject(body);
+                        JSONArray models = json.getJSONArray("models");
+                        List<String> names = new ArrayList<>();
+                        names.add("default");
+                        for (int i = 0; i < models.length(); i++) {
+                            String name = models.getJSONObject(i).getString("name");
+                            if (!names.contains(name)) names.add(name);
+                        }
+                        updateOllamaStatusTile(true);
+                        runOnUiThread(() -> {
+                            modelList.clear();
+                            modelList.addAll(names);
+                            modelAdapter.notifyDataSetChanged();
+                            chatterModelAdapter.notifyDataSetChanged();
+                            webSearchModelAdapter.notifyDataSetChanged();
+                            int idx = modelList.indexOf(selectedModel);
+                            if (idx >= 0) spinnerModel.setSelection(idx);
+                            int chatterIdx = modelList.indexOf(chatterModel);
+                            if (chatterIdx >= 0) spinnerChatterModel.setSelection(chatterIdx);
+                            int webSearchIdx = modelList.indexOf(webSearchModel);
+                            if (webSearchIdx >= 0) {
+                                spinnerWebSearchModel.setSelection(webSearchIdx);
+                            } else {
+                                webSearchModel = "default";
+                                spinnerWebSearchModel.setSelection(0);
+                            }
+                        });
+                    } catch (Exception e) {
+                        Log.w(TAG, "fetchModels parse error", e);
+                        updateOllamaStatusTile(false);
+                    } finally {
+                        response.close();
+                    }
+                }
+            });
+        } catch (Exception e) {
+            Log.w(TAG, "fetchModels request build error", e);
+            updateOllamaStatusTile(false);
+        }
     }
 
     // ========== Chat Send ==========
@@ -2905,7 +3084,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 if (call.isCanceled()) {
                     return; // Don't show error for cancelled requests
                 }
-                appendErrorMessage(e.getMessage());
+                updateOllamaStatusTile(false);
+                appendApiUnavailableAssistantMessage();
                 appendDebug("/api/chat Response (Failed)", e.toString());
                 setStreamingResponse(false, null);
                 isProcessing = false;
@@ -3045,7 +3225,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 if (c.isCanceled()) {
                     return;
                 }
-                appendErrorMessage(e.getMessage());
+                updateOllamaStatusTile(false);
+                appendApiUnavailableAssistantMessage();
                 appendDebug("/api/chat Response (Failed)", e.toString());
                 isProcessing = false;
                 updateSendButton();
@@ -3212,7 +3393,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     }
 
     private void appendUserMessage(String text) {
-        String name = (userName == null || userName.trim().isEmpty()) ? "ユーザ" : userName.trim();
+        String name = (userName == null || userName.trim().isEmpty()) ? defaultUserLabel() : userName.trim();
         appendMessage(name, text, true, true);
     }
 

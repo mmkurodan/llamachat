@@ -124,25 +124,10 @@
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Language"
                         android:layout_marginTop="8dp"/>
-                    <RadioGroup
-                        android:id="@+id/radioGroupLanguage"
+                    <Spinner
+                        android:id="@+id/spinnerLanguage"
                         android:layout_width="match_parent"
-                        android:layout_height="wrap_content"
-                        android:orientation="horizontal">
-                        <RadioButton
-                            android:id="@+id/radioLangEn"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="EN"
-                            android:checked="true"/>
-                        <RadioButton
-                            android:id="@+id/radioLangJa"
-                            android:layout_width="0dp"
-                            android:layout_height="wrap_content"
-                            android:layout_weight="1"
-                            android:text="JA"/>
-                    </RadioGroup>
+                        android:layout_height="wrap_content"/>
 
                     <TextView
                         android:id="@+id/tvLabelConfigProfile"
@@ -183,8 +168,19 @@
                         android:id="@+id/tvLabelOllamaUrl"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Ollama URL"/>
+                    <TextView
+                        android:id="@+id/tvOllamaStatus"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:background="@drawable/status_tile_bg"
+                        android:padding="10dp"
+                        android:text="LLM API NOT Available"
+                        android:textColor="#000000"
+                        android:textStyle="bold"/>
                     <EditText android:id="@+id/etOllamaUrl"
                         android:layout_width="match_parent" android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
                         android:inputType="textUri" android:singleLine="true"/>
 
                     <TextView
