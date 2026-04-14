@@ -501,7 +501,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "・Developer is not responsible for AI response content.\n" +
             "・Use this app at your own risk.\n\n" +
             "■ Contact\n" +
-            "・GitHub: https://github.com/micklab";
+            "・Email: micklab2026@gmail.com";
 
     private static final String RIGHTS_TEXT_JA =
             "Dual AI Chat — 権利情報\n\n" +
@@ -514,7 +514,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "・AIの応答内容について開発者は責任を負いません。\n" +
             "・本アプリの使用は自己責任でお願いします。\n\n" +
             "■ 連絡先\n" +
-            "・GitHub: https://github.com/micklab";
+            "・Email: micklab2026@gmail.com";
 
     // --- Network ---
     private final OkHttpClient client = new OkHttpClient.Builder()
