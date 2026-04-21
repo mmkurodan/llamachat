@@ -381,13 +381,13 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "■ Quick Start\n" +
             "・At startup, the app shows a Quick Start popup unless you choose Do not show again.\n" +
             "・Before chatting, install and start LLM Tester with llama.cpp or Ollama, then enable the API server.\n" +
-            "・In Settings, use Open LLM Tester above the API status tile. If LLM Tester is missing, the Play Store page opens.\n\n" +
+            "・In Settings, use Launch LLM API (LLM Tester with llama.cpp) above the API status tile. If LLM Tester is missing, the Play Store page opens.\n\n" +
             "■ Screen\n" +
             "・Tap ⚙️ to open settings, then 💾 to save and close.\n" +
             "・Tap the top handle of the log area to expand/collapse the chat panel.\n\n" +
             "■ Settings\n" +
             "・Choose the app language from the dropdown as English or 日本語.\n" +
-            "・Use Open LLM Tester above the API status tile to launch LLM Tester.\n" +
+            "・Use Launch LLM API (LLM Tester with llama.cpp) above the API status tile to launch LLM Tester.\n" +
             "・The tile under Ollama URL shows the /api/tags status.\n" +
             "・Use Settings to configure connection settings and avatar images.\n" +
             "・Use SELECT Template under Config Profile to load templates.\n" +
@@ -395,7 +395,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "■ Sending\n" +
             "・Enter a message and press Send.\n" +
             "・If Voice Input is enabled, pressing Send with empty input starts voice input.\n" +
-            "・While processing, the button shows STOP and can cancel the request.\n\n" +
+            "・While processing, the button shows STOP and can cancel the request.\n" +
+            "・Note: On the first message, approximately 1GB of data may be downloaded, which can take time.\n\n" +
             "■ Reset\n" +
             "・To reset the conversation, press Reset Conversation Log in Settings.\n\n" +
             "■ Modes\n" +
@@ -429,13 +430,13 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "■ クイックスタート\n" +
             "・起動時に、次回から表示しないを選ぶまでクイックスタートを表示します。\n" +
             "・チャットを使う前に、LLM Tester with llama.cppまたはOllamaをインストール/起動し、APIサーバを有効化してください。\n" +
-            "・設定画面では、API状態タイルの上にある「LLM Tester を起動」からLLM Testerを開けます。未インストール時はGoogle Playを開きます。\n\n" +
+            "・設定画面では、API状態タイルの上にある「LLM APIを起動(LLM Tester with llama.cpp)」からLLM Testerを開けます。未インストール時はGoogle Playを開きます。\n\n" +
             "■ 画面\n" +
             "・⚙️ で設定を開き、💾で保存して閉じます。\n" +
             "・ログ上部のバーをタップするとチャットエリアが拡大/縮小します。\n\n" +
             "■ 設定\n" +
             "・言語はプルダウンからEnglishまたは日本語を選択します。\n" +
-            "・API状態タイルの上にある「LLM Tester を起動」からLLM Testerを起動できます。\n" +
+            "・API状態タイルの上にある「LLM APIを起動(LLM Tester with llama.cpp)」からLLM Testerを起動できます。\n" +
             "・Ollama URLの下に/api/tagsの接続状態をタイル表示します。\n" +
             "・設定画面で接続設定やアバター画像を設定できます。\n" +
             "・Config Profileの下にある SELECT Template でテンプレートを読み込みます。\n" +
@@ -443,7 +444,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "■ 送信\n" +
             "・メッセージ入力後にSendで送信します。\n" +
             "・Voice Inputを有効にすると、未入力のままSendで音声入力を開始します。\n" +
-            "・処理中はボタンがSTOPになり、タップで中止できます。\n\n" +
+            "・処理中はボタンがSTOPになり、タップで中止できます。\n" +
+            "・注記: 初回のメッセージ送信時には約1GB程度の通信が発生するため、反応まで時間がかかる場合があります。\n\n" +
             "■ リセット\n" +
             "・会話をリセットしたい場合は、設定画面のReset Conversation Logを押してください。\n\n" +
             "■ モード\n" +
@@ -1035,7 +1037,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (btnProfileLoad != null) btnProfileLoad.setText(t("SELECT Template", "テンプレート選択"));
         if (btnProfileSave != null) btnProfileSave.setText(t("Save", "保存"));
         if (btnProfileDelete != null) btnProfileDelete.setText(t("Delete", "削除"));
-        if (btnLaunchLlmTester != null) btnLaunchLlmTester.setText(t("Open LLM Tester", "LLM Tester を起動"));
+        if (btnLaunchLlmTester != null) btnLaunchLlmTester.setText(t("Launch LLM API (LLM Tester with llama.cpp)", "LLM APIを起動(LLM Tester with llama.cpp)"));
         if (btnHelp != null) btnHelp.setText(t("Help", "ヘルプ"));
         if (btnPrivacy != null) btnPrivacy.setText(t("Privacy", "プライバシー"));
         if (btnRights != null) btnRights.setText(t("Rights", "権利情報"));
@@ -1159,24 +1161,26 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private String getQuickStartMessage() {
         return t(
                 "Before you begin:\n" +
-                        "- In Settings, tap Open LLM Tester above the API tile. If LLM Tester is not installed, the Play Store page opens.\n" +
+                        "- In Settings, tap Launch LLM API (LLM Tester with llama.cpp) above the API tile. If LLM Tester is not installed, the Play Store page opens.\n" +
                         "- Install and start LLM Tester with llama.cpp or Ollama, then enable the API server.\n" +
                         "- Check the Ollama URL tile in Settings. \"" + OLLAMA_STATUS_AVAILABLE_TEXT + "\" means /api/tags succeeded.\n\n" +
                         "Chat controls:\n" +
                         "- The Send button sends the message you typed.\n" +
                         "- If Voice Input is enabled, pressing Send with an empty input starts voice input.\n" +
-                        "- While a response is being processed, the button changes to STOP so you can cancel it.\n\n" +
+                        "- While a response is being processed, the button changes to STOP so you can cancel it.\n" +
+                        "- Note: On the first message, approximately 1GB of data may be downloaded, which can take time.\n\n" +
                         "Settings:\n" +
                         "- Use Settings to configure connection settings and avatar images.\n" +
                         "- To reset the conversation, press Reset Conversation Log in Settings.",
                 "はじめに:\n" +
-                        "- 設定画面のAPI状態タイル上にある「LLM Tester を起動」を押すと、LLM Testerを開きます。未インストール時はGoogle Playを開きます。\n" +
+                        "- 設定画面のAPI状態タイル上にある「LLM APIを起動(LLM Tester with llama.cpp)」を押すと、LLM Testerを開きます。未インストール時はGoogle Playを開きます。\n" +
                         "- LLM Tester with llama.cppまたはOllamaをインストール/起動し、APIサーバを有効化してください。\n" +
                         "- 設定画面のOllama URL欄にあるステータスタイルで接続状態を確認できます。\n\n" +
                         "チャット操作:\n" +
                         "- Sendボタンで入力したメッセージを送信します。\n" +
                         "- Voice Inputが有効な場合、未入力のままSendを押すと音声入力を開始します。\n" +
-                        "- 応答処理中はボタンがSTOPに変わり、タップで中断できます。\n\n" +
+                        "- 応答処理中はボタンがSTOPに変わり、タップで中断できます。\n" +
+                        "- 注記: 初回のメッセージ送信時には約1GB程度の通信が発生するため、反応まで時間がかかる場合があります。\n\n" +
                         "設定:\n" +
                         "- 設定画面で接続設定やアバター画像を設定できます。\n" +
                         "- 会話をリセットしたい場合は、設定画面のReset Conversation Logを押してください。"
