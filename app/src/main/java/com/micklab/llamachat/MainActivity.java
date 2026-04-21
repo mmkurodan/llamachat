@@ -3,6 +3,7 @@ package com.micklab.llamachat;
 import android.app.AlertDialog;
 import android.app.Activity;
 import android.Manifest;
+import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
@@ -124,6 +125,12 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final String DEFAULT_SPEECH_LANG_EN = "en-US";
     private static final String DEFAULT_SYSTEM_PROMPT_JA = "あなたはユーザの若い女性秘書です";
     private static final String DEFAULT_SYSTEM_PROMPT_EN = "You are the user's young female secretary.";
+    private static final String LLM_TESTER_PACKAGE = "com.micklab.llama";
+    private static final String LLM_TESTER_SERVICE_CLASS = "com.micklab.llama.OllamaForegroundService";
+    private static final String LLM_TESTER_SERVICE_ACTION_START = "com.micklab.llama.START_SERVICE";
+    private static final String LLM_TESTER_PLAY_STORE_URL =
+            "https://play.google.com/store/apps/details?id=com.micklab.llama";
+    private static final int DEFAULT_LLM_TESTER_API_PORT = 11434;
     private static final String OLLAMA_STATUS_AVAILABLE_TEXT = "LLM API Available";
     private static final String OLLAMA_STATUS_UNAVAILABLE_TEXT = "LLM API NOT Available";
     private static final int OLLAMA_STATUS_AVAILABLE_BG = 0xFF81C784;
@@ -147,7 +154,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private Button btnClearC0, btnClearC1, btnClearC2, btnClearC3;
     private Button btnPickChatterC0, btnPickChatterC1, btnPickChatterC2, btnPickChatterC3;
     private Button btnClearChatterC0, btnClearChatterC1, btnClearChatterC2, btnClearChatterC3;
-    private Button btnResetLogs, btnProfileSave, btnProfileLoad, btnProfileDelete;
+    private Button btnResetLogs, btnProfileSave, btnProfileLoad, btnProfileDelete, btnLaunchLlmTester;
     private Button btnHelp, btnPrivacy, btnRights;
     private TextView tvC0Filename, tvC1Filename, tvC2Filename, tvC3Filename;
     private TextView tvChatterC0Filename, tvChatterC1Filename, tvChatterC2Filename, tvChatterC3Filename;
@@ -218,6 +225,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private boolean sectionExpertExpanded = false;
     private boolean suppressQuickStartPopup = false;
     private boolean ollamaApiAvailable = false;
+    private boolean refreshModelsOnResume = false;
 
     // --- TTS ---
     private TextToSpeech tts;
@@ -372,12 +380,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "Dual AI Chat — Manual\n\n" +
             "■ Quick Start\n" +
             "・At startup, the app shows a Quick Start popup unless you choose Do not show again.\n" +
-            "・Before chatting, install and start LLM Tester with llama.cpp or Ollama, then enable the API server.\n\n" +
+            "・Before chatting, install and start LLM Tester with llama.cpp or Ollama, then enable the API server.\n" +
+            "・In Settings, use Open LLM Tester above the API status tile. If LLM Tester is missing, the Play Store page opens.\n\n" +
             "■ Screen\n" +
             "・Tap ⚙️ to open settings, then 💾 to save and close.\n" +
             "・Tap the top handle of the log area to expand/collapse the chat panel.\n\n" +
             "■ Settings\n" +
             "・Choose the app language from the dropdown as English or 日本語.\n" +
+            "・Use Open LLM Tester above the API status tile to launch LLM Tester.\n" +
             "・The tile under Ollama URL shows the /api/tags status.\n" +
             "・Use Settings to configure connection settings and avatar images.\n" +
             "・Use SELECT Template under Config Profile to load templates.\n" +
@@ -418,12 +428,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             "Dual AI Chat — マニュアル\n\n" +
             "■ クイックスタート\n" +
             "・起動時に、次回から表示しないを選ぶまでクイックスタートを表示します。\n" +
-            "・チャットを使う前に、LLM Tester with llama.cppまたはOllamaをインストール/起動し、APIサーバを有効化してください。\n\n" +
+            "・チャットを使う前に、LLM Tester with llama.cppまたはOllamaをインストール/起動し、APIサーバを有効化してください。\n" +
+            "・設定画面では、API状態タイルの上にある「LLM Tester を起動」からLLM Testerを開けます。未インストール時はGoogle Playを開きます。\n\n" +
             "■ 画面\n" +
             "・⚙️ で設定を開き、💾で保存して閉じます。\n" +
             "・ログ上部のバーをタップするとチャットエリアが拡大/縮小します。\n\n" +
             "■ 設定\n" +
             "・言語はプルダウンからEnglishまたは日本語を選択します。\n" +
+            "・API状態タイルの上にある「LLM Tester を起動」からLLM Testerを起動できます。\n" +
             "・Ollama URLの下に/api/tagsの接続状態をタイル表示します。\n" +
             "・設定画面で接続設定やアバター画像を設定できます。\n" +
             "・Config Profileの下にある SELECT Template でテンプレートを読み込みます。\n" +
@@ -573,6 +585,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         btnProfileSave = findViewById(R.id.btnProfileSave);
         btnProfileLoad = findViewById(R.id.btnProfileLoad);
         btnProfileDelete = findViewById(R.id.btnProfileDelete);
+        btnLaunchLlmTester = findViewById(R.id.btnLaunchLlmTester);
         btnHelp = findViewById(R.id.btnHelp);
         btnPrivacy = findViewById(R.id.btnPrivacy);
         btnRights = findViewById(R.id.btnRights);
@@ -752,6 +765,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             btnSettings.setText("⚙");
             btnSettings.setContentDescription("Open settings");
         }
+
+        btnLaunchLlmTester.setOnClickListener(v -> openLlmTesterOrStore());
 
         groupMode.setOnCheckedChangeListener((group, checkedId) -> {
             autoChatterEnabled = checkedId == R.id.radioModeChatter;
@@ -1020,6 +1035,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (btnProfileLoad != null) btnProfileLoad.setText(t("SELECT Template", "テンプレート選択"));
         if (btnProfileSave != null) btnProfileSave.setText(t("Save", "保存"));
         if (btnProfileDelete != null) btnProfileDelete.setText(t("Delete", "削除"));
+        if (btnLaunchLlmTester != null) btnLaunchLlmTester.setText(t("Open LLM Tester", "LLM Tester を起動"));
         if (btnHelp != null) btnHelp.setText(t("Help", "ヘルプ"));
         if (btnPrivacy != null) btnPrivacy.setText(t("Privacy", "プライバシー"));
         if (btnRights != null) btnRights.setText(t("Rights", "権利情報"));
@@ -1058,10 +1074,80 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         });
     }
 
+    private void openLlmTesterOrStore() {
+        Intent launchIntent = getPackageManager().getLaunchIntentForPackage(LLM_TESTER_PACKAGE);
+        if (launchIntent == null) {
+            openLlmTesterPlayStore();
+            return;
+        }
+
+        boolean apiStartRequested = requestLlmTesterApiStart();
+        launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        refreshModelsOnResume = true;
+        try {
+            startActivity(launchIntent);
+            if (!apiStartRequested) {
+                Toast.makeText(
+                        this,
+                        t("Opened LLM Tester. If needed, enable the API server there.",
+                                "LLM Testerを開きました。必要に応じてアプリ側でAPIサーバを有効化してください。"),
+                        Toast.LENGTH_SHORT
+                ).show();
+            }
+        } catch (ActivityNotFoundException e) {
+            Log.w(TAG, "LLM Tester launch activity not found", e);
+            openLlmTesterPlayStore();
+        }
+    }
+
+    private boolean requestLlmTesterApiStart() {
+        Intent serviceIntent = new Intent();
+        serviceIntent.setClassName(LLM_TESTER_PACKAGE, LLM_TESTER_SERVICE_CLASS);
+        serviceIntent.setAction(LLM_TESTER_SERVICE_ACTION_START);
+        serviceIntent.putExtra("port", resolveLlmTesterApiPort());
+        try {
+            return (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                    ? startForegroundService(serviceIntent)
+                    : startService(serviceIntent)) != null;
+        } catch (IllegalStateException e) {
+            Log.w(TAG, "LLM Tester API start not allowed", e);
+            return false;
+        } catch (SecurityException e) {
+            Log.w(TAG, "LLM Tester API start denied", e);
+            return false;
+        }
+    }
+
+    private int resolveLlmTesterApiPort() {
+        String urlText = etOllamaUrl != null ? etOllamaUrl.getText().toString().trim() : ollamaBaseUrl;
+        if (urlText.isEmpty()) {
+            return DEFAULT_LLM_TESTER_API_PORT;
+        }
+        Uri uri = Uri.parse(urlText);
+        int port = uri.getPort();
+        return port > 0 ? port : DEFAULT_LLM_TESTER_API_PORT;
+    }
+
+    private void openLlmTesterPlayStore() {
+        refreshModelsOnResume = true;
+        Intent intent = new Intent(Intent.ACTION_VIEW, Uri.parse(LLM_TESTER_PLAY_STORE_URL));
+        try {
+            startActivity(intent);
+        } catch (ActivityNotFoundException e) {
+            Log.w(TAG, "Unable to open LLM Tester Play Store page", e);
+            Toast.makeText(
+                    this,
+                    t("Unable to open Google Play for LLM Tester.",
+                            "LLM Tester の Google Play を開けませんでした。"),
+                    Toast.LENGTH_SHORT
+            ).show();
+        }
+    }
+
     private String getApiUnavailableAssistantMessage() {
         return t(
-                "I'm very sorry, but the LLM API is not available. Please install or start LLM Tester with llama.cpp or Ollama and enable the API server. You can also check the details in Settings.",
-                "大変申し訳ありませんが、LLM APIが有効になっておりません。LLM Tester with llama.cppまたはOllamaをインストール/起動し、APIサーバを有効化して下さい。また、詳細は設定画面からご確認下さい。"
+                "I'm very sorry, but the LLM API is not available. Please use Open LLM Tester in Settings or start Ollama, then enable the API server. You can also check the details in Settings.",
+                "大変申し訳ありませんが、LLM APIが有効になっておりません。設定画面の「LLM Tester を起動」またはOllamaを使って起動し、APIサーバを有効化して下さい。また、詳細は設定画面からご確認下さい。"
         );
     }
 
@@ -1073,6 +1159,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private String getQuickStartMessage() {
         return t(
                 "Before you begin:\n" +
+                        "- In Settings, tap Open LLM Tester above the API tile. If LLM Tester is not installed, the Play Store page opens.\n" +
                         "- Install and start LLM Tester with llama.cpp or Ollama, then enable the API server.\n" +
                         "- Check the Ollama URL tile in Settings. \"" + OLLAMA_STATUS_AVAILABLE_TEXT + "\" means /api/tags succeeded.\n\n" +
                         "Chat controls:\n" +
@@ -1083,6 +1170,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                         "- Use Settings to configure connection settings and avatar images.\n" +
                         "- To reset the conversation, press Reset Conversation Log in Settings.",
                 "はじめに:\n" +
+                        "- 設定画面のAPI状態タイル上にある「LLM Tester を起動」を押すと、LLM Testerを開きます。未インストール時はGoogle Playを開きます。\n" +
                         "- LLM Tester with llama.cppまたはOllamaをインストール/起動し、APIサーバを有効化してください。\n" +
                         "- 設定画面のOllama URL欄にあるステータスタイルで接続状態を確認できます。\n\n" +
                         "チャット操作:\n" +
@@ -3712,6 +3800,15 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             result = uri.getLastPathSegment();
         }
         return result;
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (refreshModelsOnResume) {
+            refreshModelsOnResume = false;
+            fetchModels();
+        }
     }
 
     @Override

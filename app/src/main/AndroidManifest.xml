@@ -5,6 +5,10 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.RECORD_AUDIO" />
 
+    <queries>
+        <package android:name="com.micklab.llama" />
+    </queries>
+
     <application
         android:icon="@drawable/icon"
         android:roundIcon="@drawable/icon"

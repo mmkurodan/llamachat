@@ -168,6 +168,12 @@
                         android:id="@+id/tvLabelOllamaUrl"
                         android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="Ollama URL"/>
+                    <Button
+                        android:id="@+id/btnLaunchLlmTester"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="4dp"
+                        android:text="Open LLM Tester"/>
                     <TextView
                         android:id="@+id/tvOllamaStatus"
                         android:layout_width="match_parent"
