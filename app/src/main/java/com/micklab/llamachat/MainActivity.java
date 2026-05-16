@@ -231,6 +231,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private boolean ollamaApiAvailable = false;
     private boolean refreshModelsOnResume = false;
     private boolean pendingOverlayLaunch = false;
+    private boolean isFloatOverlayActive = false;
 
     // --- TTS ---
     private TextToSpeech tts;
@@ -1031,6 +1032,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         Intent intent = new Intent(this, FloatOverlayService.class);
         intent.setAction(FloatOverlayService.ACTION_SHOW_OVERLAY);
         startService(intent);
+        isFloatOverlayActive = true;
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
                 () -> moveTaskToBack(true), 100
         );
@@ -3937,7 +3939,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     @Override
     protected void onResume() {
         super.onResume();
-        stopService(new Intent(this, FloatOverlayService.class));
+        // Only stop the overlay service if we're returning from app and float mode is not active
+        if (!isFloatOverlayActive) {
+            stopService(new Intent(this, FloatOverlayService.class));
+        } else {
+            isFloatOverlayActive = false;
+            // We're in the app now, but overlay might still be running
+            // Let it continue in background
+        }
         if (pendingOverlayLaunch) {
             readSettingsFromUi();
             if (!autoChatterEnabled && hasOverlayPermission()) {

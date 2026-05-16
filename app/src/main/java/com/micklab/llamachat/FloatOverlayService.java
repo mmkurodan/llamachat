@@ -115,12 +115,18 @@ public class FloatOverlayService extends Service {
     public void onCreate() {
         super.onCreate();
         try {
+            android.util.Log.d("FloatOverlay", "onCreate: Starting initialization");
             touchSlop = ViewConfigurationHolder.get(this);
             loadSettings();
+            android.util.Log.d("FloatOverlay", "onCreate: Settings loaded. floatDisplayMode=" + floatDisplayMode);
             loadAvatarBitmap();
+            android.util.Log.d("FloatOverlay", "onCreate: Avatar bitmap loaded");
             initConversationHistory();
+            android.util.Log.d("FloatOverlay", "onCreate: Conversation history initialized");
             startForeground(NOTIFICATION_ID, buildNotification());
+            android.util.Log.d("FloatOverlay", "onCreate: Foreground notification started");
             initOverlay();
+            android.util.Log.d("FloatOverlay", "onCreate: Overlay initialized successfully");
         } catch (Exception e) {
             android.util.Log.e("FloatOverlay", "Failed to initialize overlay service", e);
             stopSelf();
@@ -157,8 +163,21 @@ public class FloatOverlayService extends Service {
     }
 
     private void initOverlay() {
+        android.util.Log.d("FloatOverlay", "initOverlay: Starting");
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
+        if (windowManager == null) {
+            android.util.Log.e("FloatOverlay", "initOverlay: WindowManager is null!");
+            throw new RuntimeException("WindowManager is not available");
+        }
+        android.util.Log.d("FloatOverlay", "initOverlay: WindowManager obtained");
+        
         overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_float, null);
+        if (overlayView == null) {
+            android.util.Log.e("FloatOverlay", "initOverlay: overlayView inflation failed");
+            throw new RuntimeException("Failed to inflate overlay layout");
+        }
+        android.util.Log.d("FloatOverlay", "initOverlay: Overlay layout inflated");
+        
         floatVisual = overlayView.findViewById(R.id.floatVisual);
         bubblePanel = overlayView.findViewById(R.id.bubblePanel);
         inputView = overlayView.findViewById(R.id.etFloatInput);
@@ -167,6 +186,12 @@ public class FloatOverlayService extends Service {
         bubbleTitleView = overlayView.findViewById(R.id.tvBubbleTitle);
         responseLabelView = overlayView.findViewById(R.id.tvResponseLabel);
         responseView = overlayView.findViewById(R.id.tvFloatResponse);
+        
+        if (floatVisual == null || bubblePanel == null || inputView == null) {
+            android.util.Log.e("FloatOverlay", "initOverlay: Some views are null after findViewById");
+            throw new RuntimeException("Required views not found in layout");
+        }
+        android.util.Log.d("FloatOverlay", "initOverlay: All views found");
 
         int overlayType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
@@ -181,6 +206,7 @@ public class FloatOverlayService extends Service {
         layoutParams.gravity = Gravity.TOP | Gravity.START;
         layoutParams.x = 0;
         layoutParams.y = dpToPx(160);
+        android.util.Log.d("FloatOverlay", "initOverlay: LayoutParams configured. Type=" + overlayType);
 
         gestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
             @Override
@@ -241,11 +267,30 @@ public class FloatOverlayService extends Service {
         hideButton.setOnClickListener(v -> showBubble(false));
 
         updateFloatVisual();
+        android.util.Log.d("FloatOverlay", "initOverlay: Float visual updated");
         updateBubbleHeader();
         updateSendButton();
         responseView.setText(t("Tap to open quick chat.", "タップで簡易チャットを開きます。"));
+        
+        // Measure the view to get actual dimensions before adding
+        overlayView.measure(
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
+        );
+        int measuredWidth = overlayView.getMeasuredWidth();
+        int measuredHeight = overlayView.getMeasuredHeight();
+        android.util.Log.d("FloatOverlay", "initOverlay: View measured. Width=" + measuredWidth + ", Height=" + measuredHeight);
+        
+        if (measuredWidth <= 0 || measuredHeight <= 0) {
+            android.util.Log.w("FloatOverlay", "initOverlay: Measured dimensions are invalid. Using fallback sizes.");
+            layoutParams.width = dpToPx(100);
+            layoutParams.height = dpToPx(100);
+        }
+        
         try {
+            android.util.Log.d("FloatOverlay", "initOverlay: Adding view to window manager");
             windowManager.addView(overlayView, layoutParams);
+            android.util.Log.d("FloatOverlay", "initOverlay: View added successfully");
         } catch (Exception e) {
             android.util.Log.e("FloatOverlay", "Failed to add overlay view", e);
             throw new RuntimeException("Cannot add overlay view to window manager", e);
