@@ -114,12 +114,17 @@ public class FloatOverlayService extends Service {
     @Override
     public void onCreate() {
         super.onCreate();
-        touchSlop = ViewConfigurationHolder.get(this);
-        loadSettings();
-        loadAvatarBitmap();
-        initConversationHistory();
-        startForeground(NOTIFICATION_ID, buildNotification());
-        initOverlay();
+        try {
+            touchSlop = ViewConfigurationHolder.get(this);
+            loadSettings();
+            loadAvatarBitmap();
+            initConversationHistory();
+            startForeground(NOTIFICATION_ID, buildNotification());
+            initOverlay();
+        } catch (Exception e) {
+            android.util.Log.e("FloatOverlay", "Failed to initialize overlay service", e);
+            stopSelf();
+        }
     }
 
     @Override
@@ -239,7 +244,12 @@ public class FloatOverlayService extends Service {
         updateBubbleHeader();
         updateSendButton();
         responseView.setText(t("Tap to open quick chat.", "タップで簡易チャットを開きます。"));
-        windowManager.addView(overlayView, layoutParams);
+        try {
+            windowManager.addView(overlayView, layoutParams);
+        } catch (Exception e) {
+            android.util.Log.e("FloatOverlay", "Failed to add overlay view", e);
+            throw new RuntimeException("Cannot add overlay view to window manager", e);
+        }
     }
 
     private void openApp() {
