@@ -139,8 +139,13 @@ public class FloatOverlayService extends Service {
             DebugLogger.log(this, "Building notification");
             Notification notification = buildNotification();
             DebugLogger.log(this, "Starting foreground");
-            startForeground(NOTIFICATION_ID, notification);
-            DebugLogger.log(this, "Foreground notification started");
+            try {
+                startForeground(NOTIFICATION_ID, notification);
+                DebugLogger.log(this, "Foreground notification started");
+            } catch (Exception e) {
+                DebugLogger.log(this, "WARNING: startForeground failed: " + e.getMessage());
+                DebugLogger.log(this, "Continuing anyway since overlay is already added");
+            }
             
             DebugLogger.log(this, "=== FloatOverlayService onCreate SUCCESS ===");
         } catch (Exception e) {
