@@ -17,6 +17,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.provider.Settings;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -109,6 +110,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final int REQ_PICK_CHATTER_C1 = 2011;
     private static final int REQ_PICK_CHATTER_C2 = 2012;
     private static final int REQ_PICK_CHATTER_C3 = 2013;
+    private static final String FLOAT_DISPLAY_MODE_AVATAR = "avatar";
+    private static final String FLOAT_DISPLAY_MODE_ICON = "icon";
     private static final String AVATAR_C0_FILE = "avatar_c0.jpg";
     private static final String AVATAR_C1_FILE = "avatar_c1.jpg";
     private static final String AVATAR_C2_FILE = "avatar_c2.jpg";
@@ -150,7 +153,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     // --- UI ---
     private LinearLayout messageContainer;
     private EditText etInput;
-    private Button btnSend, btnSettings, btnPickC0, btnPickC1, btnPickC2, btnPickC3;
+    private Button btnSend, btnSettings, btnFloatOverlay, btnPickC0, btnPickC1, btnPickC2, btnPickC3;
     private Button btnClearC0, btnClearC1, btnClearC2, btnClearC3;
     private Button btnPickChatterC0, btnPickChatterC1, btnPickChatterC2, btnPickChatterC3;
     private Button btnClearChatterC0, btnClearChatterC1, btnClearChatterC2, btnClearChatterC3;
@@ -167,13 +170,13 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private View chatDragArea;
     private View chatDragHandle;
     private Spinner spinnerLanguage, spinnerModel, spinnerChatterModel, spinnerWebSearchModel;
-    private RadioGroup groupMode, tabGroup;
-    private RadioButton radioModeNormal, radioModeChatter, tabBase, tabChatter;
+    private RadioGroup groupMode, groupFloatDisplay, tabGroup;
+    private RadioButton radioModeNormal, radioModeChatter, radioFloatAvatar, radioFloatIcon, tabBase, tabChatter;
     private LinearLayout baseSettingsGroup, chatterSettingsGroup;
     private LinearLayout sectionGeneralContent, sectionChatContent, sectionExpertContent;
     private TextView tvSettingsTitle, tvSectionGeneral, tvSectionChat, tvSectionExpert, tvSectionInfo;
     private TextView tvLabelLanguage, tvLabelConfigProfile, tvLabelOllamaUrl, tvLabelUserName, tvOllamaStatus;
-    private TextView tvLabelMode, tvLabelHistoryLimit, tvLabelChatterInterval;
+    private TextView tvLabelMode, tvLabelFloatDisplay, tvFloatModeUnavailable, tvLabelHistoryLimit, tvLabelChatterInterval;
     private TextView tvLabelWebSearchUrl, tvLabelWebSearchApiKey, tvLabelWebSearchModel;
     private TextView tvBaseSettingsTitle, tvBaseNameLabel, tvBaseModelLabel;
     private TextView tvBaseSpeechLangLabel, tvBaseSpeechRateLabel, tvBaseSpeechPitchLabel, tvBaseSystemPromptLabel, tvBaseAvatarTitle;
@@ -220,12 +223,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private int historyLimit = 10;
     private int autoChatterSeconds = 10;
     private String appLanguage = Locale.getDefault().getLanguage().startsWith("ja") ? "ja" : "en";
+    private String floatDisplayMode = FLOAT_DISPLAY_MODE_AVATAR;
     private boolean sectionGeneralExpanded = true;
     private boolean sectionChatExpanded = true;
     private boolean sectionExpertExpanded = false;
     private boolean suppressQuickStartPopup = false;
     private boolean ollamaApiAvailable = false;
     private boolean refreshModelsOnResume = false;
+    private boolean pendingOverlayLaunch = false;
 
     // --- TTS ---
     private TextToSpeech tts;
@@ -567,6 +572,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         etInput = findViewById(R.id.etInput);
         btnSend = findViewById(R.id.btnSend);
         btnSettings = findViewById(R.id.btnSettings);
+        btnFloatOverlay = findViewById(R.id.btnFloatOverlay);
         btnPickC0 = findViewById(R.id.btnPickC0);
         btnPickC1 = findViewById(R.id.btnPickC1);
         btnPickC2 = findViewById(R.id.btnPickC2);
@@ -620,8 +626,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         spinnerModel = findViewById(R.id.spinnerModel);
         spinnerChatterModel = findViewById(R.id.spinnerChatterModel);
         groupMode = findViewById(R.id.groupMode);
+        groupFloatDisplay = findViewById(R.id.groupFloatDisplay);
         radioModeNormal = findViewById(R.id.radioModeNormal);
         radioModeChatter = findViewById(R.id.radioModeChatter);
+        radioFloatAvatar = findViewById(R.id.radioFloatAvatar);
+        radioFloatIcon = findViewById(R.id.radioFloatIcon);
         tabGroup = findViewById(R.id.tabGroup);
         tabBase = findViewById(R.id.tabBase);
         tabChatter = findViewById(R.id.tabChatter);
@@ -668,6 +677,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         tvOllamaStatus = findViewById(R.id.tvOllamaStatus);
         tvLabelUserName = findViewById(R.id.tvLabelUserName);
         tvLabelMode = findViewById(R.id.tvLabelMode);
+        tvLabelFloatDisplay = findViewById(R.id.tvLabelFloatDisplay);
+        tvFloatModeUnavailable = findViewById(R.id.tvFloatModeUnavailable);
         tvLabelHistoryLimit = findViewById(R.id.tvLabelHistoryLimit);
         tvLabelChatterInterval = findViewById(R.id.tvLabelChatterInterval);
         tvLabelWebSearchUrl = findViewById(R.id.tvLabelWebSearchUrl);
@@ -700,6 +711,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (chatPanel != null) {
             chatPanel.setElevation(elevation);
             chatPanel.bringToFront();
+        }
+        if (btnFloatOverlay != null) {
+            btnFloatOverlay.bringToFront();
         }
         if (chatDragArea != null) {
             chatDragArea.bringToFront();
@@ -758,6 +772,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 btnSettings.setContentDescription("Save settings");
             }
         });
+        if (btnFloatOverlay != null) {
+            btnFloatOverlay.setOnClickListener(v -> enterFloatingOverlayMode());
+        }
 
         // Initialize settings button label based on panel visibility
         if (settingsPanel.getVisibility() == View.VISIBLE) {
@@ -774,6 +791,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             autoChatterEnabled = checkedId == R.id.radioModeChatter;
             updateChatterModeUi();
         });
+        if (groupFloatDisplay != null) {
+            groupFloatDisplay.setOnCheckedChangeListener((group, checkedId) -> {
+                floatDisplayMode = checkedId == R.id.radioFloatIcon
+                        ? FLOAT_DISPLAY_MODE_ICON
+                        : FLOAT_DISPLAY_MODE_AVATAR;
+                updateOverlayEntryUi();
+            });
+        }
 
         tabGroup.setOnCheckedChangeListener((group, checkedId) -> updateSettingsTab());
         if (sectionGeneralHeader != null) {
@@ -927,6 +952,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         btnRights.setOnClickListener(v -> showInfoDialog(
                 t("Rights", "権利情報"),
                 "ja".equals(appLanguage) ? RIGHTS_TEXT_JA : RIGHTS_TEXT_EN));
+        updateOverlayEntryUi();
     }
 
     private void focusMainLayerAfterSettings() {
@@ -949,6 +975,78 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private String t(String en, String ja) {
         return "ja".equals(appLanguage) ? ja : en;
+    }
+
+    private String normalizeFloatDisplayMode(String value) {
+        return FLOAT_DISPLAY_MODE_ICON.equals(value) ? FLOAT_DISPLAY_MODE_ICON : FLOAT_DISPLAY_MODE_AVATAR;
+    }
+
+    private void enterFloatingOverlayMode() {
+        readSettingsFromUi();
+        reinitSystemPrompts();
+        saveSettings();
+        if (autoChatterEnabled) {
+            Toast.makeText(
+                    this,
+                    t("Floating mode is unavailable while Chatter mode is enabled.",
+                            "おしゃべりモード中はフロート表示に切り替えできません。"),
+                    Toast.LENGTH_SHORT
+            ).show();
+            updateOverlayEntryUi();
+            return;
+        }
+        if (isProcessing) {
+            Toast.makeText(
+                    this,
+                    t("Wait for the current response to finish before switching.",
+                            "現在の応答が終わってから切り替えてください。"),
+                    Toast.LENGTH_SHORT
+            ).show();
+            return;
+        }
+        if (!hasOverlayPermission()) {
+            pendingOverlayLaunch = true;
+            Intent intent = new Intent(
+                    Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                    Uri.parse("package:" + getPackageName())
+            );
+            startActivity(intent);
+            Toast.makeText(
+                    this,
+                    t("Allow display over other apps, then the floating mode will open.",
+                            "他のアプリの上に重ねて表示を許可すると、フロート表示に切り替わります。"),
+                    Toast.LENGTH_SHORT
+            ).show();
+            return;
+        }
+        pendingOverlayLaunch = false;
+        startFloatingOverlayService();
+    }
+
+    private boolean hasOverlayPermission() {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this);
+    }
+
+    private void startFloatingOverlayService() {
+        Intent intent = new Intent(this, FloatOverlayService.class);
+        intent.setAction(FloatOverlayService.ACTION_SHOW_OVERLAY);
+        startService(intent);
+        moveTaskToBack(true);
+    }
+
+    private void updateOverlayEntryUi() {
+        boolean enabled = !autoChatterEnabled;
+        if (btnFloatOverlay != null) {
+            btnFloatOverlay.setEnabled(enabled);
+            btnFloatOverlay.setAlpha(enabled ? 1f : 0.45f);
+            btnFloatOverlay.setContentDescription(t(
+                    "Switch to floating " + (FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode) ? "icon" : "avatar") + " mode",
+                    (FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode) ? "フロートアイコン" : "フロートアバター") + "に切り替え"
+            ));
+        }
+        if (tvFloatModeUnavailable != null) {
+            tvFloatModeUnavailable.setVisibility(autoChatterEnabled ? View.VISIBLE : View.GONE);
+        }
     }
 
     private String defaultBaseNameForCurrentLanguage() {
@@ -1012,6 +1110,13 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (tvLabelOllamaUrl != null) tvLabelOllamaUrl.setText("Ollama URL");
         if (tvLabelUserName != null) tvLabelUserName.setText(t("User Name", "ユーザー名"));
         if (tvLabelMode != null) tvLabelMode.setText(t("Mode", "モード"));
+        if (tvLabelFloatDisplay != null) tvLabelFloatDisplay.setText(t("Floating Display", "フロート表示"));
+        if (tvFloatModeUnavailable != null) {
+            tvFloatModeUnavailable.setText(t(
+                    "Chatter mode stays in the app screen only.",
+                    "おしゃべりモードはアプリ画面のみで、フロート表示には切り替えできません。"
+            ));
+        }
         if (tvLabelHistoryLimit != null) tvLabelHistoryLimit.setText(t("History Limit", "履歴制限"));
         if (tvLabelChatterInterval != null) tvLabelChatterInterval.setText(t("Chatter Interval (sec)", "おしゃべり間隔（秒）"));
         if (tvLabelWebSearchUrl != null) tvLabelWebSearchUrl.setText(t("Web Search API URL", "Web検索 API URL"));
@@ -1049,6 +1154,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (switchDebug != null) switchDebug.setText(t("Debug Mode", "デバッグモード"));
         if (radioModeNormal != null) radioModeNormal.setText(t("Normal", "ノーマル"));
         if (radioModeChatter != null) radioModeChatter.setText(t("Chatter", "おしゃべり"));
+        if (radioFloatAvatar != null) radioFloatAvatar.setText(t("Avatar", "アバター"));
+        if (radioFloatIcon != null) radioFloatIcon.setText(t("Icon", "アイコン"));
         if (tabBase != null) tabBase.setText("Base");
         if (tabChatter != null) tabChatter.setText(t("Chatter Partner", "おしゃべり相手"));
         if (etInput != null) etInput.setHint(t("Enter message", "メッセージを入力"));
@@ -1056,6 +1163,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (sectionChatContent != null) sectionChatContent.setVisibility(sectionChatExpanded ? View.VISIBLE : View.GONE);
         if (sectionExpertContent != null) sectionExpertContent.setVisibility(sectionExpertExpanded ? View.VISIBLE : View.GONE);
         updateSendButton();
+        updateOverlayEntryUi();
     }
 
     private int languageSpinnerPositionForCurrentLanguage() {
@@ -1415,6 +1523,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) btnSettings.getLayoutParams();
                     lp.topMargin = top + dpToPx(4);
                     btnSettings.setLayoutParams(lp);
+                }
+                if (btnFloatOverlay != null) {
+                    FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) btnFloatOverlay.getLayoutParams();
+                    lp.topMargin = top + dpToPx(4);
+                    btnFloatOverlay.setLayoutParams(lp);
                 }
                 return insets;
             }
@@ -1880,6 +1993,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         s.put("historyLimit", historyLimit);
         s.put("autoChatterSeconds", autoChatterSeconds);
         s.put("appLanguage", appLanguage);
+        s.put("floatDisplayMode", floatDisplayMode);
         s.put("webSearchEnabled", webSearchEnabled);
         s.put("debugEnabled", debugEnabled);
         s.put("webSearchUrl", webSearchUrl);
@@ -1920,6 +2034,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         historyLimit = s.optInt("historyLimit", historyLimit);
         autoChatterSeconds = s.optInt("autoChatterSeconds", autoChatterSeconds);
         appLanguage = s.optString("appLanguage", appLanguage);
+        floatDisplayMode = normalizeFloatDisplayMode(s.optString("floatDisplayMode", floatDisplayMode));
         webSearchEnabled = s.optBoolean("webSearchEnabled", webSearchEnabled);
         debugEnabled = s.optBoolean("debugEnabled", debugEnabled);
         webSearchUrl = s.optString("webSearchUrl", webSearchUrl);
@@ -1934,6 +2049,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (webSearchModel.trim().isEmpty()) webSearchModel = "default";
         if (historyLimit < 0) historyLimit = 0;
         if (autoChatterSeconds < 0) autoChatterSeconds = 0;
+        floatDisplayMode = normalizeFloatDisplayMode(floatDisplayMode);
     }
 
     private String getAvatarFileInfo(File file) {
@@ -2232,6 +2348,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         webSearchModel = spinnerWebSearchModel.getSelectedItem() != null
                 ? spinnerWebSearchModel.getSelectedItem().toString().trim() : "";
         if (webSearchModel.isEmpty()) webSearchModel = "default";
+        floatDisplayMode = radioFloatIcon != null && radioFloatIcon.isChecked()
+                ? FLOAT_DISPLAY_MODE_ICON
+                : FLOAT_DISPLAY_MODE_AVATAR;
         if (spinnerLanguage != null) {
             appLanguage = spinnerLanguage.getSelectedItemPosition() == 1 ? "ja" : "en";
         }
@@ -2274,6 +2393,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         switchDebug.setChecked(debugEnabled);
         etWebSearchUrl.setText(webSearchUrl);
         etWebSearchApiKey.setText(webSearchApiKey);
+        if (groupFloatDisplay != null) {
+            groupFloatDisplay.check(FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode)
+                    ? R.id.radioFloatIcon
+                    : R.id.radioFloatAvatar);
+        }
 
         int idx = modelList.indexOf(selectedModel);
         if (idx >= 0) spinnerModel.setSelection(idx);
@@ -2291,6 +2415,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
         applyLanguageToUi();
         updateOllamaStatusTile(ollamaApiAvailable);
+        updateOverlayEntryUi();
     }
 
     private void updateChatterModeUi() {
@@ -2307,6 +2432,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             pendingAutoChatterAfterTts = false;
             updateCounterpartMiniAvatar();
         }
+        updateOverlayEntryUi();
     }
 
     private void updateSettingsTab() {
@@ -3809,10 +3935,23 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     @Override
     protected void onResume() {
         super.onResume();
+        stopService(new Intent(this, FloatOverlayService.class));
+        if (pendingOverlayLaunch) {
+            readSettingsFromUi();
+            if (!autoChatterEnabled && hasOverlayPermission()) {
+                pendingOverlayLaunch = false;
+                startFloatingOverlayService();
+                return;
+            }
+            if (autoChatterEnabled || hasOverlayPermission()) {
+                pendingOverlayLaunch = false;
+            }
+        }
         if (refreshModelsOnResume) {
             refreshModelsOnResume = false;
             fetchModels();
         }
+        updateOverlayEntryUi();
     }
 
     @Override
