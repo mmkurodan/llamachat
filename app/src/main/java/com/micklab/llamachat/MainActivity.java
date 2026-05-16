@@ -87,6 +87,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private static final String TAG = "OllamaChat";
     private static final String SETTINGS_FILE = "chat_settings.json";
+    private static final String OVERLAY_SYNC_LOG_FILE = "overlay_sync_log.jsonl";
     private static final String SETTINGS_PROFILE_DIR = "settings_profiles";
     private static final String SETTINGS_PROFILE_SUFFIX = ".json";
     private static final String PROFILE_AVATAR_PREFIX = "profile_avatar_";
@@ -1421,6 +1422,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             currentStreamingBubble = null;
             currentThinkingBubble = null;
             initConversationHistory();
+            clearOverlaySyncLog();
             updateSendButton();
             requestChatLayoutUpdate();
             Toast.makeText(this, t("Conversation log reset", "会話ログをリセットしました"), Toast.LENGTH_SHORT).show();
@@ -2675,6 +2677,50 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             } catch (Exception e) {
                 Log.e(TAG, "initHistory error", e);
             }
+        }
+    }
+
+    private void clearOverlaySyncLog() {
+        File file = new File(getFilesDir(), OVERLAY_SYNC_LOG_FILE);
+        if (file.exists() && !file.delete()) {
+            Log.w(TAG, "Failed to clear overlay sync log");
+        }
+    }
+
+    private void importOverlaySyncLog() {
+        File file = new File(getFilesDir(), OVERLAY_SYNC_LOG_FILE);
+        if (!file.exists()) return;
+        boolean imported = false;
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String trimmed = line.trim();
+                if (trimmed.isEmpty()) continue;
+                JSONObject item = new JSONObject(trimmed);
+                String role = item.optString("role", "").trim();
+                String content = item.optString("content", "").trim();
+                if (content.isEmpty()) continue;
+                if ("user".equals(role)) {
+                    appendUserMessage(content);
+                    addToHistory(conversationHistory, "user", content);
+                    imported = true;
+                } else if ("assistant".equals(role)) {
+                    appendAssistantMessage(ChatSpeaker.BASE, content);
+                    addToHistory(conversationHistory, "assistant", content);
+                    lastBaseResponse = content;
+                    imported = true;
+                }
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "importOverlaySyncLog failed", e);
+        } finally {
+            if (file.exists() && !file.delete()) {
+                Log.w(TAG, "Failed to delete overlay sync log");
+            }
+        }
+        if (imported) {
+            requestChatLayoutUpdate();
+            maybeScrollToBottom(true);
         }
     }
 
@@ -3962,6 +4008,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             refreshModelsOnResume = false;
             fetchModels();
         }
+        importOverlaySyncLog();
         updateOverlayEntryUi();
     }
 

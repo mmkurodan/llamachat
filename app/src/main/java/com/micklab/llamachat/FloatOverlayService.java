@@ -25,6 +25,8 @@ import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
 import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -35,6 +37,7 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileNotFoundException;
+import java.io.FileOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
@@ -42,6 +45,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
+import java.util.Random;
 import java.util.concurrent.TimeUnit;
 
 import okhttp3.Call;
@@ -57,15 +61,23 @@ public class FloatOverlayService extends Service {
     public static final String ACTION_SHOW_OVERLAY = "com.micklab.llamachat.action.SHOW_OVERLAY";
 
     private static final String SETTINGS_FILE = "chat_settings.json";
+    private static final String OVERLAY_SYNC_LOG_FILE = "overlay_sync_log.jsonl";
     private static final String FLOAT_DISPLAY_MODE_AVATAR = "avatar";
     private static final String FLOAT_DISPLAY_MODE_ICON = "icon";
+    private static final String AVATAR_C0_FILE = "avatar_c0.jpg";
     private static final String AVATAR_C1_FILE = "avatar_c1.jpg";
+    private static final String AVATAR_C2_FILE = "avatar_c2.jpg";
+    private static final String AVATAR_C3_FILE = "avatar_c3.jpg";
     private static final String DEFAULT_BASE_NAME_JA = "藍";
     private static final String DEFAULT_BASE_NAME_EN = "Ai";
     private static final String DEFAULT_SYSTEM_PROMPT_JA = "あなたはユーザの若い女性秘書です";
     private static final String DEFAULT_SYSTEM_PROMPT_EN = "You are the user's young female secretary.";
     private static final String NOTIFICATION_CHANNEL_ID = "llamachat_float_overlay";
     private static final int NOTIFICATION_ID = 2001;
+    private static final int AVATAR_TALK_FRAME_MS = 120;
+    private static final int AVATAR_BLINK_MIN_MS = 3000;
+    private static final int AVATAR_BLINK_MAX_MS = 7000;
+    private static final int AVATAR_BLINK_DURATION_MS = 120;
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -81,17 +93,25 @@ public class FloatOverlayService extends Service {
     private WindowManager windowManager;
     private View overlayView;
     private WindowManager.LayoutParams layoutParams;
+    private ImageView floatVisualBackground;
     private ImageView floatVisual;
     private View bubblePanel;
+    private ScrollView messageScrollView;
+    private LinearLayout messageContainer;
     private EditText inputView;
     private Button sendButton;
     private Button hideButton;
     private TextView bubbleTitleView;
-    private TextView responseLabelView;
-    private TextView responseView;
     private GestureDetector gestureDetector;
-    private Bitmap avatarBitmap;
+    private TextView currentResponseBubble;
+    private Bitmap avatarC0Bitmap;
+    private Bitmap avatarC1Bitmap;
+    private Bitmap avatarC2Bitmap;
+    private Bitmap avatarC3Bitmap;
     private Call currentCall;
+    private final Random avatarRandom = new Random();
+    private int talkFrameIndex = 0;
+    private final int[] talkFrames = new int[]{R.drawable.c1, R.drawable.c3};
 
     private String ollamaBaseUrl = "http://127.0.0.1:11434";
     private String selectedModel = "default";
@@ -103,6 +123,7 @@ public class FloatOverlayService extends Service {
     private int historyLimit = 10;
     private boolean streamingEnabled = true;
     private boolean isProcessing = false;
+    private int messageMaxHeightPx = 0;
 
     private float touchStartX;
     private float touchStartY;
@@ -110,6 +131,28 @@ public class FloatOverlayService extends Service {
     private int initialY;
     private boolean dragging = false;
     private int touchSlop = 0;
+    private final Runnable blinkRunnable = new Runnable() {
+        @Override
+        public void run() {
+            setAvatarFrame(R.drawable.c2);
+            mainHandler.postDelayed(blinkResetRunnable, AVATAR_BLINK_DURATION_MS);
+        }
+    };
+    private final Runnable blinkResetRunnable = new Runnable() {
+        @Override
+        public void run() {
+            setAvatarFrame(R.drawable.c1);
+            scheduleNextBlink();
+        }
+    };
+    private final Runnable talkRunnable = new Runnable() {
+        @Override
+        public void run() {
+            setAvatarFrame(talkFrames[talkFrameIndex]);
+            talkFrameIndex = (talkFrameIndex + 1) % talkFrames.length;
+            mainHandler.postDelayed(this, AVATAR_TALK_FRAME_MS);
+        }
+    };
 
     @Override
     public void onCreate() {
@@ -124,9 +167,9 @@ public class FloatOverlayService extends Service {
             loadSettings();
             DebugLogger.log(this, "Settings loaded. floatDisplayMode=" + floatDisplayMode);
             
-            DebugLogger.log(this, "Loading avatar bitmap");
-            loadAvatarBitmap();
-            DebugLogger.log(this, "Avatar bitmap loaded");
+            DebugLogger.log(this, "Loading avatar bitmaps");
+            loadAvatarBitmaps();
+            DebugLogger.log(this, "Avatar bitmaps loaded");
             
             DebugLogger.log(this, "Initializing conversation history");
             initConversationHistory();
@@ -176,10 +219,15 @@ public class FloatOverlayService extends Service {
             } catch (Exception ignored) {
             }
         }
-        if (avatarBitmap != null) {
-            avatarBitmap.recycle();
-            avatarBitmap = null;
-        }
+        stopAvatarAnimation();
+        recycleBitmap(avatarC0Bitmap);
+        recycleBitmap(avatarC1Bitmap);
+        recycleBitmap(avatarC2Bitmap);
+        recycleBitmap(avatarC3Bitmap);
+        avatarC0Bitmap = null;
+        avatarC1Bitmap = null;
+        avatarC2Bitmap = null;
+        avatarC3Bitmap = null;
         super.onDestroy();
     }
 
@@ -231,24 +279,25 @@ public class FloatOverlayService extends Service {
             }
             DebugLogger.log(this, "initOverlay: Overlay layout inflated");
             
+            floatVisualBackground = overlayView.findViewById(R.id.floatVisualBackground);
             floatVisual = overlayView.findViewById(R.id.floatVisual);
             bubblePanel = overlayView.findViewById(R.id.bubblePanel);
+            messageScrollView = overlayView.findViewById(R.id.svFloatMessages);
+            messageContainer = overlayView.findViewById(R.id.floatMessageContainer);
             inputView = overlayView.findViewById(R.id.etFloatInput);
             sendButton = overlayView.findViewById(R.id.btnFloatSend);
             hideButton = overlayView.findViewById(R.id.btnHideBubble);
             bubbleTitleView = overlayView.findViewById(R.id.tvBubbleTitle);
-            responseLabelView = overlayView.findViewById(R.id.tvResponseLabel);
-            responseView = overlayView.findViewById(R.id.tvFloatResponse);
             
-            if (floatVisual == null || bubblePanel == null || inputView == null) {
+            if (floatVisual == null || bubblePanel == null || messageScrollView == null || messageContainer == null || inputView == null) {
                 DebugLogger.log(this, "ERROR: initOverlay: Some views are null after findViewById");
                 throw new RuntimeException("Required views not found in layout");
             }
             DebugLogger.log(this, "initOverlay: All views found");
     
             layoutParams = new WindowManager.LayoutParams(
-                    WindowManager.LayoutParams.WRAP_CONTENT,
-                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.MATCH_PARENT,
+                    WindowManager.LayoutParams.MATCH_PARENT,
                     overlayType,
                     WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                     PixelFormat.TRANSLUCENT
@@ -320,7 +369,7 @@ public class FloatOverlayService extends Service {
             DebugLogger.log(this, "initOverlay: Float visual updated");
             updateBubbleHeader();
             updateSendButton();
-            responseView.setText(t("Tap to open quick chat.", "タップで簡易チャットを開きます。"));
+            appendSystemMessage(t("Tap to open quick chat.", "タップで簡易チャットを開きます。"));
             
             DebugLogger.log(this, "initOverlay: Adding real overlay view to window manager");
             windowManager.addView(overlayView, layoutParams);
@@ -387,6 +436,8 @@ public class FloatOverlayService extends Service {
                 : WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
         updateOverlayLayout();
         if (show) {
+            adjustMessageAreaHeight();
+            scrollMessagesToBottom();
             inputView.requestFocus();
             mainHandler.postDelayed(() -> {
                 InputMethodManager imm = (InputMethodManager) getSystemService(INPUT_METHOD_SERVICE);
@@ -418,26 +469,61 @@ public class FloatOverlayService extends Service {
     }
 
     private void updateFloatVisual() {
-        if (floatVisual == null) return;
-        int sizeDp = FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode) ? 56 : 88;
+        if (floatVisual == null || layoutParams == null) return;
+        boolean iconMode = FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode);
+        int screenW = getResources().getDisplayMetrics().widthPixels;
+        int screenH = getResources().getDisplayMetrics().heightPixels;
+        layoutParams.width = iconMode ? WindowManager.LayoutParams.WRAP_CONTENT : screenW;
+        layoutParams.height = iconMode ? WindowManager.LayoutParams.WRAP_CONTENT : screenH;
+        if (!iconMode) {
+            layoutParams.x = 0;
+            layoutParams.y = 0;
+        }
         ViewGroup.LayoutParams params = floatVisual.getLayoutParams();
         if (params != null) {
-            int sizePx = dpToPx(sizeDp);
-            params.width = sizePx;
-            params.height = sizePx;
+            if (iconMode) {
+                int sizePx = dpToPx(56);
+                params.width = sizePx;
+                params.height = sizePx;
+            } else {
+                params.width = ViewGroup.LayoutParams.MATCH_PARENT;
+                params.height = ViewGroup.LayoutParams.MATCH_PARENT;
+            }
             floatVisual.setLayoutParams(params);
+        }
+        if (bubblePanel != null) {
+            ViewGroup.LayoutParams bubbleParams = bubblePanel.getLayoutParams();
+            if (bubbleParams != null) {
+                bubbleParams.width = iconMode ? dpToPx(300) : ViewGroup.LayoutParams.MATCH_PARENT;
+                bubblePanel.setLayoutParams(bubbleParams);
+            }
+        }
+        if (floatVisualBackground != null) {
+            floatVisualBackground.setVisibility(iconMode ? View.GONE : View.VISIBLE);
         }
         floatVisual.setBackgroundColor(0x00000000);
         floatVisual.setContentDescription(t(
-                FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode) ? "Floating icon" : "Floating avatar",
-                FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode) ? "フロートアイコン" : "フロートアバター"
+                iconMode ? "Floating icon" : "Floating avatar",
+                iconMode ? "フロートアイコン" : "フロートアバター"
         ));
-        if (FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode)) {
+        if (iconMode) {
+            stopAvatarAnimation();
             floatVisual.setImageResource(R.drawable.icon);
-        } else if (avatarBitmap != null) {
-            floatVisual.setImageBitmap(avatarBitmap);
         } else {
-            floatVisual.setImageResource(R.drawable.c1);
+            setAvatarBackground(R.drawable.c0);
+            setAvatarFrame(R.drawable.c1);
+            updateAvatarAnimation();
+        }
+        updateOverlayLayout();
+        mainHandler.post(this::adjustMessageAreaHeight);
+    }
+
+    private void updateAvatarAnimation() {
+        if (FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode)) return;
+        if (isProcessing) {
+            startTalkAnimation();
+        } else {
+            startIdleAnimation();
         }
     }
 
@@ -446,9 +532,6 @@ public class FloatOverlayService extends Service {
             bubbleTitleView.setText(TextUtils.isEmpty(baseName)
                     ? t("Quick Chat", "フロートチャット")
                     : baseName);
-        }
-        if (responseLabelView != null) {
-            responseLabelView.setText(t("Latest response", "最新の応答"));
         }
     }
 
@@ -462,10 +545,14 @@ public class FloatOverlayService extends Service {
 
     private void submitUserMessage(String userMessage) {
         inputView.setText("");
+        appendUserMessageBubble(userMessage);
+        appendSharedConversationLog("user", userMessage);
         addToHistory("user", userMessage);
         isProcessing = true;
+        updateAvatarAnimation();
+        currentResponseBubble = null;
         updateSendButton();
-        setResponseText(t("Waiting for response...", "応答を待っています..."));
+        appendSystemMessage(t("Waiting for response...", "応答を待っています..."));
         sendChat(null, false);
     }
 
@@ -475,7 +562,9 @@ public class FloatOverlayService extends Service {
             currentCall = null;
         }
         isProcessing = false;
+        updateAvatarAnimation();
         updateSendButton();
+        currentResponseBubble = null;
         setResponseText(t("Request cancelled", "リクエストをキャンセルしました"));
     }
 
@@ -632,10 +721,13 @@ public class FloatOverlayService extends Service {
     private void finishResponse(String responseText) {
         if (!TextUtils.isEmpty(responseText) && !responseText.startsWith(t("Error: ", "エラー: "))) {
             addToHistory("assistant", responseText);
+            appendSharedConversationLog("assistant", responseText);
         }
         isProcessing = false;
+        updateAvatarAnimation();
         updateSendButton();
         setResponseText(responseText);
+        currentResponseBubble = null;
     }
 
     private String errorText(String message) {
@@ -645,10 +737,99 @@ public class FloatOverlayService extends Service {
 
     private void setResponseText(String text) {
         mainHandler.post(() -> {
-            if (responseView != null) {
-                responseView.setText(text);
+            if (TextUtils.isEmpty(text)) return;
+            if (currentResponseBubble == null) {
+                currentResponseBubble = appendAssistantMessageBubble(text);
+            } else {
+                currentResponseBubble.setText(formatMessageText(baseName, text));
+                adjustMessageAreaHeight();
+                scrollMessagesToBottom();
             }
         });
+    }
+
+    private void appendUserMessageBubble(String text) {
+        String name = TextUtils.isEmpty(userName) ? t("User", "ユーザ") : userName;
+        appendMessageBubble(name, text, true);
+    }
+
+    private TextView appendAssistantMessageBubble(String text) {
+        return appendMessageBubble(baseName, text, false);
+    }
+
+    private void appendSystemMessage(String text) {
+        appendMessageBubble("System", text, false);
+    }
+
+    private TextView appendMessageBubble(String name, String text, boolean isUserSide) {
+        if (messageContainer == null) return null;
+        LinearLayout row = new LinearLayout(this);
+        row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(isUserSide ? Gravity.END : Gravity.START);
+        LinearLayout.LayoutParams rowParams = new LinearLayout.LayoutParams(
+                LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT
+        );
+        rowParams.topMargin = dpToPx(4);
+        rowParams.bottomMargin = dpToPx(4);
+        row.setLayoutParams(rowParams);
+
+        TextView bubble = new TextView(this);
+        bubble.setBackgroundResource(isUserSide ? R.drawable.chat_bubble_user : R.drawable.chat_bubble_assistant);
+        bubble.setPadding(dpToPx(10), dpToPx(6), dpToPx(10), dpToPx(6));
+        bubble.setTextSize(14);
+        bubble.setTextColor(0xFF000000);
+        int maxWidth = (int) (getResources().getDisplayMetrics().widthPixels * 0.7f);
+        bubble.setMaxWidth(maxWidth);
+        bubble.setText(formatMessageText(name, text));
+
+        row.addView(bubble);
+        messageContainer.addView(row);
+        adjustMessageAreaHeight();
+        scrollMessagesToBottom();
+        return bubble;
+    }
+
+    private String formatMessageText(String name, String text) {
+        if (TextUtils.isEmpty(name)) return text == null ? "" : text;
+        return name + "\n" + (text == null ? "" : text);
+    }
+
+    private void adjustMessageAreaHeight() {
+        if (messageScrollView == null || messageContainer == null) return;
+        if (messageMaxHeightPx <= 0) {
+            messageMaxHeightPx = Math.max(1, getResources().getDisplayMetrics().heightPixels / 4);
+        }
+        messageContainer.post(() -> {
+            ViewGroup.LayoutParams lp = messageScrollView.getLayoutParams();
+            if (lp == null) return;
+            int desired = messageContainer.getHeight() + messageScrollView.getPaddingTop() + messageScrollView.getPaddingBottom();
+            int clamped = Math.min(Math.max(desired, dpToPx(56)), messageMaxHeightPx);
+            if (lp.height != clamped) {
+                lp.height = clamped;
+                messageScrollView.setLayoutParams(lp);
+            }
+        });
+    }
+
+    private void scrollMessagesToBottom() {
+        if (messageScrollView == null) return;
+        messageScrollView.post(() -> messageScrollView.fullScroll(View.FOCUS_DOWN));
+    }
+
+    private void appendSharedConversationLog(String role, String content) {
+        if (TextUtils.isEmpty(role) || TextUtils.isEmpty(content)) return;
+        try {
+            JSONObject item = new JSONObject();
+            item.put("role", role);
+            item.put("content", content);
+            try (FileOutputStream fos = openFileOutput(OVERLAY_SYNC_LOG_FILE, MODE_APPEND)) {
+                fos.write((item.toString() + "\n").getBytes(StandardCharsets.UTF_8));
+                fos.flush();
+            }
+        } catch (Exception e) {
+            DebugLogger.log(this, "appendSharedConversationLog failed: " + e.getMessage());
+        }
     }
 
     private void initConversationHistory() {
@@ -741,12 +922,81 @@ public class FloatOverlayService extends Service {
         return FLOAT_DISPLAY_MODE_ICON.equals(value) ? FLOAT_DISPLAY_MODE_ICON : FLOAT_DISPLAY_MODE_AVATAR;
     }
 
-    private void loadAvatarBitmap() {
+    private void loadAvatarBitmaps() {
         File dir = getExternalFilesDir(null);
         if (dir == null) return;
-        File avatarFile = new File(dir, AVATAR_C1_FILE);
-        if (!avatarFile.exists()) return;
-        avatarBitmap = BitmapFactory.decodeFile(avatarFile.getAbsolutePath());
+        avatarC0Bitmap = loadAvatarBitmap(new File(dir, AVATAR_C0_FILE));
+        avatarC1Bitmap = loadAvatarBitmap(new File(dir, AVATAR_C1_FILE));
+        avatarC2Bitmap = loadAvatarBitmap(new File(dir, AVATAR_C2_FILE));
+        avatarC3Bitmap = loadAvatarBitmap(new File(dir, AVATAR_C3_FILE));
+    }
+
+    private Bitmap loadAvatarBitmap(File file) {
+        if (file == null || !file.exists()) return null;
+        return BitmapFactory.decodeFile(file.getAbsolutePath());
+    }
+
+    private void recycleBitmap(Bitmap bitmap) {
+        if (bitmap != null && !bitmap.isRecycled()) {
+            bitmap.recycle();
+        }
+    }
+
+    private void setAvatarBackground(int resId) {
+        if (floatVisualBackground == null) return;
+        Bitmap custom = resId == R.drawable.c0 ? avatarC0Bitmap : null;
+        if (custom != null) {
+            floatVisualBackground.setImageBitmap(custom);
+        } else {
+            floatVisualBackground.setImageResource(resId);
+        }
+    }
+
+    private void setAvatarFrame(int resId) {
+        if (floatVisual == null) return;
+        Bitmap custom = null;
+        if (resId == R.drawable.c1) custom = avatarC1Bitmap;
+        else if (resId == R.drawable.c2) custom = avatarC2Bitmap;
+        else if (resId == R.drawable.c3) custom = avatarC3Bitmap;
+        if (custom != null) {
+            floatVisual.setImageBitmap(custom);
+        } else {
+            floatVisual.setImageResource(resId);
+        }
+    }
+
+    private void scheduleNextBlink() {
+        mainHandler.removeCallbacks(blinkRunnable);
+        mainHandler.removeCallbacks(blinkResetRunnable);
+        int delay = AVATAR_BLINK_MIN_MS + avatarRandom.nextInt(AVATAR_BLINK_MAX_MS - AVATAR_BLINK_MIN_MS + 1);
+        mainHandler.postDelayed(blinkRunnable, delay);
+    }
+
+    private void startIdleAnimation() {
+        stopTalkAnimation();
+        setAvatarFrame(R.drawable.c1);
+        scheduleNextBlink();
+    }
+
+    private void startTalkAnimation() {
+        stopIdleAnimation();
+        talkFrameIndex = 0;
+        mainHandler.removeCallbacks(talkRunnable);
+        mainHandler.post(talkRunnable);
+    }
+
+    private void stopIdleAnimation() {
+        mainHandler.removeCallbacks(blinkRunnable);
+        mainHandler.removeCallbacks(blinkResetRunnable);
+    }
+
+    private void stopTalkAnimation() {
+        mainHandler.removeCallbacks(talkRunnable);
+    }
+
+    private void stopAvatarAnimation() {
+        stopIdleAnimation();
+        stopTalkAnimation();
     }
 
     private String defaultBaseName() {

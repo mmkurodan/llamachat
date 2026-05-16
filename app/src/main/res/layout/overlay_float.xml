@@ -1,29 +1,34 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:id="@+id/overlayRoot"
-    android:layout_width="wrap_content"
-    android:layout_height="wrap_content"
-    android:orientation="vertical"
-    android:padding="6dp"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
     android:background="@android:color/transparent">
 
     <ImageView
-        android:id="@+id/floatVisual"
-        android:layout_width="88dp"
-        android:layout_height="88dp"
-        android:layout_gravity="center_horizontal"
-        android:adjustViewBounds="true"
-        android:background="@android:color/transparent"
+        android:id="@+id/floatVisualBackground"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
         android:contentDescription="@null"
-        android:padding="2dp"
-        android:scaleType="fitCenter"
+        android:importantForAccessibility="no"
+        android:scaleType="centerCrop"
+        android:src="@drawable/c0" />
+
+    <ImageView
+        android:id="@+id/floatVisual"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:contentDescription="@null"
+        android:importantForAccessibility="no"
+        android:scaleType="centerCrop"
         android:src="@drawable/c1" />
 
     <LinearLayout
         android:id="@+id/bubblePanel"
-        android:layout_width="280dp"
+        android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="8dp"
+        android:layout_gravity="bottom"
+        android:layout_margin="12dp"
         android:background="@drawable/chat_panel_bg"
         android:elevation="8dp"
         android:orientation="vertical"
@@ -53,22 +58,20 @@
                 android:text="×" />
         </LinearLayout>
 
-        <TextView
-            android:id="@+id/tvResponseLabel"
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            android:text="Latest response"
-            android:textSize="12sp"
-            android:textStyle="bold" />
-
-        <TextView
-            android:id="@+id/tvFloatResponse"
+        <ScrollView
+            android:id="@+id/svFloatMessages"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="6dp"
-            android:minLines="3"
-            android:textSize="14sp" />
+            android:layout_marginTop="8dp"
+            android:fillViewport="true"
+            android:scrollbars="vertical">
+
+            <LinearLayout
+                android:id="@+id/floatMessageContainer"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:orientation="vertical" />
+        </ScrollView>
 
         <LinearLayout
             android:layout_width="match_parent"
@@ -98,4 +101,4 @@
                 android:text="Send" />
         </LinearLayout>
     </LinearLayout>
-</LinearLayout>
+</FrameLayout>
