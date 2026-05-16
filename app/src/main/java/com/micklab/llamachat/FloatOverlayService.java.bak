@@ -155,7 +155,7 @@ public class FloatOverlayService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        DebugLogger.log(this, "onStartCommand called");
+        android.util.Log.d("FloatOverlay", "onStartCommand called");
         return START_STICKY;
     }
 
@@ -184,13 +184,13 @@ public class FloatOverlayService extends Service {
     }
 
     private void initOverlay() {
-        DebugLogger.log(this, "initOverlay: Starting");
+        android.util.Log.d("FloatOverlay", "initOverlay: Starting");
         windowManager = (WindowManager) getSystemService(WINDOW_SERVICE);
         if (windowManager == null) {
-            DebugLogger.log(this, "ERROR: initOverlay: WindowManager is null!");
+            android.util.Log.e("FloatOverlay", "initOverlay: WindowManager is null!");
             throw new RuntimeException("WindowManager is not available");
         }
-        DebugLogger.log(this, "initOverlay: WindowManager obtained");
+        android.util.Log.d("FloatOverlay", "initOverlay: WindowManager obtained");
         
         // First, try adding a simple test view to verify window manager works
         try {
@@ -216,15 +216,15 @@ public class FloatOverlayService extends Service {
             testParams.y = dpToPx(160);
             
             windowManager.addView(testLayout, testParams);
-            DebugLogger.log(this, "initOverlay: Test view added successfully!");
+            android.util.Log.d("FloatOverlay", "initOverlay: Test view added successfully!");
             
             // If test view works, add the real overlay layout
             overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_float, null);
             if (overlayView == null) {
-                DebugLogger.log(this, "ERROR: initOverlay: overlayView inflation failed");
+                android.util.Log.e("FloatOverlay", "initOverlay: overlayView inflation failed");
                 throw new RuntimeException("Failed to inflate overlay layout");
             }
-            DebugLogger.log(this, "initOverlay: Overlay layout inflated");
+            android.util.Log.d("FloatOverlay", "initOverlay: Overlay layout inflated");
             
             floatVisual = overlayView.findViewById(R.id.floatVisual);
             bubblePanel = overlayView.findViewById(R.id.bubblePanel);
@@ -236,10 +236,10 @@ public class FloatOverlayService extends Service {
             responseView = overlayView.findViewById(R.id.tvFloatResponse);
             
             if (floatVisual == null || bubblePanel == null || inputView == null) {
-                DebugLogger.log(this, "ERROR: initOverlay: Some views are null after findViewById");
+                android.util.Log.e("FloatOverlay", "initOverlay: Some views are null after findViewById");
                 throw new RuntimeException("Required views not found in layout");
             }
-            DebugLogger.log(this, "initOverlay: All views found");
+            android.util.Log.d("FloatOverlay", "initOverlay: All views found");
     
             layoutParams = new WindowManager.LayoutParams(
                     WindowManager.LayoutParams.WRAP_CONTENT,
@@ -251,7 +251,7 @@ public class FloatOverlayService extends Service {
             layoutParams.gravity = Gravity.TOP | Gravity.START;
             layoutParams.x = 0;
             layoutParams.y = dpToPx(160);
-            DebugLogger.log(this, "initOverlay: LayoutParams configured");
+            android.util.Log.d("FloatOverlay", "initOverlay: LayoutParams configured");
     
             gestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
                 @Override
@@ -312,18 +312,18 @@ public class FloatOverlayService extends Service {
             hideButton.setOnClickListener(v -> showBubble(false));
     
             updateFloatVisual();
-            DebugLogger.log(this, "initOverlay: Float visual updated");
+            android.util.Log.d("FloatOverlay", "initOverlay: Float visual updated");
             updateBubbleHeader();
             updateSendButton();
             responseView.setText(t("Tap to open quick chat.", "タップで簡易チャットを開きます。"));
             
-            DebugLogger.log(this, "initOverlay: Adding real overlay view to window manager");
+            android.util.Log.d("FloatOverlay", "initOverlay: Adding real overlay view to window manager");
             windowManager.addView(overlayView, layoutParams);
-            DebugLogger.log(this, "initOverlay: Real overlay view added successfully");
+            android.util.Log.d("FloatOverlay", "initOverlay: Real overlay view added successfully");
             
             // Remove test view after adding real one
             windowManager.removeView(testLayout);
-            DebugLogger.log(this, "initOverlay: Test view removed");
+            android.util.Log.d("FloatOverlay", "initOverlay: Test view removed");
             
         } catch (Exception e) {
             android.util.Log.e("FloatOverlay", "Failed during overlay initialization", e);
