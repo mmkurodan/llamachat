@@ -123,12 +123,17 @@ public class FloatOverlayService extends Service {
             android.util.Log.d("FloatOverlay", "onCreate: Avatar bitmap loaded");
             initConversationHistory();
             android.util.Log.d("FloatOverlay", "onCreate: Conversation history initialized");
-            startForeground(NOTIFICATION_ID, buildNotification());
+            
+            // Create and start foreground BEFORE overlay to ensure service stays alive
+            Notification notification = buildNotification();
+            startForeground(NOTIFICATION_ID, notification);
             android.util.Log.d("FloatOverlay", "onCreate: Foreground notification started");
+            
             initOverlay();
             android.util.Log.d("FloatOverlay", "onCreate: Overlay initialized successfully");
         } catch (Exception e) {
             android.util.Log.e("FloatOverlay", "Failed to initialize overlay service", e);
+            e.printStackTrace();
             stopSelf();
         }
     }
@@ -172,129 +177,143 @@ public class FloatOverlayService extends Service {
         }
         android.util.Log.d("FloatOverlay", "initOverlay: WindowManager obtained");
         
-        overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_float, null);
-        if (overlayView == null) {
-            android.util.Log.e("FloatOverlay", "initOverlay: overlayView inflation failed");
-            throw new RuntimeException("Failed to inflate overlay layout");
-        }
-        android.util.Log.d("FloatOverlay", "initOverlay: Overlay layout inflated");
-        
-        floatVisual = overlayView.findViewById(R.id.floatVisual);
-        bubblePanel = overlayView.findViewById(R.id.bubblePanel);
-        inputView = overlayView.findViewById(R.id.etFloatInput);
-        sendButton = overlayView.findViewById(R.id.btnFloatSend);
-        hideButton = overlayView.findViewById(R.id.btnHideBubble);
-        bubbleTitleView = overlayView.findViewById(R.id.tvBubbleTitle);
-        responseLabelView = overlayView.findViewById(R.id.tvResponseLabel);
-        responseView = overlayView.findViewById(R.id.tvFloatResponse);
-        
-        if (floatVisual == null || bubblePanel == null || inputView == null) {
-            android.util.Log.e("FloatOverlay", "initOverlay: Some views are null after findViewById");
-            throw new RuntimeException("Required views not found in layout");
-        }
-        android.util.Log.d("FloatOverlay", "initOverlay: All views found");
-
-        int overlayType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
-                ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
-                : WindowManager.LayoutParams.TYPE_PHONE;
-        layoutParams = new WindowManager.LayoutParams(
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                WindowManager.LayoutParams.WRAP_CONTENT,
-                overlayType,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-                PixelFormat.TRANSLUCENT
-        );
-        layoutParams.gravity = Gravity.TOP | Gravity.START;
-        layoutParams.x = 0;
-        layoutParams.y = dpToPx(160);
-        android.util.Log.d("FloatOverlay", "initOverlay: LayoutParams configured. Type=" + overlayType);
-
-        gestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
-            @Override
-            public boolean onSingleTapConfirmed(MotionEvent e) {
-                toggleBubble();
-                return true;
-            }
-
-            @Override
-            public boolean onDoubleTap(MotionEvent e) {
-                openApp();
-                return true;
-            }
-        });
-
-        floatVisual.setOnTouchListener((v, event) -> {
-            gestureDetector.onTouchEvent(event);
-            switch (event.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN:
-                    dragging = false;
-                    touchStartX = event.getRawX();
-                    touchStartY = event.getRawY();
-                    initialX = layoutParams.x;
-                    initialY = layoutParams.y;
-                    return true;
-                case MotionEvent.ACTION_MOVE:
-                    float dx = event.getRawX() - touchStartX;
-                    float dy = event.getRawY() - touchStartY;
-                    if (!dragging && (Math.abs(dx) > touchSlop || Math.abs(dy) > touchSlop)) {
-                        dragging = true;
-                    }
-                    if (dragging) {
-                        layoutParams.x = initialX + (int) dx;
-                        layoutParams.y = initialY + (int) dy;
-                        updateOverlayLayout();
-                    }
-                    return true;
-                case MotionEvent.ACTION_UP:
-                case MotionEvent.ACTION_CANCEL:
-                    return true;
-                default:
-                    return false;
-            }
-        });
-
-        sendButton.setOnClickListener(v -> {
-            if (isProcessing) {
-                cancelCurrentRequest();
-                return;
-            }
-            String text = inputView.getText().toString().trim();
-            if (text.isEmpty()) {
-                Toast.makeText(this, t("Please enter a message", "メッセージを入力してください"), Toast.LENGTH_SHORT).show();
-                return;
-            }
-            submitUserMessage(text);
-        });
-        hideButton.setOnClickListener(v -> showBubble(false));
-
-        updateFloatVisual();
-        android.util.Log.d("FloatOverlay", "initOverlay: Float visual updated");
-        updateBubbleHeader();
-        updateSendButton();
-        responseView.setText(t("Tap to open quick chat.", "タップで簡易チャットを開きます。"));
-        
-        // Measure the view to get actual dimensions before adding
-        overlayView.measure(
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED),
-                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED)
-        );
-        int measuredWidth = overlayView.getMeasuredWidth();
-        int measuredHeight = overlayView.getMeasuredHeight();
-        android.util.Log.d("FloatOverlay", "initOverlay: View measured. Width=" + measuredWidth + ", Height=" + measuredHeight);
-        
-        if (measuredWidth <= 0 || measuredHeight <= 0) {
-            android.util.Log.w("FloatOverlay", "initOverlay: Measured dimensions are invalid. Using fallback sizes.");
-            layoutParams.width = dpToPx(100);
-            layoutParams.height = dpToPx(100);
-        }
-        
+        // First, try adding a simple test view to verify window manager works
         try {
-            android.util.Log.d("FloatOverlay", "initOverlay: Adding view to window manager");
+            android.widget.LinearLayout testLayout = new android.widget.LinearLayout(this);
+            testLayout.setLayoutParams(new android.view.ViewGroup.LayoutParams(
+                    dpToPx(100), dpToPx(100)
+            ));
+            testLayout.setBackgroundColor(0xFF00FF00); // Green for testing
+            
+            int overlayType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                    ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
+                    : WindowManager.LayoutParams.TYPE_PHONE;
+            
+            WindowManager.LayoutParams testParams = new WindowManager.LayoutParams(
+                    dpToPx(100),
+                    dpToPx(100),
+                    overlayType,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                    PixelFormat.TRANSLUCENT
+            );
+            testParams.gravity = Gravity.TOP | Gravity.START;
+            testParams.x = 0;
+            testParams.y = dpToPx(160);
+            
+            windowManager.addView(testLayout, testParams);
+            android.util.Log.d("FloatOverlay", "initOverlay: Test view added successfully!");
+            
+            // If test view works, add the real overlay layout
+            overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_float, null);
+            if (overlayView == null) {
+                android.util.Log.e("FloatOverlay", "initOverlay: overlayView inflation failed");
+                throw new RuntimeException("Failed to inflate overlay layout");
+            }
+            android.util.Log.d("FloatOverlay", "initOverlay: Overlay layout inflated");
+            
+            floatVisual = overlayView.findViewById(R.id.floatVisual);
+            bubblePanel = overlayView.findViewById(R.id.bubblePanel);
+            inputView = overlayView.findViewById(R.id.etFloatInput);
+            sendButton = overlayView.findViewById(R.id.btnFloatSend);
+            hideButton = overlayView.findViewById(R.id.btnHideBubble);
+            bubbleTitleView = overlayView.findViewById(R.id.tvBubbleTitle);
+            responseLabelView = overlayView.findViewById(R.id.tvResponseLabel);
+            responseView = overlayView.findViewById(R.id.tvFloatResponse);
+            
+            if (floatVisual == null || bubblePanel == null || inputView == null) {
+                android.util.Log.e("FloatOverlay", "initOverlay: Some views are null after findViewById");
+                throw new RuntimeException("Required views not found in layout");
+            }
+            android.util.Log.d("FloatOverlay", "initOverlay: All views found");
+    
+            layoutParams = new WindowManager.LayoutParams(
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    WindowManager.LayoutParams.WRAP_CONTENT,
+                    overlayType,
+                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
+                    PixelFormat.TRANSLUCENT
+            );
+            layoutParams.gravity = Gravity.TOP | Gravity.START;
+            layoutParams.x = 0;
+            layoutParams.y = dpToPx(160);
+            android.util.Log.d("FloatOverlay", "initOverlay: LayoutParams configured");
+    
+            gestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
+                @Override
+                public boolean onSingleTapConfirmed(MotionEvent e) {
+                    toggleBubble();
+                    return true;
+                }
+    
+                @Override
+                public boolean onDoubleTap(MotionEvent e) {
+                    openApp();
+                    return true;
+                }
+            });
+    
+            floatVisual.setOnTouchListener((v, event) -> {
+                gestureDetector.onTouchEvent(event);
+                switch (event.getActionMasked()) {
+                    case MotionEvent.ACTION_DOWN:
+                        dragging = false;
+                        touchStartX = event.getRawX();
+                        touchStartY = event.getRawY();
+                        initialX = layoutParams.x;
+                        initialY = layoutParams.y;
+                        return true;
+                    case MotionEvent.ACTION_MOVE:
+                        float dx = event.getRawX() - touchStartX;
+                        float dy = event.getRawY() - touchStartY;
+                        if (!dragging && (Math.abs(dx) > touchSlop || Math.abs(dy) > touchSlop)) {
+                            dragging = true;
+                        }
+                        if (dragging) {
+                            layoutParams.x = initialX + (int) dx;
+                            layoutParams.y = initialY + (int) dy;
+                            updateOverlayLayout();
+                        }
+                        return true;
+                    case MotionEvent.ACTION_UP:
+                    case MotionEvent.ACTION_CANCEL:
+                        return true;
+                    default:
+                        return false;
+                }
+            });
+    
+            sendButton.setOnClickListener(v -> {
+                if (isProcessing) {
+                    cancelCurrentRequest();
+                    return;
+                }
+                String text = inputView.getText().toString().trim();
+                if (text.isEmpty()) {
+                    Toast.makeText(this, t("Please enter a message", "メッセージを入力してください"), Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                submitUserMessage(text);
+            });
+            hideButton.setOnClickListener(v -> showBubble(false));
+    
+            updateFloatVisual();
+            android.util.Log.d("FloatOverlay", "initOverlay: Float visual updated");
+            updateBubbleHeader();
+            updateSendButton();
+            responseView.setText(t("Tap to open quick chat.", "タップで簡易チャットを開きます。"));
+            
+            android.util.Log.d("FloatOverlay", "initOverlay: Adding real overlay view to window manager");
             windowManager.addView(overlayView, layoutParams);
-            android.util.Log.d("FloatOverlay", "initOverlay: View added successfully");
+            android.util.Log.d("FloatOverlay", "initOverlay: Real overlay view added successfully");
+            
+            // Remove test view after adding real one
+            windowManager.removeView(testLayout);
+            android.util.Log.d("FloatOverlay", "initOverlay: Test view removed");
+            
         } catch (Exception e) {
-            android.util.Log.e("FloatOverlay", "Failed to add overlay view", e);
-            throw new RuntimeException("Cannot add overlay view to window manager", e);
+            android.util.Log.e("FloatOverlay", "Failed during overlay initialization", e);
+            e.printStackTrace();
+            throw new RuntimeException("Cannot initialize overlay", e);
         }
     }
 
