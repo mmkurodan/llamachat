@@ -135,7 +135,8 @@ public class FloatOverlayService extends Service {
 
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
-        return START_NOT_STICKY;
+        android.util.Log.d("FloatOverlay", "onStartCommand called");
+        return START_STICKY;
     }
 
     @Override
@@ -200,7 +201,7 @@ public class FloatOverlayService extends Service {
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 WindowManager.LayoutParams.WRAP_CONTENT,
                 overlayType,
-                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE,
+                WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
                 PixelFormat.TRANSLUCENT
         );
         layoutParams.gravity = Gravity.TOP | Gravity.START;
