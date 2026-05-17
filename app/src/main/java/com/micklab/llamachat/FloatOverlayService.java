@@ -5,14 +5,22 @@ import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
 import android.app.Service;
+import android.Manifest;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.graphics.PixelFormat;
+import android.net.Uri;
 import android.os.Build;
+import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.speech.RecognitionListener;
+import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
+import android.speech.tts.TextToSpeech;
 import android.text.TextUtils;
 import android.view.GestureDetector;
 import android.view.Gravity;
@@ -24,6 +32,7 @@ import android.view.WindowManager;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.Button;
 import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
@@ -47,6 +56,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Random;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -72,6 +82,9 @@ public class FloatOverlayService extends Service {
     private static final String DEFAULT_BASE_NAME_EN = "Ai";
     private static final String DEFAULT_SYSTEM_PROMPT_JA = "あなたはユーザの若い女性秘書です";
     private static final String DEFAULT_SYSTEM_PROMPT_EN = "You are the user's young female secretary.";
+    private static final String SEARCH_SYSTEM_PROMPT =
+            "You are a search-augmented assistant. When the user provides SEARCH_RESULTS, "
+                    + "you must read them and base your answer strictly on that information.";
     private static final String NOTIFICATION_CHANNEL_ID = "llamachat_float_overlay";
     private static final int NOTIFICATION_ID = 2001;
     private static final int AVATAR_TALK_FRAME_MS = 120;
@@ -79,6 +92,7 @@ public class FloatOverlayService extends Service {
     private static final int AVATAR_BLINK_MAX_MS = 7000;
     private static final int AVATAR_BLINK_DURATION_MS = 120;
     private static final float FLOAT_AVATAR_HEIGHT_RATIO = 0.33f;
+    private static final int FLOAT_BUBBLE_MARGIN_DP = 12;
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -121,10 +135,25 @@ public class FloatOverlayService extends Service {
     private String userName = "";
     private String appLanguage = Locale.getDefault().getLanguage().startsWith("ja") ? "ja" : "en";
     private String floatDisplayMode = FLOAT_DISPLAY_MODE_AVATAR;
+    private String webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
+    private String webSearchApiKey = "";
+    private String webSearchModel = "default";
+    private String speechLang = "ja-JP";
     private int historyLimit = 10;
+    private float speechRate = 1.0f;
+    private float speechPitch = 1.0f;
     private boolean streamingEnabled = true;
+    private boolean ttsEnabled = false;
+    private boolean voiceInputEnabled = true;
+    private boolean autoVoiceInputEnabled = false;
+    private boolean webSearchEnabled = false;
     private boolean isProcessing = false;
+    private boolean isListening = false;
     private int messageMaxHeightPx = 0;
+    private int avatarPosX = 0;
+    private int avatarPosY = 0;
+    private int avatarWidthPx = 0;
+    private int avatarHeightPx = 0;
 
     private float touchStartX;
     private float touchStartY;
@@ -132,6 +161,10 @@ public class FloatOverlayService extends Service {
     private int initialY;
     private boolean dragging = false;
     private int touchSlop = 0;
+    private SpeechRecognizer speechRecognizer;
+    private TextToSpeech tts;
+    private boolean ttsReady = false;
+    private final AtomicBoolean ttsSpeaking = new AtomicBoolean(false);
     private final Runnable blinkRunnable = new Runnable() {
         @Override
         public void run() {
@@ -171,6 +204,8 @@ public class FloatOverlayService extends Service {
             DebugLogger.log(this, "Loading avatar bitmaps");
             loadAvatarBitmaps();
             DebugLogger.log(this, "Avatar bitmaps loaded");
+
+            initTts();
             
             DebugLogger.log(this, "Initializing conversation history");
             initConversationHistory();
@@ -214,6 +249,16 @@ public class FloatOverlayService extends Service {
             currentCall.cancel();
             currentCall = null;
         }
+        stopVoiceRecognition();
+        if (speechRecognizer != null) {
+            speechRecognizer.destroy();
+            speechRecognizer = null;
+        }
+        if (tts != null) {
+            tts.stop();
+            tts.shutdown();
+            tts = null;
+        }
         if (windowManager != null && overlayView != null) {
             try {
                 windowManager.removeView(overlayView);
@@ -221,6 +266,8 @@ public class FloatOverlayService extends Service {
             }
         }
         stopAvatarAnimation();
+        ttsReady = false;
+        ttsSpeaking.set(false);
         recycleBitmap(avatarC0Bitmap);
         recycleBitmap(avatarC1Bitmap);
         recycleBitmap(avatarC2Bitmap);
@@ -307,6 +354,7 @@ public class FloatOverlayService extends Service {
             layoutParams.x = 0;
             layoutParams.y = dpToPx(160);
             DebugLogger.log(this, "initOverlay: LayoutParams configured");
+            avatarPosY = layoutParams.y;
     
             gestureDetector = new GestureDetector(this, new GestureDetector.SimpleOnGestureListener() {
                 @Override
@@ -329,8 +377,13 @@ public class FloatOverlayService extends Service {
                         dragging = false;
                         touchStartX = event.getRawX();
                         touchStartY = event.getRawY();
-                        initialX = layoutParams.x;
-                        initialY = layoutParams.y;
+                        if (FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode)) {
+                            initialX = layoutParams.x;
+                            initialY = layoutParams.y;
+                        } else {
+                            initialX = avatarPosX;
+                            initialY = avatarPosY;
+                        }
                         return true;
                     case MotionEvent.ACTION_MOVE:
                         float dx = event.getRawX() - touchStartX;
@@ -339,9 +392,19 @@ public class FloatOverlayService extends Service {
                             dragging = true;
                         }
                         if (dragging) {
-                            layoutParams.x = initialX + (int) dx;
-                            layoutParams.y = initialY + (int) dy;
-                            updateOverlayLayout();
+                            if (FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode)) {
+                                layoutParams.x = initialX + (int) dx;
+                                layoutParams.y = initialY + (int) dy;
+                                updateOverlayLayout();
+                            } else {
+                                int screenWidth = getResources().getDisplayMetrics().widthPixels;
+                                int screenHeight = getResources().getDisplayMetrics().heightPixels;
+                                int maxX = Math.max(0, screenWidth - avatarWidthPx);
+                                int maxY = Math.max(0, screenHeight - avatarHeightPx);
+                                avatarPosX = Math.max(0, Math.min(initialX + (int) dx, maxX));
+                                avatarPosY = Math.max(0, Math.min(initialY + (int) dy, maxY));
+                                applyAvatarPosition();
+                            }
                         }
                         return true;
                     case MotionEvent.ACTION_UP:
@@ -353,12 +416,20 @@ public class FloatOverlayService extends Service {
             });
     
             sendButton.setOnClickListener(v -> {
+                if (isListening) {
+                    stopVoiceRecognition();
+                    return;
+                }
                 if (isProcessing) {
                     cancelCurrentRequest();
                     return;
                 }
                 String text = inputView.getText().toString().trim();
                 if (text.isEmpty()) {
+                    if (voiceInputEnabled) {
+                        startVoiceRecognition(true);
+                        return;
+                    }
                     Toast.makeText(this, t("Please enter a message", "メッセージを入力してください"), Toast.LENGTH_SHORT).show();
                     return;
                 }
@@ -370,7 +441,6 @@ public class FloatOverlayService extends Service {
             DebugLogger.log(this, "initOverlay: Float visual updated");
             updateBubbleHeader();
             updateSendButton();
-            appendSystemMessage(t("Tap to open quick chat.", "タップで簡易チャットを開きます。"));
             
             DebugLogger.log(this, "initOverlay: Adding real overlay view to window manager");
             windowManager.addView(overlayView, layoutParams);
@@ -437,6 +507,7 @@ public class FloatOverlayService extends Service {
                 : WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
         updateOverlayLayout();
         if (show) {
+            updateBubblePanelPosition();
             adjustMessageAreaHeight();
             scrollMessagesToBottom();
             inputView.requestFocus();
@@ -474,8 +545,8 @@ public class FloatOverlayService extends Service {
         boolean iconMode = FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode);
         int screenW = getResources().getDisplayMetrics().widthPixels;
         int screenH = getResources().getDisplayMetrics().heightPixels;
-        int avatarHeightPx = Math.max(1, Math.round(screenH * FLOAT_AVATAR_HEIGHT_RATIO));
-        int avatarWidthPx = Math.max(
+        avatarHeightPx = Math.max(1, Math.round(screenH * FLOAT_AVATAR_HEIGHT_RATIO));
+        avatarWidthPx = Math.max(
                 1,
                 Math.min(screenW, Math.round(avatarHeightPx * getAvatarAspectRatio()))
         );
@@ -485,24 +556,37 @@ public class FloatOverlayService extends Service {
             layoutParams.x = 0;
             layoutParams.y = 0;
         }
-        ViewGroup.LayoutParams params = floatVisual.getLayoutParams();
-        if (params != null) {
-            if (iconMode) {
-                int sizePx = dpToPx(56);
-                params.width = sizePx;
-                params.height = sizePx;
-            } else {
-                params.width = avatarWidthPx;
-                params.height = avatarHeightPx;
-            }
-            floatVisual.setLayoutParams(params);
+        FrameLayout.LayoutParams params = floatVisual.getLayoutParams() instanceof FrameLayout.LayoutParams
+                ? (FrameLayout.LayoutParams) floatVisual.getLayoutParams()
+                : new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        params.gravity = Gravity.TOP | Gravity.START;
+        if (iconMode) {
+            int sizePx = dpToPx(56);
+            params.width = sizePx;
+            params.height = sizePx;
+            params.leftMargin = 0;
+            params.topMargin = 0;
+            avatarPosX = 0;
+            avatarPosY = 0;
+        } else {
+            int maxX = Math.max(0, screenW - avatarWidthPx);
+            int maxY = Math.max(0, screenH - avatarHeightPx);
+            avatarPosX = Math.max(0, Math.min(avatarPosX, maxX));
+            avatarPosY = Math.max(0, Math.min(avatarPosY, maxY));
+            params.width = avatarWidthPx;
+            params.height = avatarHeightPx;
+            params.leftMargin = avatarPosX;
+            params.topMargin = avatarPosY;
         }
+        floatVisual.setLayoutParams(params);
         if (bubblePanel != null) {
-            ViewGroup.LayoutParams bubbleParams = bubblePanel.getLayoutParams();
-            if (bubbleParams != null) {
-                bubbleParams.width = iconMode ? dpToPx(300) : ViewGroup.LayoutParams.MATCH_PARENT;
-                bubblePanel.setLayoutParams(bubbleParams);
-            }
+            FrameLayout.LayoutParams bubbleParams = bubblePanel.getLayoutParams() instanceof FrameLayout.LayoutParams
+                    ? (FrameLayout.LayoutParams) bubblePanel.getLayoutParams()
+                    : new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            bubbleParams.width = Math.min(dpToPx(300), Math.max(dpToPx(200), screenW - dpToPx(FLOAT_BUBBLE_MARGIN_DP * 2)));
+            bubbleParams.height = ViewGroup.LayoutParams.WRAP_CONTENT;
+            bubblePanel.setLayoutParams(bubbleParams);
+            updateBubblePanelPosition();
         }
         if (floatVisualBackground != null) {
             floatVisualBackground.setVisibility(View.GONE);
@@ -525,7 +609,7 @@ public class FloatOverlayService extends Service {
 
     private void updateAvatarAnimation() {
         if (FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode)) return;
-        if (isProcessing) {
+        if (isProcessing || ttsSpeaking.get()) {
             startTalkAnimation();
         } else {
             startIdleAnimation();
@@ -543,7 +627,7 @@ public class FloatOverlayService extends Service {
     private void updateSendButton() {
         mainHandler.post(() -> {
             if (sendButton != null) {
-                sendButton.setText(isProcessing ? "STOP" : t("Send", "送信"));
+                sendButton.setText((isProcessing || isListening) ? "STOP" : t("Send", "送信"));
             }
         });
     }
@@ -558,7 +642,11 @@ public class FloatOverlayService extends Service {
         currentResponseBubble = null;
         updateSendButton();
         appendSystemMessage(t("Waiting for response...", "応答を待っています..."));
-        sendChat(null, false);
+        if (webSearchEnabled && !webSearchApiKey.isEmpty()) {
+            performWebSearchFlow(userMessage);
+        } else {
+            sendChat(null, false);
+        }
     }
 
     private void cancelCurrentRequest() {
@@ -567,6 +655,7 @@ public class FloatOverlayService extends Service {
             currentCall = null;
         }
         isProcessing = false;
+        stopVoiceRecognition();
         updateAvatarAnimation();
         updateSendButton();
         currentResponseBubble = null;
@@ -581,9 +670,13 @@ public class FloatOverlayService extends Service {
                 if (!conversationHistory.isEmpty()) {
                     JSONObject first = conversationHistory.get(0);
                     if ("system".equals(first.optString("role"))) {
+                        String systemContent = first.optString("content", "");
+                        if (webSearchEnabled && !systemContent.contains(SEARCH_SYSTEM_PROMPT)) {
+                            systemContent = systemContent + "\n" + SEARCH_SYSTEM_PROMPT;
+                        }
                         JSONObject sys = new JSONObject();
                         sys.put("role", "system");
-                        sys.put("content", first.optString("content", ""));
+                        sys.put("content", systemContent);
                         messages.put(sys);
                     }
                 }
@@ -626,6 +719,303 @@ public class FloatOverlayService extends Service {
             isProcessing = false;
             updateSendButton();
             setResponseText(errorText(e.getMessage()));
+        }
+    }
+
+    private void performWebSearchFlow(String userMsg) {
+        new Thread(() -> {
+            String augmentedMessage = null;
+            try {
+                String keywords = extractSearchKeywords(userMsg);
+                if (!TextUtils.isEmpty(keywords)) {
+                    String searchResults = callWebSearchApi(keywords);
+                    if (!TextUtils.isEmpty(searchResults)) {
+                        augmentedMessage = buildSearchAugmentedUserMessage(userMsg, searchResults);
+                    }
+                }
+            } catch (Exception e) {
+                DebugLogger.log(this, "performWebSearchFlow error: " + e.getMessage());
+            }
+            String finalAugmented = augmentedMessage;
+            mainHandler.post(() -> sendChat(finalAugmented, finalAugmented != null));
+        }).start();
+    }
+
+    private String extractSearchKeywords(String userMsg) {
+        try {
+            String modelForWebSearch = webSearchModel == null ? "" : webSearchModel.trim();
+            if (modelForWebSearch.isEmpty()) modelForWebSearch = "default";
+            String prompt = "あなたの役割は「ユーザーの質問がインターネット検索を必要とするか判定し、必要なら検索キーワードを抽出する」ことです。\n\n"
+                    + "出力は必ず次のどちらか一つだけにしてください：\n\n"
+                    + "1. 検索が必要な場合：\nSEARCH: <検索キーワード>\n\n"
+                    + "2. 検索が不要な場合：\nNONE\n\n"
+                    + "制約：\n"
+                    + "- 説明文や理由を書かない\n"
+                    + "- 箇条書きや追加情報を含めない\n"
+                    + "- キーワードは短く、検索エンジンで使える語句のみ\n"
+                    + "- 複数キーワードが必要な場合はスペース区切りで1行にまとめる\n"
+                    + "- 出力形式を絶対に変えない\n\n"
+                    + "ユーザーの質問：\n「" + userMsg + "」";
+            JSONObject body = new JSONObject();
+            body.put("model", modelForWebSearch);
+            body.put("prompt", prompt);
+            body.put("stream", false);
+            Request request = new Request.Builder()
+                    .url(ollamaBaseUrl + "/api/generate")
+                    .post(RequestBody.create(body.toString(), JSON_MEDIA))
+                    .build();
+            Response response = client.newCall(request).execute();
+            String respBody = response.body() != null ? response.body().string() : "";
+            if (!response.isSuccessful()) return null;
+            String result = new JSONObject(respBody).optString("response", "").trim();
+            if (result.startsWith("SEARCH:")) {
+                String keywords = result.substring("SEARCH:".length()).trim();
+                return keywords.isEmpty() ? null : keywords;
+            }
+            return null;
+        } catch (Exception e) {
+            DebugLogger.log(this, "extractSearchKeywords error: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private String callWebSearchApi(String keywords) {
+        if (isBraveWebSearchUrl(webSearchUrl)) {
+            return callBraveWebSearchApi(keywords);
+        }
+        try {
+            String url = webSearchUrl + "?q=" + java.net.URLEncoder.encode(keywords, "UTF-8");
+            Request.Builder reqBuilder = new Request.Builder()
+                    .url(url)
+                    .get()
+                    .addHeader("Accept", "application/json")
+                    .addHeader("Accept-Language", "ja-JP");
+            if (!webSearchApiKey.isEmpty()) {
+                reqBuilder.addHeader("X-Subscription-Token", webSearchApiKey);
+                reqBuilder.addHeader("Authorization", "Bearer " + webSearchApiKey);
+                reqBuilder.addHeader("X-Api-Key", webSearchApiKey);
+            }
+            Response response = client.newCall(reqBuilder.build()).execute();
+            String respBody = response.body() != null ? response.body().string() : "";
+            if (!response.isSuccessful()) return null;
+            JSONObject json = new JSONObject(respBody);
+            StringBuilder extracted = new StringBuilder();
+            extractAllStringValues(json, extracted, 0);
+            String extractedText = extracted.toString().trim();
+            if (extractedText.isEmpty()) return null;
+            return "SEARCH_RESULTS:\n" + extractedText;
+        } catch (Exception e) {
+            DebugLogger.log(this, "callWebSearchApi error: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private boolean isBraveWebSearchUrl(String url) {
+        if (url == null || url.trim().isEmpty()) return false;
+        String normalized = url.trim().toLowerCase(Locale.ROOT);
+        if (normalized.contains("search.brave.com/res/v1/web/search")) return true;
+        Uri uri = Uri.parse(url.trim());
+        String host = uri.getHost();
+        return host != null && host.toLowerCase(Locale.ROOT).contains("search.brave.com");
+    }
+
+    private String callBraveWebSearchApi(String keywords) {
+        try {
+            String url = webSearchUrl + "?q=" + java.net.URLEncoder.encode(keywords, "UTF-8") + "&count=8";
+            Request.Builder reqBuilder = new Request.Builder()
+                    .url(url)
+                    .get()
+                    .addHeader("Accept", "application/json")
+                    .addHeader("Accept-Language", "ja-JP");
+            if (!webSearchApiKey.isEmpty()) {
+                reqBuilder.addHeader("X-Subscription-Token", webSearchApiKey);
+            }
+            Response response = client.newCall(reqBuilder.build()).execute();
+            String respBody = response.body() != null ? response.body().string() : "";
+            if (!response.isSuccessful()) return null;
+            JSONObject json = new JSONObject(respBody);
+            JSONObject web = json.optJSONObject("web");
+            JSONArray results = web != null ? web.optJSONArray("results") : null;
+            if (results == null || results.length() == 0) return null;
+            StringBuilder extracted = new StringBuilder();
+            int limit = Math.min(results.length(), 8);
+            for (int i = 0; i < limit; i++) {
+                JSONObject item = results.optJSONObject(i);
+                if (item == null) continue;
+                String title = item.optString("title", "").trim();
+                String description = item.optString("description", "").trim();
+                String resultUrl = item.optString("url", "").trim();
+                JSONArray snippets = item.optJSONArray("extra_snippets");
+                if (title.isEmpty() && description.isEmpty() && resultUrl.isEmpty()) continue;
+                if (extracted.length() > 0) extracted.append("\n\n");
+                extracted.append("[").append(i + 1).append("]");
+                if (!title.isEmpty()) extracted.append(" ").append(title);
+                if (!description.isEmpty()) extracted.append("\n").append(description);
+                if (!resultUrl.isEmpty()) extracted.append("\n").append(resultUrl);
+                if (snippets != null) {
+                    for (int j = 0; j < snippets.length() && j < 2; j++) {
+                        String snippet = snippets.optString(j, "").trim();
+                        if (!snippet.isEmpty()) extracted.append("\n").append(snippet);
+                    }
+                }
+            }
+            String extractedText = extracted.toString().trim();
+            if (extractedText.isEmpty()) return null;
+            return "SEARCH_RESULTS:\n" + extractedText;
+        } catch (Exception e) {
+            DebugLogger.log(this, "callBraveWebSearchApi error: " + e.getMessage());
+            return null;
+        }
+    }
+
+    private void extractAllStringValues(Object obj, StringBuilder sb, int depth) {
+        if (depth > 10) return;
+        try {
+            if (obj instanceof JSONObject) {
+                JSONObject json = (JSONObject) obj;
+                java.util.Iterator<String> keys = json.keys();
+                while (keys.hasNext()) {
+                    String key = keys.next();
+                    extractAllStringValues(json.get(key), sb, depth + 1);
+                }
+            } else if (obj instanceof JSONArray) {
+                JSONArray arr = (JSONArray) obj;
+                for (int i = 0; i < arr.length() && i < 10; i++) {
+                    extractAllStringValues(arr.get(i), sb, depth + 1);
+                }
+            } else if (obj instanceof String) {
+                String str = ((String) obj).trim();
+                if (!str.isEmpty() && str.length() > 10 && !str.startsWith("http")) {
+                    if (sb.length() > 0) sb.append("\n");
+                    sb.append(str);
+                }
+            }
+        } catch (Exception e) {
+            DebugLogger.log(this, "extractAllStringValues error: " + e.getMessage());
+        }
+    }
+
+    private String buildSearchAugmentedUserMessage(String userMsg, String searchResultsBlock) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("以下はWeb検索結果です。SEARCH_RESULTSとして扱ってください。\n");
+        sb.append(searchResultsBlock);
+        sb.append("\n\n質問: ").append(userMsg);
+        return sb.toString();
+    }
+
+    private Intent buildRecognizerIntent(boolean preferOffline) {
+        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
+        String lang = (speechLang != null && !speechLang.isEmpty())
+                ? speechLang
+                : Locale.getDefault().toLanguageTag();
+        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang);
+        intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
+        intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, preferOffline);
+        return intent;
+    }
+
+    private void startVoiceRecognition(boolean preferOffline) {
+        if (!voiceInputEnabled || isProcessing || isListening) return;
+        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            Toast.makeText(this, t("Voice recognition unavailable", "音声認識が利用できません"), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            Toast.makeText(this, t("Microphone permission is required", "マイク権限が必要です"), Toast.LENGTH_SHORT).show();
+            return;
+        }
+        if (speechRecognizer == null) {
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+        } else {
+            speechRecognizer.cancel();
+        }
+        isListening = true;
+        updateSendButton();
+        speechRecognizer.setRecognitionListener(new RecognitionListener() {
+            @Override public void onReadyForSpeech(Bundle params) {}
+            @Override public void onBeginningOfSpeech() {}
+            @Override public void onRmsChanged(float rmsdB) {}
+            @Override public void onBufferReceived(byte[] buffer) {}
+            @Override public void onEndOfSpeech() {}
+            @Override
+            public void onError(int error) {
+                stopVoiceRecognition();
+                if (error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT
+                        && error != SpeechRecognizer.ERROR_NO_MATCH) {
+                    Toast.makeText(FloatOverlayService.this, t("Voice recognition failed", "音声認識に失敗しました"), Toast.LENGTH_SHORT).show();
+                }
+            }
+            @Override
+            public void onResults(Bundle results) {
+                stopVoiceRecognition();
+                ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                String best = (matches != null && !matches.isEmpty()) ? matches.get(0).trim() : "";
+                if (!best.isEmpty()) {
+                    submitUserMessage(best);
+                }
+            }
+            @Override public void onPartialResults(Bundle partialResults) {}
+            @Override public void onEvent(int eventType, Bundle params) {}
+        });
+        speechRecognizer.startListening(buildRecognizerIntent(preferOffline));
+    }
+
+    private void stopVoiceRecognition() {
+        isListening = false;
+        if (speechRecognizer != null) {
+            speechRecognizer.cancel();
+        }
+        updateSendButton();
+    }
+
+    private void initTts() {
+        tts = new TextToSpeech(this, status -> {
+            ttsReady = status == TextToSpeech.SUCCESS;
+            if (ttsReady) {
+                applyTtsSettings();
+            }
+        });
+    }
+
+    private void applyTtsSettings() {
+        if (!ttsReady || tts == null) return;
+        try {
+            String[] parts = speechLang.split("-");
+            Locale locale = parts.length >= 2 ? new Locale(parts[0], parts[1]) : new Locale(parts[0]);
+            tts.setLanguage(locale);
+        } catch (Exception e) {
+            tts.setLanguage(Locale.JAPAN);
+        }
+        tts.setSpeechRate(speechRate);
+        tts.setPitch(speechPitch);
+    }
+
+    private void speakText(String text) {
+        if (!ttsEnabled || !ttsReady || tts == null || TextUtils.isEmpty(text)) return;
+        String source = text.replaceAll("<think>[\\s\\S]*?</think>", " ");
+        String clean = source
+                .replaceAll("[\\n\\r\\t]", "、")
+                .replaceAll("[!@#$%^&*()_+={}\\[\\]|\\\\:;<>.?/]", "、")
+                .replaceAll("[,\u201c\u201d]", " ")
+                .replaceAll("、+", "、")
+                .replaceAll("\\s+", " ")
+                .trim();
+        if (clean.isEmpty()) return;
+        applyTtsSettings();
+        ttsSpeaking.set(true);
+        updateAvatarAnimation();
+        int result = tts.speak(clean, TextToSpeech.QUEUE_FLUSH, null, "float_utt_" + System.currentTimeMillis());
+        if (result != TextToSpeech.SUCCESS) {
+            ttsSpeaking.set(false);
+            updateAvatarAnimation();
+        } else {
+            long estimateMs = Math.max(500L, Math.min(12000L, clean.length() * 60L));
+            mainHandler.postDelayed(() -> {
+                ttsSpeaking.set(false);
+                updateAvatarAnimation();
+            }, estimateMs);
         }
     }
 
@@ -724,7 +1114,8 @@ public class FloatOverlayService extends Service {
     }
 
     private void finishResponse(String responseText) {
-        if (!TextUtils.isEmpty(responseText) && !responseText.startsWith(t("Error: ", "エラー: "))) {
+        boolean hasAssistantContent = !TextUtils.isEmpty(responseText) && !responseText.startsWith(t("Error: ", "エラー: "));
+        if (hasAssistantContent) {
             addToHistory("assistant", responseText);
             appendSharedConversationLog("assistant", responseText);
         }
@@ -733,6 +1124,12 @@ public class FloatOverlayService extends Service {
         updateSendButton();
         setResponseText(responseText);
         currentResponseBubble = null;
+        if (hasAssistantContent) {
+            speakText(responseText);
+            if (autoVoiceInputEnabled) {
+                mainHandler.postDelayed(() -> startVoiceRecognition(true), 200L);
+            }
+        }
     }
 
     private String errorText(String message) {
@@ -814,6 +1211,7 @@ public class FloatOverlayService extends Service {
                 lp.height = clamped;
                 messageScrollView.setLayoutParams(lp);
             }
+            updateBubblePanelPosition();
         });
     }
 
@@ -907,6 +1305,16 @@ public class FloatOverlayService extends Service {
         ollamaBaseUrl = settings.optString("ollamaBaseUrl", ollamaBaseUrl);
         selectedModel = settings.optString("selectedModel", selectedModel);
         streamingEnabled = settings.optBoolean("streamingEnabled", streamingEnabled);
+        ttsEnabled = settings.optBoolean("ttsEnabled", ttsEnabled);
+        voiceInputEnabled = settings.optBoolean("voiceInputEnabled", voiceInputEnabled);
+        autoVoiceInputEnabled = settings.optBoolean("autoVoiceInputEnabled", autoVoiceInputEnabled);
+        speechLang = settings.optString("speechLang", speechLang);
+        speechRate = (float) settings.optDouble("speechRate", speechRate);
+        speechPitch = (float) settings.optDouble("speechPitch", speechPitch);
+        webSearchEnabled = settings.optBoolean("webSearchEnabled", webSearchEnabled);
+        webSearchUrl = settings.optString("webSearchUrl", webSearchUrl);
+        webSearchApiKey = settings.optString("webSearchApiKey", webSearchApiKey);
+        webSearchModel = settings.optString("webSearchModel", webSearchModel);
         systemPromptText = settings.optString("systemPrompt", systemPromptText);
         baseName = settings.optString("baseName", baseName);
         userName = settings.optString("userName", userName);
@@ -921,6 +1329,16 @@ public class FloatOverlayService extends Service {
         if (TextUtils.isEmpty(selectedModel)) {
             selectedModel = "default";
         }
+        if (TextUtils.isEmpty(webSearchModel)) {
+            webSearchModel = "default";
+        }
+        if (TextUtils.isEmpty(webSearchUrl)) {
+            webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
+        }
+        if (TextUtils.isEmpty(speechLang)) {
+            speechLang = "ja-JP";
+        }
+        applyTtsSettings();
     }
 
     private String normalizeFloatDisplayMode(String value) {
@@ -982,6 +1400,63 @@ public class FloatOverlayService extends Service {
             return (float) options.outWidth / options.outHeight;
         }
         return 1f;
+    }
+
+    private void applyAvatarPosition() {
+        if (floatVisual == null) return;
+        ViewGroup.LayoutParams rawParams = floatVisual.getLayoutParams();
+        if (!(rawParams instanceof FrameLayout.LayoutParams)) return;
+        FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) rawParams;
+        params.leftMargin = avatarPosX;
+        params.topMargin = avatarPosY;
+        floatVisual.setLayoutParams(params);
+        updateBubblePanelPosition();
+    }
+
+    private void updateBubblePanelPosition() {
+        if (bubblePanel == null || floatVisual == null) return;
+        if (!(bubblePanel.getLayoutParams() instanceof FrameLayout.LayoutParams)) return;
+        FrameLayout.LayoutParams bubbleParams = (FrameLayout.LayoutParams) bubblePanel.getLayoutParams();
+        int marginPx = dpToPx(FLOAT_BUBBLE_MARGIN_DP);
+        int screenW = getResources().getDisplayMetrics().widthPixels;
+        int screenH = getResources().getDisplayMetrics().heightPixels;
+        int bubbleW = bubbleParams.width > 0 ? bubbleParams.width : bubblePanel.getWidth();
+        if (bubbleW <= 0) bubbleW = Math.min(dpToPx(300), Math.max(dpToPx(200), screenW - marginPx * 2));
+        if (FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode)) {
+            bubbleParams.gravity = Gravity.BOTTOM | Gravity.START;
+            bubbleParams.leftMargin = marginPx;
+            bubbleParams.topMargin = 0;
+            bubbleParams.rightMargin = marginPx;
+            bubbleParams.bottomMargin = marginPx;
+            bubblePanel.setLayoutParams(bubbleParams);
+            return;
+        }
+        bubbleParams.gravity = Gravity.TOP | Gravity.START;
+        bubbleParams.rightMargin = 0;
+        bubbleParams.bottomMargin = 0;
+        int desiredLeft = avatarPosX + ((avatarWidthPx - bubbleW) / 2);
+        int maxLeft = Math.max(0, screenW - bubbleW);
+        int left = Math.max(0, Math.min(desiredLeft, maxLeft));
+        if (bubblePanel.getVisibility() != View.VISIBLE) {
+            bubbleParams.leftMargin = left;
+            bubbleParams.topMargin = avatarPosY + avatarHeightPx;
+            bubblePanel.setLayoutParams(bubbleParams);
+            return;
+        }
+        int bubbleH = bubblePanel.getHeight();
+        if (bubbleH <= 0) {
+            bubblePanel.measure(
+                    View.MeasureSpec.makeMeasureSpec(bubbleW, View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(screenH, View.MeasureSpec.AT_MOST)
+            );
+            bubbleH = bubblePanel.getMeasuredHeight();
+        }
+        int belowTop = avatarPosY + avatarHeightPx;
+        int maxTop = Math.max(0, screenH - bubbleH);
+        int top = Math.min(belowTop, maxTop);
+        bubbleParams.leftMargin = left;
+        bubbleParams.topMargin = Math.max(0, top);
+        bubblePanel.setLayoutParams(bubbleParams);
     }
 
     private void scheduleNextBlink() {
