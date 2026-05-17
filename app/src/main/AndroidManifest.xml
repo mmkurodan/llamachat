@@ -29,8 +29,7 @@
         </activity>
         <service
             android:name=".FloatOverlayService"
-            android:exported="false"
-            android:foregroundServiceType="mediaProjection" />
+            android:exported="false" />
     </application>
 
 </manifest>
