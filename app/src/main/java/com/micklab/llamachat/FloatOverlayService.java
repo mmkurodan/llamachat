@@ -4,6 +4,7 @@ import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
 import android.app.PendingIntent;
+import android.app.RemoteInput;
 import android.app.Service;
 import android.Manifest;
 import android.content.Intent;
@@ -69,6 +70,8 @@ import okhttp3.Response;
 public class FloatOverlayService extends Service {
 
     public static final String ACTION_SHOW_OVERLAY = "com.micklab.llamachat.action.SHOW_OVERLAY";
+    private static final String ACTION_NOTIFICATION_REPLY = "com.micklab.llamachat.action.NOTIFICATION_REPLY";
+    private static final String KEY_NOTIFICATION_REPLY = "notification_reply_text";
 
     private static final String SETTINGS_FILE = "chat_settings.json";
     private static final String OVERLAY_SYNC_LOG_FILE = "overlay_sync_log.jsonl";
@@ -157,6 +160,9 @@ public class FloatOverlayService extends Service {
     private int bubblePosY = 0;
     private int avatarWidthPx = 0;
     private int avatarHeightPx = 0;
+    private int activeResponseToken = 0;
+    private boolean foregroundStarted = false;
+    private String latestNotificationResponse = "";
 
     private float touchStartX;
     private float touchStartY;
@@ -220,15 +226,7 @@ public class FloatOverlayService extends Service {
             DebugLogger.log(this, "Overlay initialized successfully");
             
             DebugLogger.log(this, "Building notification");
-            Notification notification = buildNotification();
-            DebugLogger.log(this, "Starting foreground");
-            try {
-                startForeground(NOTIFICATION_ID, notification);
-                DebugLogger.log(this, "Foreground notification started");
-            } catch (Exception e) {
-                DebugLogger.log(this, "WARNING: startForeground failed: " + e.getMessage());
-                DebugLogger.log(this, "Continuing anyway since overlay is already added");
-            }
+            ensureForegroundNotification();
             
             DebugLogger.log(this, "=== FloatOverlayService onCreate SUCCESS ===");
         } catch (Exception e) {
@@ -244,6 +242,10 @@ public class FloatOverlayService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         DebugLogger.log(this, "onStartCommand called");
+        if (intent != null && ACTION_NOTIFICATION_REPLY.equals(intent.getAction())) {
+            handleNotificationReply(intent);
+        }
+        ensureForegroundNotification();
         return START_STICKY;
     }
 
@@ -511,13 +513,69 @@ public class FloatOverlayService extends Service {
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? new Notification.Builder(this, NOTIFICATION_CHANNEL_ID)
                 : new Notification.Builder(this);
-        return builder
+        String statusText = isProcessing
+                ? t("Generating response...", "応答を生成中...")
+                : (TextUtils.isEmpty(latestNotificationResponse)
+                ? t("Double tap the overlay to return to the app.", "オーバーレイをダブルタップするとアプリへ戻ります。")
+                : latestNotificationResponse);
+        builder
                 .setContentTitle(t("Floating chat active", "フロートチャット起動中"))
-                .setContentText(t("Double tap the overlay to return to the app.", "オーバーレイをダブルタップするとアプリへ戻ります。"))
+                .setContentText(statusText)
                 .setSmallIcon(R.drawable.icon)
                 .setContentIntent(pendingIntent)
-                .setOngoing(true)
-                .build();
+                .setOngoing(true);
+        if (!TextUtils.isEmpty(statusText)) {
+            builder.setStyle(new Notification.BigTextStyle().bigText(statusText));
+        }
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+            Intent replyIntent = new Intent(this, FloatOverlayService.class);
+            replyIntent.setAction(ACTION_NOTIFICATION_REPLY);
+            PendingIntent replyPendingIntent = PendingIntent.getService(
+                    this,
+                    1001,
+                    replyIntent,
+                    PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_MUTABLE
+            );
+            RemoteInput remoteInput = new RemoteInput.Builder(KEY_NOTIFICATION_REPLY)
+                    .setLabel(t("Type a message", "メッセージを入力"))
+                    .build();
+            Notification.Action replyAction = new Notification.Action.Builder(
+                    android.R.drawable.ic_menu_send,
+                    t("Reply", "返信"),
+                    replyPendingIntent
+            ).addRemoteInput(remoteInput).build();
+            builder.addAction(replyAction);
+        }
+        return builder.build();
+    }
+
+    private void ensureForegroundNotification() {
+        Notification notification = buildNotification();
+        try {
+            if (!foregroundStarted) {
+                startForeground(NOTIFICATION_ID, notification);
+                foregroundStarted = true;
+            } else {
+                NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                if (manager != null) {
+                    manager.notify(NOTIFICATION_ID, notification);
+                }
+            }
+        } catch (Exception e) {
+            DebugLogger.log(this, "start/update foreground failed: " + e.getMessage());
+            stopSelf();
+        }
+    }
+
+    private void handleNotificationReply(Intent intent) {
+        Bundle results = RemoteInput.getResultsFromIntent(intent);
+        if (results == null) return;
+        CharSequence reply = results.getCharSequence(KEY_NOTIFICATION_REPLY);
+        if (reply == null) return;
+        String text = reply.toString().trim();
+        if (text.isEmpty()) return;
+        submitUserMessage(text);
+        showBubble(true);
     }
 
     private void toggleBubble() {
@@ -665,22 +723,26 @@ public class FloatOverlayService extends Service {
     }
 
     private void submitUserMessage(String userMessage) {
+        int requestToken = ++activeResponseToken;
         inputView.setText("");
         clearOverlayMessages();
         appendSharedConversationLog("user", userMessage);
         addToHistory("user", userMessage);
         isProcessing = true;
+        latestNotificationResponse = t("Generating response...", "応答を生成中...");
+        ensureForegroundNotification();
         updateAvatarAnimation();
         currentResponseBubble = null;
         updateSendButton();
         if (webSearchEnabled && !webSearchApiKey.isEmpty()) {
-            performWebSearchFlow(userMessage);
+            performWebSearchFlow(userMessage, requestToken);
         } else {
-            sendChat(null, false);
+            sendChat(null, false, requestToken);
         }
     }
 
     private void cancelCurrentRequest() {
+        activeResponseToken++;
         if (currentCall != null) {
             currentCall.cancel();
             currentCall = null;
@@ -690,10 +752,12 @@ public class FloatOverlayService extends Service {
         updateAvatarAnimation();
         updateSendButton();
         currentResponseBubble = null;
-        setResponseText(t("Request cancelled", "リクエストをキャンセルしました"));
+        setResponseText(t("Request cancelled", "リクエストをキャンセルしました"), activeResponseToken);
+        latestNotificationResponse = t("Request cancelled", "リクエストをキャンセルしました");
+        ensureForegroundNotification();
     }
 
-    private void sendChat(String transientUserMessage, boolean replaceLastUserMessage) {
+    private void sendChat(String transientUserMessage, boolean replaceLastUserMessage, int requestToken) {
         try {
             JSONArray messages = new JSONArray();
             boolean shouldReplaceLastUser = replaceLastUserMessage && transientUserMessage != null;
@@ -742,18 +806,18 @@ public class FloatOverlayService extends Service {
                     .build();
 
             if (streamingEnabled) {
-                sendStreaming(request);
+                sendStreaming(request, requestToken);
             } else {
-                sendNonStreaming(request);
+                sendNonStreaming(request, requestToken);
             }
         } catch (Exception e) {
             isProcessing = false;
             updateSendButton();
-            setResponseText(errorText(e.getMessage()));
+            setResponseText(errorText(e.getMessage()), requestToken);
         }
     }
 
-    private void performWebSearchFlow(String userMsg) {
+    private void performWebSearchFlow(String userMsg, int requestToken) {
         new Thread(() -> {
             String augmentedMessage = null;
             try {
@@ -768,7 +832,7 @@ public class FloatOverlayService extends Service {
                 DebugLogger.log(this, "performWebSearchFlow error: " + e.getMessage());
             }
             String finalAugmented = augmentedMessage;
-            mainHandler.post(() -> sendChat(finalAugmented, finalAugmented != null));
+            mainHandler.post(() -> sendChat(finalAugmented, finalAugmented != null, requestToken));
         }).start();
     }
 
@@ -1050,7 +1114,7 @@ public class FloatOverlayService extends Service {
         }
     }
 
-    private void sendStreaming(Request request) {
+    private void sendStreaming(Request request, int requestToken) {
         Call call = client.newCall(request);
         currentCall = call;
         isStreamingResponse = true;
@@ -1062,7 +1126,7 @@ public class FloatOverlayService extends Service {
                     return;
                 }
                 isStreamingResponse = false;
-                finishResponse(errorText(getApiUnavailableMessage()));
+                finishResponse(errorText(getApiUnavailableMessage()), requestToken);
             }
 
             @Override
@@ -1070,7 +1134,7 @@ public class FloatOverlayService extends Service {
                 if (!response.isSuccessful()) {
                     currentCall = null;
                     isStreamingResponse = false;
-                    finishResponse(errorText("HTTP error: " + response.code()));
+                    finishResponse(errorText("HTTP error: " + response.code()), requestToken);
                     return;
                 }
 
@@ -1081,7 +1145,7 @@ public class FloatOverlayService extends Service {
                              : null) {
                     if (reader == null) {
                         isStreamingResponse = false;
-                        finishResponse(t("(No response)", "（応答なし）"));
+                        finishResponse(t("(No response)", "（応答なし）"), requestToken);
                         return;
                     }
 
@@ -1091,7 +1155,7 @@ public class FloatOverlayService extends Service {
                         JSONObject json = new JSONObject(line);
                         if (json.has("message")) {
                             visibleResponse += json.getJSONObject("message").optString("content", "");
-                            setResponseText(visibleResponse);
+                            setResponseText(visibleResponse, requestToken);
                         }
                         if (json.optBoolean("done", false)) {
                             break;
@@ -1099,11 +1163,11 @@ public class FloatOverlayService extends Service {
                     }
                     finishResponse(visibleResponse.trim().isEmpty()
                             ? t("(No response)", "（応答なし）")
-                            : visibleResponse);
+                            : visibleResponse, requestToken);
                 } catch (Exception e) {
                     if (!call.isCanceled()) {
                         isStreamingResponse = false;
-                        finishResponse(errorText("Stream error: " + e.getMessage()));
+                        finishResponse(errorText("Stream error: " + e.getMessage()), requestToken);
                     }
                 } finally {
                     currentCall = null;
@@ -1112,7 +1176,7 @@ public class FloatOverlayService extends Service {
         });
     }
 
-    private void sendNonStreaming(Request request) {
+    private void sendNonStreaming(Request request, int requestToken) {
         Call call = client.newCall(request);
         currentCall = call;
         isStreamingResponse = false;
@@ -1123,7 +1187,7 @@ public class FloatOverlayService extends Service {
                 if (call.isCanceled()) {
                     return;
                 }
-                finishResponse(errorText(getApiUnavailableMessage()));
+                finishResponse(errorText(getApiUnavailableMessage()), requestToken);
             }
 
             @Override
@@ -1131,7 +1195,7 @@ public class FloatOverlayService extends Service {
                 try {
                     String body = response.body() != null ? response.body().string() : "";
                     if (!response.isSuccessful()) {
-                        finishResponse(errorText("HTTP error: " + response.code()));
+                        finishResponse(errorText("HTTP error: " + response.code()), requestToken);
                         return;
                     }
                     JSONObject json = new JSONObject(body);
@@ -1140,9 +1204,9 @@ public class FloatOverlayService extends Service {
                             : "";
                     finishResponse(text.trim().isEmpty()
                             ? t("(No response)", "（応答なし）")
-                            : text);
+                            : text, requestToken);
                 } catch (Exception e) {
-                    finishResponse(errorText(e.getMessage()));
+                    finishResponse(errorText(e.getMessage()), requestToken);
                 } finally {
                     currentCall = null;
                 }
@@ -1150,7 +1214,8 @@ public class FloatOverlayService extends Service {
         });
     }
 
-    private void finishResponse(String responseText) {
+    private void finishResponse(String responseText, int requestToken) {
+        if (requestToken != activeResponseToken) return;
         boolean hasAssistantContent = !TextUtils.isEmpty(responseText) && !responseText.startsWith(t("Error: ", "エラー: "));
         if (hasAssistantContent) {
             addToHistory("assistant", responseText);
@@ -1162,10 +1227,11 @@ public class FloatOverlayService extends Service {
         // Only display the response text if we're not streaming
         // (for streaming, it's already been displayed incrementally)
         if (!isStreamingResponse) {
-            setResponseText(responseText);
+            setResponseText(responseText, requestToken);
         }
         isStreamingResponse = false;
-        currentResponseBubble = null;
+        latestNotificationResponse = responseText;
+        ensureForegroundNotification();
         if (hasAssistantContent) {
             speakText(responseText);
             if (autoVoiceInputEnabled) {
@@ -1179,8 +1245,9 @@ public class FloatOverlayService extends Service {
         return t("Error: ", "エラー: ") + detail;
     }
 
-    private void setResponseText(String text) {
+    private void setResponseText(String text, int requestToken) {
         mainHandler.post(() -> {
+            if (requestToken != activeResponseToken) return;
             if (TextUtils.isEmpty(text)) return;
             if (currentResponseBubble == null) {
                 currentResponseBubble = appendAssistantMessageBubble(text);
@@ -1189,6 +1256,8 @@ public class FloatOverlayService extends Service {
                 adjustMessageAreaHeight();
                 scrollMessagesToBottom();
             }
+            latestNotificationResponse = text;
+            ensureForegroundNotification();
         });
     }
 
