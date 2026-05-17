@@ -110,7 +110,7 @@ public class FloatOverlayService extends Service {
     private WindowManager.LayoutParams layoutParams;
     private ImageView floatVisualBackground;
     private ImageView floatVisual;
-    private View bubblePanel;
+    private LinearLayout bubblePanel;
     private ScrollView messageScrollView;
     private LinearLayout messageContainer;
     private EditText inputView;
@@ -153,6 +153,8 @@ public class FloatOverlayService extends Service {
     private int messageMaxHeightPx = 0;
     private int avatarPosX = 0;
     private int avatarPosY = 0;
+    private int bubblePosX = 0;
+    private int bubblePosY = 0;
     private int avatarWidthPx = 0;
     private int avatarHeightPx = 0;
 
@@ -161,6 +163,7 @@ public class FloatOverlayService extends Service {
     private int initialX;
     private int initialY;
     private boolean dragging = false;
+    private boolean draggingBubble = false;
     private int touchSlop = 0;
     private SpeechRecognizer speechRecognizer;
     private TextToSpeech tts;
@@ -452,7 +455,12 @@ public class FloatOverlayService extends Service {
                 submitUserMessage(text);
             });
             hideButton.setOnClickListener(v -> showBubble(false));
-    
+
+            attachBubbleDragListener(bubblePanel, true);
+            if (bubblePanel != null && bubblePanel.getChildCount() > 0) {
+                attachBubbleDragListener(bubblePanel.getChildAt(0), false);
+            }
+
             updateFloatVisual();
             DebugLogger.log(this, "initOverlay: Float visual updated");
             updateBubbleHeader();
@@ -1341,6 +1349,33 @@ public class FloatOverlayService extends Service {
         }
     }
 
+    private void saveSettings() {
+        try {
+            JSONObject settings = new JSONObject();
+            try (FileInputStream fis = openFileInput(SETTINGS_FILE);
+                 BufferedReader reader = new BufferedReader(new InputStreamReader(fis, StandardCharsets.UTF_8))) {
+                StringBuilder sb = new StringBuilder();
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    sb.append(line);
+                }
+                if (sb.length() > 0) {
+                    settings = new JSONObject(sb.toString());
+                }
+            } catch (FileNotFoundException ignored) {
+            }
+            settings.put("bubblePosX", bubblePosX);
+            settings.put("bubblePosY", bubblePosY);
+            settings.put("floatDisplayMode", normalizeFloatDisplayMode(floatDisplayMode));
+            try (FileOutputStream fos = openFileOutput(SETTINGS_FILE, MODE_PRIVATE)) {
+                fos.write(settings.toString().getBytes(StandardCharsets.UTF_8));
+                fos.flush();
+            }
+        } catch (Exception e) {
+            DebugLogger.log(this, "saveSettings failed: " + e.getMessage());
+        }
+    }
+
     private void applySettingsJson(JSONObject settings) {
         appLanguage = settings.optString("appLanguage", appLanguage);
         ollamaBaseUrl = settings.optString("ollamaBaseUrl", ollamaBaseUrl);
@@ -1361,6 +1396,8 @@ public class FloatOverlayService extends Service {
         userName = settings.optString("userName", userName);
         historyLimit = Math.max(0, settings.optInt("historyLimit", historyLimit));
         floatDisplayMode = normalizeFloatDisplayMode(settings.optString("floatDisplayMode", floatDisplayMode));
+        bubblePosX = Math.max(0, settings.optInt("bubblePosX", bubblePosX));
+        bubblePosY = Math.max(0, settings.optInt("bubblePosY", bubblePosY));
         if (TextUtils.isEmpty(baseName)) {
             baseName = defaultBaseName();
         }
@@ -1467,6 +1504,76 @@ public class FloatOverlayService extends Service {
         updateBubblePanelPosition();
     }
 
+    private void attachBubbleDragListener(View target, boolean ignoreInteractiveHit) {
+        if (target == null) return;
+        target.setOnTouchListener((v, event) -> {
+            if (ignoreInteractiveHit && event.getActionMasked() == MotionEvent.ACTION_DOWN
+                    && isBubbleInteractiveHit(event.getRawX(), event.getRawY())) {
+                return false;
+            }
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    draggingBubble = false;
+                    touchStartX = event.getRawX();
+                    touchStartY = event.getRawY();
+                    initialX = bubblePosX;
+                    initialY = bubblePosY;
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    float dx = event.getRawX() - touchStartX;
+                    float dy = event.getRawY() - touchStartY;
+                    if (!draggingBubble && (Math.abs(dx) > touchSlop || Math.abs(dy) > touchSlop)) {
+                        draggingBubble = true;
+                    }
+                    if (draggingBubble) {
+                        int screenW = getResources().getDisplayMetrics().widthPixels;
+                        int screenH = getResources().getDisplayMetrics().heightPixels;
+                        int bubbleW = (bubblePanel.getLayoutParams() instanceof FrameLayout.LayoutParams)
+                                ? ((FrameLayout.LayoutParams) bubblePanel.getLayoutParams()).width
+                                : dpToPx(250);
+                        if (bubbleW <= 0) bubbleW = dpToPx(250);
+                        int bubbleH = bubblePanel.getHeight();
+                        if (bubbleH <= 0) bubbleH = dpToPx(300);
+                        int nextX = initialX + (int) dx;
+                        int nextY = initialY + (int) dy;
+                        int maxX = Math.max(0, screenW - bubbleW);
+                        int maxY = Math.max(0, screenH - bubbleH);
+                        bubblePosX = Math.max(0, Math.min(nextX, maxX));
+                        bubblePosY = Math.max(0, Math.min(nextY, maxY));
+                        updateBubblePanelPosition();
+                    }
+                    return true;
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    if (draggingBubble) {
+                        draggingBubble = false;
+                        saveSettings();
+                    }
+                    return true;
+                default:
+                    return false;
+            }
+        });
+    }
+
+    private boolean isBubbleInteractiveHit(float rawX, float rawY) {
+        return isPointInsideView(hideButton, rawX, rawY)
+                || isPointInsideView(inputView, rawX, rawY)
+                || isPointInsideView(sendButton, rawX, rawY)
+                || isPointInsideView(messageScrollView, rawX, rawY);
+    }
+
+    private boolean isPointInsideView(View target, float rawX, float rawY) {
+        if (target == null || target.getVisibility() != View.VISIBLE) return false;
+        int[] location = new int[2];
+        target.getLocationOnScreen(location);
+        int left = location[0];
+        int top = location[1];
+        int right = left + target.getWidth();
+        int bottom = top + target.getHeight();
+        return rawX >= left && rawX <= right && rawY >= top && rawY <= bottom;
+    }
+
     private void updateBubblePanelPosition() {
         if (bubblePanel == null || floatVisual == null) return;
         if (!(bubblePanel.getLayoutParams() instanceof FrameLayout.LayoutParams)) return;
@@ -1476,6 +1583,18 @@ public class FloatOverlayService extends Service {
         int screenH = getResources().getDisplayMetrics().heightPixels;
         int bubbleW = bubbleParams.width > 0 ? bubbleParams.width : bubblePanel.getWidth();
         if (bubbleW <= 0) bubbleW = Math.min(dpToPx(300), Math.max(dpToPx(200), screenW - marginPx * 2));
+        
+        // If bubble has been manually positioned, use that position
+        if (bubblePosX != 0 || bubblePosY != 0) {
+            bubbleParams.gravity = Gravity.TOP | Gravity.START;
+            bubbleParams.rightMargin = 0;
+            bubbleParams.bottomMargin = 0;
+            bubbleParams.leftMargin = bubblePosX;
+            bubbleParams.topMargin = bubblePosY;
+            bubblePanel.setLayoutParams(bubbleParams);
+            return;
+        }
+        
         if (FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode)) {
             bubbleParams.gravity = Gravity.BOTTOM | Gravity.START;
             bubbleParams.leftMargin = marginPx;
