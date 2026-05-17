@@ -149,6 +149,7 @@ public class FloatOverlayService extends Service {
     private boolean webSearchEnabled = false;
     private boolean isProcessing = false;
     private boolean isListening = false;
+    private boolean isStreamingResponse = false;
     private int messageMaxHeightPx = 0;
     private int avatarPosX = 0;
     private int avatarPosY = 0;
@@ -1044,6 +1045,7 @@ public class FloatOverlayService extends Service {
     private void sendStreaming(Request request) {
         Call call = client.newCall(request);
         currentCall = call;
+        isStreamingResponse = true;
         call.enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
@@ -1051,6 +1053,7 @@ public class FloatOverlayService extends Service {
                 if (call.isCanceled()) {
                     return;
                 }
+                isStreamingResponse = false;
                 finishResponse(errorText(getApiUnavailableMessage()));
             }
 
@@ -1058,6 +1061,7 @@ public class FloatOverlayService extends Service {
             public void onResponse(Call call, Response response) throws IOException {
                 if (!response.isSuccessful()) {
                     currentCall = null;
+                    isStreamingResponse = false;
                     finishResponse(errorText("HTTP error: " + response.code()));
                     return;
                 }
@@ -1068,6 +1072,7 @@ public class FloatOverlayService extends Service {
                              ? new BufferedReader(new InputStreamReader(is, StandardCharsets.UTF_8))
                              : null) {
                     if (reader == null) {
+                        isStreamingResponse = false;
                         finishResponse(t("(No response)", "（応答なし）"));
                         return;
                     }
@@ -1089,6 +1094,7 @@ public class FloatOverlayService extends Service {
                             : visibleResponse);
                 } catch (Exception e) {
                     if (!call.isCanceled()) {
+                        isStreamingResponse = false;
                         finishResponse(errorText("Stream error: " + e.getMessage()));
                     }
                 } finally {
@@ -1101,6 +1107,7 @@ public class FloatOverlayService extends Service {
     private void sendNonStreaming(Request request) {
         Call call = client.newCall(request);
         currentCall = call;
+        isStreamingResponse = false;
         call.enqueue(new Callback() {
             @Override
             public void onFailure(Call call, IOException e) {
@@ -1144,7 +1151,12 @@ public class FloatOverlayService extends Service {
         isProcessing = false;
         updateAvatarAnimation();
         updateSendButton();
-        setResponseText(responseText);
+        // Only display the response text if we're not streaming
+        // (for streaming, it's already been displayed incrementally)
+        if (!isStreamingResponse) {
+            setResponseText(responseText);
+        }
+        isStreamingResponse = false;
         currentResponseBubble = null;
         if (hasAssistantContent) {
             speakText(responseText);

@@ -8,6 +8,7 @@ import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -102,6 +103,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final String SEARCH_SYSTEM_PROMPT =
             "You are a search-augmented assistant. When the user provides SEARCH_RESULTS, you must read them and base your answer strictly on that information.";
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
+    private static final int REQ_FIRST_LAUNCH_PERMS = 1000;
     private static final int REQ_RECORD_AUDIO = 1001;
     private static final int REQ_PICK_C0 = 2000;
     private static final int REQ_PICK_C1 = 2001;
@@ -552,6 +554,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         setContentView(R.layout.activity_main);
 
+        // Request necessary permissions on first launch
+        requestPermissionsOnFirstLaunch();
+
         initViews();
         setupWindowInsets();
         initAvatarAssets();
@@ -567,7 +572,63 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         fetchModels();
     }
 
-    // ========== UI Initialization ==========
+    // ========== Permission Handling ==========
+
+    private void requestPermissionsOnFirstLaunch() {
+        SharedPreferences prefs = getSharedPreferences("llamachat_prefs", Context.MODE_PRIVATE);
+        boolean isFirstLaunch = prefs.getBoolean("first_launch_completed", false);
+         
+        if (!isFirstLaunch) {
+            List<String> permissionsToRequest = new ArrayList<>();
+             
+            // Check for RECORD_AUDIO permission (API 31+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                    permissionsToRequest.add(Manifest.permission.RECORD_AUDIO);
+                }
+            }
+             
+            // Check for SYSTEM_ALERT_WINDOW permission
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+                if (!Settings.canDrawOverlays(this)) {
+                    // Show dialog to request SYSTEM_ALERT_WINDOW permission
+                    showOverlayPermissionDialog();
+                }
+            }
+             
+            // Check for POST_NOTIFICATIONS permission (API 33+)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED) {
+                    permissionsToRequest.add(Manifest.permission.POST_NOTIFICATIONS);
+                }
+            }
+             
+            // Request other permissions
+            if (!permissionsToRequest.isEmpty()) {
+                requestPermissions(permissionsToRequest.toArray(new String[0]), REQ_FIRST_LAUNCH_PERMS);
+            }
+             
+            // Mark first launch as completed
+            prefs.edit().putBoolean("first_launch_completed", true).apply();
+        }
+    }
+
+    private void showOverlayPermissionDialog() {
+        new AlertDialog.Builder(this)
+                .setTitle(t("Overlay Permission", "オーバーレイ権限"))
+                .setMessage(t(
+                        "This app needs permission to display floating chat.\n\nGo to Settings > Apps > LlamaChat > Advanced > Display over other apps",
+                        "このアプリはフロートチャットを表示するためにオーバーレイ権限が必要です。\n\n設定 > アプリ > LlamaChat > 詳細設定 > 他のアプリの上に表示 を有効にしてください"
+                ))
+                .setPositiveButton(t("Go to Settings", "設定に移動"), (dialog, which) -> {
+                    Intent intent = new Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION,
+                            Uri.parse("package:" + getPackageName()));
+                    startActivity(intent);
+                })
+                .setNegativeButton(t("Later", "後で"), null)
+                .show();
+    }
+
 
     private void initViews() {
         messageContainer = findViewById(R.id.messageContainer);
@@ -4015,7 +4076,20 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] grantResults) {
         super.onRequestPermissionsResult(requestCode, permissions, grantResults);
-        if (requestCode == REQ_RECORD_AUDIO) {
+        if (requestCode == REQ_FIRST_LAUNCH_PERMS) {
+            // Handle first launch permission results
+            for (int i = 0; i < permissions.length; i++) {
+                if (permissions[i].equals(Manifest.permission.RECORD_AUDIO)) {
+                    if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
+                        Toast.makeText(this, t("Microphone permission denied", "マイク権限が拒否されました"), Toast.LENGTH_SHORT).show();
+                    }
+                } else if (permissions[i].equals(Manifest.permission.POST_NOTIFICATIONS)) {
+                    if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
+                        Toast.makeText(this, t("Notification permission denied", "通知権限が拒否されました"), Toast.LENGTH_SHORT).show();
+                    }
+                }
+            }
+        } else if (requestCode == REQ_RECORD_AUDIO) {
             boolean granted = grantResults.length > 0
                     && grantResults[0] == PackageManager.PERMISSION_GRANTED;
             if (granted && pendingVoiceStart) {
