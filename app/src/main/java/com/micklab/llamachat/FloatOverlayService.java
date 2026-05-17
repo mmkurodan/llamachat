@@ -549,9 +549,30 @@ public class FloatOverlayService extends Service {
         return builder.build();
     }
 
+    private Notification buildFallbackNotification() {
+        Intent openIntent = new Intent(this, MainActivity.class);
+        openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        PendingIntent pendingIntent = PendingIntent.getActivity(
+                this,
+                0,
+                openIntent,
+                PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE
+        );
+        Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
+                ? new Notification.Builder(this, NOTIFICATION_CHANNEL_ID)
+                : new Notification.Builder(this);
+        return builder
+                .setContentTitle(t("Floating chat active", "フロートチャット起動中"))
+                .setContentText(t("Tap to return to the app.", "タップしてアプリに戻る"))
+                .setSmallIcon(R.drawable.icon)
+                .setContentIntent(pendingIntent)
+                .setOngoing(true)
+                .build();
+    }
+
     private void ensureForegroundNotification() {
-        Notification notification = buildNotification();
         try {
+            Notification notification = buildNotification();
             if (!foregroundStarted) {
                 startForeground(NOTIFICATION_ID, notification);
                 foregroundStarted = true;
@@ -563,7 +584,20 @@ public class FloatOverlayService extends Service {
             }
         } catch (Exception e) {
             DebugLogger.log(this, "start/update foreground failed: " + e.getMessage());
-            stopSelf();
+            try {
+                Notification fallback = buildFallbackNotification();
+                if (!foregroundStarted) {
+                    startForeground(NOTIFICATION_ID, fallback);
+                    foregroundStarted = true;
+                } else {
+                    NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+                    if (manager != null) {
+                        manager.notify(NOTIFICATION_ID, fallback);
+                    }
+                }
+            } catch (Exception retryError) {
+                DebugLogger.log(this, "fallback foreground failed: " + retryError.getMessage());
+            }
         }
     }
 

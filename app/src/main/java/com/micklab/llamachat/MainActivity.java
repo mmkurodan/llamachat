@@ -1093,7 +1093,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private void startFloatingOverlayService() {
         Intent intent = new Intent(this, FloatOverlayService.class);
         intent.setAction(FloatOverlayService.ACTION_SHOW_OVERLAY);
-        startService(intent);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            startForegroundService(intent);
+        } else {
+            startService(intent);
+        }
         isFloatOverlayActive = true;
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
                 () -> moveTaskToBack(true), 100
