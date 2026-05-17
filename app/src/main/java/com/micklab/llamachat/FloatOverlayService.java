@@ -372,12 +372,15 @@ public class FloatOverlayService extends Service {
     
             floatVisual.setOnTouchListener((v, event) -> {
                 gestureDetector.onTouchEvent(event);
+                boolean iconMode = FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode);
+                boolean bubbleVisible = bubblePanel != null && bubblePanel.getVisibility() == View.VISIBLE;
+                boolean directWindowDrag = iconMode || !bubbleVisible;
                 switch (event.getActionMasked()) {
                     case MotionEvent.ACTION_DOWN:
                         dragging = false;
                         touchStartX = event.getRawX();
                         touchStartY = event.getRawY();
-                        if (FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode)) {
+                        if (directWindowDrag) {
                             initialX = layoutParams.x;
                             initialY = layoutParams.y;
                         } else {
@@ -392,9 +395,21 @@ public class FloatOverlayService extends Service {
                             dragging = true;
                         }
                         if (dragging) {
-                            if (FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode)) {
-                                layoutParams.x = initialX + (int) dx;
-                                layoutParams.y = initialY + (int) dy;
+                            if (directWindowDrag) {
+                                int nextX = initialX + (int) dx;
+                                int nextY = initialY + (int) dy;
+                                if (!iconMode) {
+                                    int screenWidth = getResources().getDisplayMetrics().widthPixels;
+                                    int screenHeight = getResources().getDisplayMetrics().heightPixels;
+                                    int maxX = Math.max(0, screenWidth - avatarWidthPx);
+                                    int maxY = Math.max(0, screenHeight - avatarHeightPx);
+                                    nextX = Math.max(0, Math.min(nextX, maxX));
+                                    nextY = Math.max(0, Math.min(nextY, maxY));
+                                }
+                                layoutParams.x = nextX;
+                                layoutParams.y = nextY;
+                                avatarPosX = layoutParams.x;
+                                avatarPosY = layoutParams.y;
                                 updateOverlayLayout();
                             } else {
                                 int screenWidth = getResources().getDisplayMetrics().widthPixels;
@@ -504,8 +519,8 @@ public class FloatOverlayService extends Service {
         bubblePanel.setVisibility(show ? View.VISIBLE : View.GONE);
         layoutParams.flags = show
                 ? WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
-                : WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE;
-        updateOverlayLayout();
+                : WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL;
+        updateFloatVisual();
         if (show) {
             updateBubblePanelPosition();
             adjustMessageAreaHeight();
@@ -543,6 +558,8 @@ public class FloatOverlayService extends Service {
     private void updateFloatVisual() {
         if (floatVisual == null || layoutParams == null) return;
         boolean iconMode = FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode);
+        boolean bubbleVisible = bubblePanel != null && bubblePanel.getVisibility() == View.VISIBLE;
+        boolean compactWindow = iconMode || !bubbleVisible;
         int screenW = getResources().getDisplayMetrics().widthPixels;
         int screenH = getResources().getDisplayMetrics().heightPixels;
         avatarHeightPx = Math.max(1, Math.round(screenH * FLOAT_AVATAR_HEIGHT_RATIO));
@@ -550,9 +567,12 @@ public class FloatOverlayService extends Service {
                 1,
                 Math.min(screenW, Math.round(avatarHeightPx * getAvatarAspectRatio()))
         );
-        layoutParams.width = iconMode ? WindowManager.LayoutParams.WRAP_CONTENT : screenW;
-        layoutParams.height = iconMode ? WindowManager.LayoutParams.WRAP_CONTENT : screenH;
-        if (!iconMode) {
+        layoutParams.width = compactWindow ? WindowManager.LayoutParams.WRAP_CONTENT : screenW;
+        layoutParams.height = compactWindow ? WindowManager.LayoutParams.WRAP_CONTENT : screenH;
+        if (compactWindow) {
+            layoutParams.x = avatarPosX;
+            layoutParams.y = avatarPosY;
+        } else {
             layoutParams.x = 0;
             layoutParams.y = 0;
         }
@@ -566,8 +586,6 @@ public class FloatOverlayService extends Service {
             params.height = sizePx;
             params.leftMargin = 0;
             params.topMargin = 0;
-            avatarPosX = 0;
-            avatarPosY = 0;
         } else {
             int maxX = Math.max(0, screenW - avatarWidthPx);
             int maxY = Math.max(0, screenH - avatarHeightPx);
@@ -575,8 +593,13 @@ public class FloatOverlayService extends Service {
             avatarPosY = Math.max(0, Math.min(avatarPosY, maxY));
             params.width = avatarWidthPx;
             params.height = avatarHeightPx;
-            params.leftMargin = avatarPosX;
-            params.topMargin = avatarPosY;
+            if (compactWindow) {
+                params.leftMargin = 0;
+                params.topMargin = 0;
+            } else {
+                params.leftMargin = avatarPosX;
+                params.topMargin = avatarPosY;
+            }
         }
         floatVisual.setLayoutParams(params);
         if (bubblePanel != null) {
@@ -634,14 +657,13 @@ public class FloatOverlayService extends Service {
 
     private void submitUserMessage(String userMessage) {
         inputView.setText("");
-        appendUserMessageBubble(userMessage);
+        clearOverlayMessages();
         appendSharedConversationLog("user", userMessage);
         addToHistory("user", userMessage);
         isProcessing = true;
         updateAvatarAnimation();
         currentResponseBubble = null;
         updateSendButton();
-        appendSystemMessage(t("Waiting for response...", "応答を待っています..."));
         if (webSearchEnabled && !webSearchApiKey.isEmpty()) {
             performWebSearchFlow(userMessage);
         } else {
@@ -1150,6 +1172,13 @@ public class FloatOverlayService extends Service {
         });
     }
 
+    private void clearOverlayMessages() {
+        if (messageContainer == null) return;
+        messageContainer.removeAllViews();
+        currentResponseBubble = null;
+        adjustMessageAreaHeight();
+    }
+
     private void appendUserMessageBubble(String text) {
         String name = TextUtils.isEmpty(userName) ? t("User", "ユーザ") : userName;
         appendMessageBubble(name, text, true);
@@ -1407,8 +1436,21 @@ public class FloatOverlayService extends Service {
         ViewGroup.LayoutParams rawParams = floatVisual.getLayoutParams();
         if (!(rawParams instanceof FrameLayout.LayoutParams)) return;
         FrameLayout.LayoutParams params = (FrameLayout.LayoutParams) rawParams;
-        params.leftMargin = avatarPosX;
-        params.topMargin = avatarPosY;
+        boolean iconMode = FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode);
+        boolean bubbleVisible = bubblePanel != null && bubblePanel.getVisibility() == View.VISIBLE;
+        boolean compactWindow = iconMode || !bubbleVisible;
+        if (compactWindow) {
+            params.leftMargin = 0;
+            params.topMargin = 0;
+            if (layoutParams != null) {
+                layoutParams.x = avatarPosX;
+                layoutParams.y = avatarPosY;
+                updateOverlayLayout();
+            }
+        } else {
+            params.leftMargin = avatarPosX;
+            params.topMargin = avatarPosY;
+        }
         floatVisual.setLayoutParams(params);
         updateBubblePanelPosition();
     }
