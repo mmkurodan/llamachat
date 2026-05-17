@@ -352,6 +352,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private ChatSpeaker currentStreamingSpeaker = ChatSpeaker.BASE;
     private ChatSpeaker currentThinkingSpeaker = ChatSpeaker.BASE;
     private ChatSpeaker currentTtsSpeaker = ChatSpeaker.BASE;
+    private String currentThinkingLabel = "Thinking";
     private int thinkingDotStep = 0;
     private boolean chatExpanded = false;
     private float chatDragStartY = 0f;
@@ -550,6 +551,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     @Override
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
+        DebugLogger.clear(this);
+        DebugLogger.log(this, "=== MainActivity onCreate ===");
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         setContentView(R.layout.activity_main);
@@ -2955,12 +2958,20 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private void performWebSearchFlow(String userMsg) {
         isProcessing = true;
         updateSendButton();
+        int webSearchToken = startStreamingSession();
+        setThinkingIndicator(true, ChatSpeaker.BASE, webSearchToken);
+        setThinkingIndicatorLabel(t("Web searching", "Web検索中"), webSearchToken);
 
         final String[] augmentedMessageHolder = new String[1];
         new Thread(() -> {
             try {
                 String keywords = extractSearchKeywords(userMsg);
                 if (keywords != null) {
+                    String keywordText = keywords.length() > 80 ? keywords.substring(0, 80) + "..." : keywords;
+                    runOnUiThread(() -> setThinkingIndicatorLabel(
+                            t("Web searching: ", "Web検索中: ") + keywordText,
+                            webSearchToken
+                    ));
                     String searchResults = callWebSearchApi(keywords);
                     if (searchResults != null && !searchResults.isEmpty()) {
                         augmentedMessageHolder[0] = buildSearchAugmentedUserMessage(userMsg, searchResults);
@@ -3333,6 +3344,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         pendingAutoVoiceStart = false;
         resetStreamBuffer();
         int streamToken = startStreamingSession();
+        setThinkingIndicator(true, speaker, streamToken);
+        setThinkingIndicatorLabel(t("Thinking", "思考中"), streamToken);
 
         try {
             JSONArray messages = new JSONArray();
@@ -3469,7 +3482,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                                     ReasoningFilterResult filterResult =
                                             filterReasoningSegments(rawResponse.toString());
                                     String filtered = filterResult.visibleText;
-                                    setThinkingIndicator(filterResult.reasoningActive, speaker, token);
+                                    if (!filtered.isEmpty()) {
+                                        setThinkingIndicator(false, speaker, token);
+                                    }
                                     if (!filtered.startsWith(visibleResponse)) {
                                         if (first && !filtered.isEmpty()) {
                                             beginStreamingMessage(speaker, token);
@@ -3549,12 +3564,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     /** Non-streaming mode: Display full response + TTS */
     private void sendNonStreaming(Request request, ChatSpeaker speaker) {
+        final int token = activeStreamingToken;
         Call call = client.newCall(request);
         currentCall = call;
         call.enqueue(new Callback() {
             @Override
             public void onFailure(Call c, IOException e) {
                 currentCall = null;
+                setThinkingIndicator(false, speaker, token);
                 if (c.isCanceled()) {
                     return;
                 }
@@ -3574,6 +3591,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 if (!response.isSuccessful()) {
                     appendErrorMessage("HTTP error: " + response.code());
                     currentCall = null;
+                    setThinkingIndicator(false, speaker, token);
                     isProcessing = false;
                     updateSendButton();
                     return;
@@ -3610,6 +3628,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                     appendErrorMessage("Parse error: " + e.getMessage());
                 } finally {
                     currentCall = null;
+                    setThinkingIndicator(false, speaker, token);
                     isProcessing = false;
                     updateSendButton();
                     if (completed) {
@@ -3758,6 +3777,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             boolean shouldScroll = isNearBottom();
             currentThinkingSpeaker = speaker;
             currentThinkingBubble = createMessageBubble(getSpeakerName(speaker), isUserSideForSpeaker(speaker));
+            currentThinkingLabel = "Thinking";
             thinkingDotStep = 0;
             updateThinkingBubbleText();
             uiHandler.removeCallbacks(thinkingAnimationRunnable);
@@ -3770,7 +3790,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private void updateThinkingBubbleText() {
         if (currentThinkingBubble == null) return;
         int dots = (thinkingDotStep % 3) + 1;
-        StringBuilder body = new StringBuilder("Thinking");
+        String base = (currentThinkingLabel == null || currentThinkingLabel.trim().isEmpty())
+                ? "Thinking"
+                : currentThinkingLabel.trim();
+        StringBuilder body = new StringBuilder(base);
         for (int i = 0; i < dots; i++) {
             body.append('.');
         }
@@ -3796,7 +3819,16 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             }
         }
         currentThinkingBubble = null;
+        currentThinkingLabel = "Thinking";
         requestChatLayoutUpdate();
+    }
+
+    private void setThinkingIndicatorLabel(String label, int token) {
+        runOnUiThread(() -> {
+            if (token != activeStreamingToken) return;
+            currentThinkingLabel = (label == null || label.trim().isEmpty()) ? "Thinking" : label.trim();
+            updateThinkingBubbleText();
+        });
     }
 
     private void beginStreamingMessage(ChatSpeaker speaker, int token) {

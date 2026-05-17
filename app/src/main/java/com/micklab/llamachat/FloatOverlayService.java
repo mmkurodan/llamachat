@@ -94,6 +94,7 @@ public class FloatOverlayService extends Service {
     private static final int AVATAR_BLINK_MIN_MS = 3000;
     private static final int AVATAR_BLINK_MAX_MS = 7000;
     private static final int AVATAR_BLINK_DURATION_MS = 120;
+    private static final int THINKING_ANIMATION_INTERVAL_MS = 360;
     private static final float FLOAT_AVATAR_HEIGHT_RATIO = 0.33f;
     private static final int FLOAT_BUBBLE_MARGIN_DP = 12;
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
@@ -163,6 +164,18 @@ public class FloatOverlayService extends Service {
     private int activeResponseToken = 0;
     private boolean foregroundStarted = false;
     private String latestNotificationResponse = "";
+    private int thinkingDotStep = 0;
+    private String thinkingLabel = "";
+    private int thinkingToken = 0;
+    private final Runnable thinkingAnimationRunnable = new Runnable() {
+        @Override
+        public void run() {
+            if (currentResponseBubble == null || thinkingToken != activeResponseToken) return;
+            thinkingDotStep = (thinkingDotStep + 1) % 3;
+            applyThinkingText();
+            mainHandler.postDelayed(this, THINKING_ANIMATION_INTERVAL_MS);
+        }
+    };
 
     private float touchStartX;
     private float touchStartY;
@@ -571,15 +584,20 @@ public class FloatOverlayService extends Service {
     }
 
     private void ensureForegroundNotification() {
+        logNotificationState("ensureForegroundNotification:start");
         try {
             Notification notification = buildNotification();
             if (!foregroundStarted) {
                 startForeground(NOTIFICATION_ID, notification);
                 foregroundStarted = true;
+                DebugLogger.log(this, "notification: startForeground success");
             } else {
                 NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
                 if (manager != null) {
                     manager.notify(NOTIFICATION_ID, notification);
+                    DebugLogger.log(this, "notification: manager.notify success");
+                } else {
+                    DebugLogger.log(this, "notification: manager is null on update");
                 }
             }
         } catch (Exception e) {
@@ -589,15 +607,36 @@ public class FloatOverlayService extends Service {
                 if (!foregroundStarted) {
                     startForeground(NOTIFICATION_ID, fallback);
                     foregroundStarted = true;
+                    DebugLogger.log(this, "notification: fallback startForeground success");
                 } else {
                     NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
                     if (manager != null) {
                         manager.notify(NOTIFICATION_ID, fallback);
+                        DebugLogger.log(this, "notification: fallback manager.notify success");
+                    } else {
+                        DebugLogger.log(this, "notification: manager is null on fallback update");
                     }
                 }
             } catch (Exception retryError) {
                 DebugLogger.log(this, "fallback foreground failed: " + retryError.getMessage());
             }
+        }
+        logNotificationState("ensureForegroundNotification:end");
+    }
+
+    private void logNotificationState(String stage) {
+        try {
+            NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
+            boolean enabled = manager != null
+                    && (Build.VERSION.SDK_INT < Build.VERSION_CODES.N || manager.areNotificationsEnabled());
+            boolean postNotifGranted = Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+                    || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
+            DebugLogger.log(this, "notification state [" + stage + "] enabled=" + enabled
+                    + ", postPermission=" + postNotifGranted
+                    + ", foregroundStarted=" + foregroundStarted
+                    + ", latestText=" + latestNotificationResponse);
+        } catch (Exception e) {
+            DebugLogger.log(this, "notification state log failed: " + e.getMessage());
         }
     }
 
@@ -763,6 +802,7 @@ public class FloatOverlayService extends Service {
         appendSharedConversationLog("user", userMessage);
         addToHistory("user", userMessage);
         isProcessing = true;
+        startThinkingIndicator(t("Thinking", "思考中"), requestToken);
         latestNotificationResponse = t("Generating response...", "応答を生成中...");
         ensureForegroundNotification();
         updateAvatarAnimation();
@@ -777,6 +817,7 @@ public class FloatOverlayService extends Service {
 
     private void cancelCurrentRequest() {
         activeResponseToken++;
+        stopThinkingIndicator(activeResponseToken);
         if (currentCall != null) {
             currentCall.cancel();
             currentCall = null;
@@ -852,11 +893,14 @@ public class FloatOverlayService extends Service {
     }
 
     private void performWebSearchFlow(String userMsg, int requestToken) {
+        updateThinkingLabel(t("Web searching", "Web検索中"), requestToken);
         new Thread(() -> {
             String augmentedMessage = null;
             try {
                 String keywords = extractSearchKeywords(userMsg);
                 if (!TextUtils.isEmpty(keywords)) {
+                    String keywordText = keywords.length() > 80 ? keywords.substring(0, 80) + "..." : keywords;
+                    updateThinkingLabel(t("Web searching: ", "Web検索中: ") + keywordText, requestToken);
                     String searchResults = callWebSearchApi(keywords);
                     if (!TextUtils.isEmpty(searchResults)) {
                         augmentedMessage = buildSearchAugmentedUserMessage(userMsg, searchResults);
@@ -1250,6 +1294,7 @@ public class FloatOverlayService extends Service {
 
     private void finishResponse(String responseText, int requestToken) {
         if (requestToken != activeResponseToken) return;
+        stopThinkingIndicator(requestToken);
         boolean hasAssistantContent = !TextUtils.isEmpty(responseText) && !responseText.startsWith(t("Error: ", "エラー: "));
         if (hasAssistantContent) {
             addToHistory("assistant", responseText);
@@ -1283,6 +1328,7 @@ public class FloatOverlayService extends Service {
         mainHandler.post(() -> {
             if (requestToken != activeResponseToken) return;
             if (TextUtils.isEmpty(text)) return;
+            stopThinkingIndicator(requestToken);
             if (currentResponseBubble == null) {
                 currentResponseBubble = appendAssistantMessageBubble(text);
             } else {
@@ -1293,6 +1339,55 @@ public class FloatOverlayService extends Service {
             latestNotificationResponse = text;
             ensureForegroundNotification();
         });
+    }
+
+    private void startThinkingIndicator(String label, int requestToken) {
+        mainHandler.post(() -> {
+            if (requestToken != activeResponseToken) return;
+            thinkingToken = requestToken;
+            thinkingDotStep = 0;
+            thinkingLabel = TextUtils.isEmpty(label) ? t("Thinking", "思考中") : label;
+            if (currentResponseBubble == null) {
+                currentResponseBubble = appendAssistantMessageBubble("");
+            }
+            applyThinkingText();
+            mainHandler.removeCallbacks(thinkingAnimationRunnable);
+            mainHandler.postDelayed(thinkingAnimationRunnable, THINKING_ANIMATION_INTERVAL_MS);
+            ensureForegroundNotification();
+        });
+    }
+
+    private void updateThinkingLabel(String label, int requestToken) {
+        mainHandler.post(() -> {
+            if (requestToken != activeResponseToken) return;
+            thinkingToken = requestToken;
+            thinkingLabel = TextUtils.isEmpty(label) ? t("Thinking", "思考中") : label;
+            applyThinkingText();
+            ensureForegroundNotification();
+        });
+    }
+
+    private void stopThinkingIndicator(int requestToken) {
+        mainHandler.post(() -> {
+            if (requestToken != activeResponseToken) return;
+            mainHandler.removeCallbacks(thinkingAnimationRunnable);
+            thinkingLabel = "";
+            thinkingToken = 0;
+            thinkingDotStep = 0;
+        });
+    }
+
+    private void applyThinkingText() {
+        if (currentResponseBubble == null || TextUtils.isEmpty(thinkingLabel)) return;
+        int dots = (thinkingDotStep % 3) + 1;
+        StringBuilder body = new StringBuilder(thinkingLabel);
+        for (int i = 0; i < dots; i++) {
+            body.append('.');
+        }
+        currentResponseBubble.setText(formatMessageText(baseName, body.toString()));
+        adjustMessageAreaHeight();
+        scrollMessagesToBottom();
+        latestNotificationResponse = body.toString();
     }
 
     private void clearOverlayMessages() {

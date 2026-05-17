@@ -25,4 +25,19 @@ class DebugLogger {
         } catch (Exception ignored) {
         }
     }
+
+    static void clear(Context ctx) {
+        try {
+            File dir = ctx.getExternalFilesDir(null);
+            if (dir == null) return;
+            File file = new File(dir, NAME);
+            if (file.exists() && !file.delete()) {
+                return;
+            }
+            try (FileOutputStream fos = new FileOutputStream(file, false)) {
+                fos.write(new byte[0]);
+            }
+        } catch (Exception ignored) {
+        }
+    }
 }
