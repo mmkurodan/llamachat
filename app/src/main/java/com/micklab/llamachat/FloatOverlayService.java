@@ -78,6 +78,7 @@ public class FloatOverlayService extends Service {
     private static final int AVATAR_BLINK_MIN_MS = 3000;
     private static final int AVATAR_BLINK_MAX_MS = 7000;
     private static final int AVATAR_BLINK_DURATION_MS = 120;
+    private static final float FLOAT_AVATAR_HEIGHT_RATIO = 0.33f;
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -473,6 +474,11 @@ public class FloatOverlayService extends Service {
         boolean iconMode = FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode);
         int screenW = getResources().getDisplayMetrics().widthPixels;
         int screenH = getResources().getDisplayMetrics().heightPixels;
+        int avatarHeightPx = Math.max(1, Math.round(screenH * FLOAT_AVATAR_HEIGHT_RATIO));
+        int avatarWidthPx = Math.max(
+                1,
+                Math.min(screenW, Math.round(avatarHeightPx * getAvatarAspectRatio()))
+        );
         layoutParams.width = iconMode ? WindowManager.LayoutParams.WRAP_CONTENT : screenW;
         layoutParams.height = iconMode ? WindowManager.LayoutParams.WRAP_CONTENT : screenH;
         if (!iconMode) {
@@ -486,8 +492,8 @@ public class FloatOverlayService extends Service {
                 params.width = sizePx;
                 params.height = sizePx;
             } else {
-                params.width = ViewGroup.LayoutParams.MATCH_PARENT;
-                params.height = ViewGroup.LayoutParams.MATCH_PARENT;
+                params.width = avatarWidthPx;
+                params.height = avatarHeightPx;
             }
             floatVisual.setLayoutParams(params);
         }
@@ -499,7 +505,7 @@ public class FloatOverlayService extends Service {
             }
         }
         if (floatVisualBackground != null) {
-            floatVisualBackground.setVisibility(iconMode ? View.GONE : View.VISIBLE);
+            floatVisualBackground.setVisibility(View.GONE);
         }
         floatVisual.setBackgroundColor(0x00000000);
         floatVisual.setContentDescription(t(
@@ -510,7 +516,6 @@ public class FloatOverlayService extends Service {
             stopAvatarAnimation();
             floatVisual.setImageResource(R.drawable.icon);
         } else {
-            setAvatarBackground(R.drawable.c0);
             setAvatarFrame(R.drawable.c1);
             updateAvatarAnimation();
         }
@@ -963,6 +968,20 @@ public class FloatOverlayService extends Service {
         } else {
             floatVisual.setImageResource(resId);
         }
+    }
+
+    private float getAvatarAspectRatio() {
+        if (avatarC1Bitmap != null && !avatarC1Bitmap.isRecycled()
+                && avatarC1Bitmap.getWidth() > 0 && avatarC1Bitmap.getHeight() > 0) {
+            return (float) avatarC1Bitmap.getWidth() / avatarC1Bitmap.getHeight();
+        }
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inJustDecodeBounds = true;
+        BitmapFactory.decodeResource(getResources(), R.drawable.c1, options);
+        if (options.outWidth > 0 && options.outHeight > 0) {
+            return (float) options.outWidth / options.outHeight;
+        }
+        return 1f;
     }
 
     private void scheduleNextBlink() {

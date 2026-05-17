@@ -12,7 +12,8 @@
         android:contentDescription="@null"
         android:importantForAccessibility="no"
         android:scaleType="centerCrop"
-        android:src="@drawable/c0" />
+        android:src="@drawable/c0"
+        android:visibility="gone" />
 
     <ImageView
         android:id="@+id/floatVisual"
