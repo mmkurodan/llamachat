@@ -3,11 +3,13 @@ package com.micklab.llamachat;
 import android.app.AlertDialog;
 import android.app.Activity;
 import android.Manifest;
+import android.content.BroadcastReceiver;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
 import android.content.ClipboardManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
@@ -235,6 +237,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private boolean refreshModelsOnResume = false;
     private boolean pendingOverlayLaunch = false;
     private boolean isFloatOverlayActive = false;
+    private boolean overlaySyncReceiverRegistered = false;
 
     // --- TTS ---
     private TextToSpeech tts;
@@ -273,6 +276,12 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     // --- Avatar ---
     private final Handler avatarHandler = new Handler(Looper.getMainLooper());
     private final Handler autoHandler = new Handler(Looper.getMainLooper());
+    private final BroadcastReceiver overlaySyncReceiver = new BroadcastReceiver() {
+        @Override
+        public void onReceive(Context context, Intent intent) {
+            importOverlaySyncLog();
+        }
+    };
     private final Random avatarRandom = new Random();
     private final int[] talkFrames = new int[]{
             R.drawable.c1, R.drawable.c3
@@ -1120,7 +1129,32 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private void disableFloatingOverlay() {
         isFloatOverlayActive = false;
-        startOverlayService(FloatOverlayService.ACTION_HIDE_OVERLAY);
+        if (hasNotificationPermission()) {
+            startOverlayService(FloatOverlayService.ACTION_HIDE_OVERLAY);
+        } else {
+            stopService(new Intent(this, FloatOverlayService.class));
+        }
+    }
+
+    private void registerOverlaySyncReceiver() {
+        if (overlaySyncReceiverRegistered) {
+            return;
+        }
+        IntentFilter filter = new IntentFilter(FloatOverlayService.ACTION_OVERLAY_SYNC_UPDATED);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            registerReceiver(overlaySyncReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
+        } else {
+            registerReceiver(overlaySyncReceiver, filter);
+        }
+        overlaySyncReceiverRegistered = true;
+    }
+
+    private void unregisterOverlaySyncReceiver() {
+        if (!overlaySyncReceiverRegistered) {
+            return;
+        }
+        unregisterReceiver(overlaySyncReceiver);
+        overlaySyncReceiverRegistered = false;
     }
 
     private void startFloatingOverlayService() {
@@ -4106,10 +4140,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     @Override
     protected void onResume() {
         super.onResume();
-        if (consumeDisableFloatOverlayIntent()) {
+        registerOverlaySyncReceiver();
+        if (consumeDisableFloatOverlayIntent() || isFloatOverlayActive) {
             disableFloatingOverlay();
-        } else if (isFloatOverlayActive) {
-            isFloatOverlayActive = false;
         }
         if (pendingOverlayLaunch) {
             readSettingsFromUi();
@@ -4180,6 +4213,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     @Override
     protected void onPause() {
         super.onPause();
+        unregisterOverlaySyncReceiver();
         if (speechRecognizer != null) {
             speechRecognizer.cancel();
         }
@@ -4191,6 +4225,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     @Override
     protected void onDestroy() {
+        unregisterOverlaySyncReceiver();
         stopAvatarAnimation();
         autoHandler.removeCallbacksAndMessages(null);
         hideThinkingIndicator();

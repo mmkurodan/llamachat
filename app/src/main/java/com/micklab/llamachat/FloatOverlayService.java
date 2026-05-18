@@ -75,6 +75,7 @@ public class FloatOverlayService extends Service {
 
     public static final String ACTION_SHOW_OVERLAY = "com.micklab.llamachat.action.SHOW_OVERLAY";
     public static final String ACTION_HIDE_OVERLAY = "com.micklab.llamachat.action.HIDE_OVERLAY";
+    public static final String ACTION_OVERLAY_SYNC_UPDATED = "com.micklab.llamachat.action.OVERLAY_SYNC_UPDATED";
     private static final String ACTION_NOTIFICATION_REPLY = "com.micklab.llamachat.action.NOTIFICATION_REPLY";
     private static final String KEY_NOTIFICATION_REPLY = "notification_reply_text";
 
@@ -169,6 +170,7 @@ public class FloatOverlayService extends Service {
     private int activeResponseToken = 0;
     private boolean foregroundStarted = false;
     private boolean overlayInitialized = false;
+    private boolean openingAppFromOverlay = false;
     private String latestNotificationResponse = "";
     private int thinkingDotStep = 0;
     private String thinkingLabel = "";
@@ -285,12 +287,7 @@ public class FloatOverlayService extends Service {
             tts.shutdown();
             tts = null;
         }
-        if (windowManager != null && overlayView != null) {
-            try {
-                windowManager.removeView(overlayView);
-            } catch (Exception ignored) {
-            }
-        }
+        teardownOverlay();
         stopAvatarAnimation();
         ttsReady = false;
         ttsSpeaking.set(false);
@@ -398,6 +395,9 @@ public class FloatOverlayService extends Service {
     
             floatVisual.setOnTouchListener((v, event) -> {
                 gestureDetector.onTouchEvent(event);
+                if (openingAppFromOverlay || layoutParams == null || floatVisual == null) {
+                    return true;
+                }
                 boolean iconMode = FLOAT_DISPLAY_MODE_ICON.equals(floatDisplayMode);
                 boolean bubbleVisible = bubblePanel != null && bubblePanel.getVisibility() == View.VISIBLE;
                 boolean directWindowDrag = iconMode || !bubbleVisible;
@@ -504,9 +504,19 @@ public class FloatOverlayService extends Service {
     }
 
     private void openApp() {
-        startActivity(createMainActivityIntent());
-        teardownOverlay();
-        ensureForegroundNotification();
+        if (openingAppFromOverlay) {
+            return;
+        }
+        openingAppFromOverlay = true;
+        mainHandler.post(() -> {
+            try {
+                startActivity(createMainActivityIntent());
+                teardownOverlay();
+                ensureForegroundNotification();
+            } finally {
+                openingAppFromOverlay = false;
+            }
+        });
     }
 
     private Intent createMainActivityIntent() {
@@ -1474,6 +1484,7 @@ public class FloatOverlayService extends Service {
         gestureDetector = null;
         currentResponseBubble = null;
         overlayInitialized = false;
+        openingAppFromOverlay = false;
     }
 
     private void clearOverlayMessages() {
@@ -1563,6 +1574,9 @@ public class FloatOverlayService extends Service {
                 fos.write((item.toString() + "\n").getBytes(StandardCharsets.UTF_8));
                 fos.flush();
             }
+            Intent syncIntent = new Intent(ACTION_OVERLAY_SYNC_UPDATED);
+            syncIntent.setPackage(getPackageName());
+            sendBroadcast(syncIntent);
         } catch (Exception e) {
             DebugLogger.log(this, "appendSharedConversationLog failed: " + e.getMessage());
         }
