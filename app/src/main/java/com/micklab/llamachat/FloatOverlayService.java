@@ -315,34 +315,12 @@ public class FloatOverlayService extends Service {
             throw new RuntimeException("WindowManager is not available");
         }
         DebugLogger.log(this, "initOverlay: WindowManager obtained");
-        
-        // First, try adding a simple test view to verify window manager works
+
         try {
-            android.widget.LinearLayout testLayout = new android.widget.LinearLayout(this);
-            testLayout.setLayoutParams(new android.view.ViewGroup.LayoutParams(
-                    dpToPx(100), dpToPx(100)
-            ));
-            testLayout.setBackgroundColor(0xFF00FF00); // Green for testing
-            
             int overlayType = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                     ? WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY
                     : WindowManager.LayoutParams.TYPE_PHONE;
-            
-            WindowManager.LayoutParams testParams = new WindowManager.LayoutParams(
-                    dpToPx(100),
-                    dpToPx(100),
-                    overlayType,
-                    WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE | WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL,
-                    PixelFormat.TRANSLUCENT
-            );
-            testParams.gravity = Gravity.TOP | Gravity.START;
-            testParams.x = 0;
-            testParams.y = dpToPx(160);
-            
-            windowManager.addView(testLayout, testParams);
-            DebugLogger.log(this, "initOverlay: Test view added successfully!");
-            
-            // If test view works, add the real overlay layout
+
             overlayView = LayoutInflater.from(this).inflate(R.layout.overlay_float, null);
             if (overlayView == null) {
                 DebugLogger.log(this, "ERROR: initOverlay: overlayView inflation failed");
@@ -394,7 +372,11 @@ public class FloatOverlayService extends Service {
             });
     
             floatVisual.setOnTouchListener((v, event) -> {
-                gestureDetector.onTouchEvent(event);
+                GestureDetector detector = gestureDetector;
+                if (detector == null) {
+                    return true;
+                }
+                detector.onTouchEvent(event);
                 if (openingAppFromOverlay || layoutParams == null || floatVisual == null) {
                     return true;
                 }
@@ -491,11 +473,6 @@ public class FloatOverlayService extends Service {
             DebugLogger.log(this, "initOverlay: Adding real overlay view to window manager");
             windowManager.addView(overlayView, layoutParams);
             DebugLogger.log(this, "initOverlay: Real overlay view added successfully");
-            
-            // Remove test view after adding real one
-            windowManager.removeView(testLayout);
-            DebugLogger.log(this, "initOverlay: Test view removed");
-            
         } catch (Exception e) {
             android.util.Log.e("FloatOverlay", "Failed during overlay initialization", e);
             e.printStackTrace();
@@ -609,61 +586,69 @@ public class FloatOverlayService extends Service {
         try {
             Notification notification = buildNotification();
             if (!foregroundStarted) {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                    ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, 
-                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
-                    DebugLogger.log(this, "notification: ServiceCompat.startForeground with DATA_SYNC type success");
-                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-                    startForeground(NOTIFICATION_ID, notification);
-                    DebugLogger.log(this, "notification: startForeground (API 31+) success");
-                } else {
-                    startForeground(NOTIFICATION_ID, notification);
-                    DebugLogger.log(this, "notification: startForeground (legacy) success");
-                }
+                showForegroundNotification(notification, false);
                 foregroundStarted = true;
             } else {
-                NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-                if (manager != null) {
-                    manager.notify(NOTIFICATION_ID, notification);
-                    DebugLogger.log(this, "notification: manager.notify success");
-                } else {
-                    DebugLogger.log(this, "notification: manager is null on update");
-                }
+                showForegroundNotification(notification, true);
             }
         } catch (Exception e) {
             DebugLogger.log(this, "start/update foreground failed: " + e.getMessage());
             try {
                 Notification fallback = buildFallbackNotification();
                 if (!foregroundStarted) {
-                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
-                        try {
-                            ServiceCompat.startForeground(this, NOTIFICATION_ID, fallback, 
-                                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
-                            DebugLogger.log(this, "notification: fallback ServiceCompat.startForeground with DATA_SYNC type success");
-                        } catch (Exception typeError) {
-                            DebugLogger.log(this, "fallback with DATA_SYNC type failed: " + typeError.getMessage() + ", retrying without type");
-                            startForeground(NOTIFICATION_ID, fallback);
-                            DebugLogger.log(this, "notification: fallback startForeground (no type) success");
-                        }
-                    } else {
-                        startForeground(NOTIFICATION_ID, fallback);
-                        DebugLogger.log(this, "notification: fallback startForeground (legacy) success");
-                    }
+                    showFallbackForegroundNotification(fallback, false);
                     foregroundStarted = true;
                 } else {
-                    NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
-                    if (manager != null) {
-                        manager.notify(NOTIFICATION_ID, fallback);
-                        DebugLogger.log(this, "notification: fallback manager.notify success");
-                    } else {
-                        DebugLogger.log(this, "notification: manager is null on fallback update");
-                    }
+                    showFallbackForegroundNotification(fallback, true);
                 }
             } catch (Exception retryError) {
                 DebugLogger.log(this, "fallback foreground failed: " + retryError.getMessage());
             }
         }
         logNotificationState("ensureForegroundNotification:end");
+    }
+
+    private void showForegroundNotification(Notification notification, boolean updating) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, notification,
+                    ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+            DebugLogger.log(this, updating
+                    ? "notification: ServiceCompat.startForeground update success"
+                    : "notification: ServiceCompat.startForeground with DATA_SYNC type success");
+        } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            startForeground(NOTIFICATION_ID, notification);
+            DebugLogger.log(this, updating
+                    ? "notification: startForeground update (API 31+) success"
+                    : "notification: startForeground (API 31+) success");
+        } else {
+            startForeground(NOTIFICATION_ID, notification);
+            DebugLogger.log(this, updating
+                    ? "notification: startForeground update (legacy) success"
+                    : "notification: startForeground (legacy) success");
+        }
+    }
+
+    private void showFallbackForegroundNotification(Notification notification, boolean updating) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            try {
+                ServiceCompat.startForeground(this, NOTIFICATION_ID, notification,
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                DebugLogger.log(this, updating
+                        ? "notification: fallback ServiceCompat.startForeground update success"
+                        : "notification: fallback ServiceCompat.startForeground with DATA_SYNC type success");
+            } catch (Exception typeError) {
+                DebugLogger.log(this, "fallback with DATA_SYNC type failed: " + typeError.getMessage() + ", retrying without type");
+                startForeground(NOTIFICATION_ID, notification);
+                DebugLogger.log(this, updating
+                        ? "notification: fallback startForeground update (no type) success"
+                        : "notification: fallback startForeground (no type) success");
+            }
+        } else {
+            startForeground(NOTIFICATION_ID, notification);
+            DebugLogger.log(this, updating
+                    ? "notification: fallback startForeground update (legacy) success"
+                    : "notification: fallback startForeground (legacy) success");
+        }
     }
 
     private void logNotificationState(String stage) {
