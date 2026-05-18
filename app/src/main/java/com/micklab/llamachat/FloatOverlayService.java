@@ -18,6 +18,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.provider.Settings;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
 import android.speech.SpeechRecognizer;
@@ -73,6 +74,7 @@ import okhttp3.Response;
 public class FloatOverlayService extends Service {
 
     public static final String ACTION_SHOW_OVERLAY = "com.micklab.llamachat.action.SHOW_OVERLAY";
+    public static final String ACTION_HIDE_OVERLAY = "com.micklab.llamachat.action.HIDE_OVERLAY";
     private static final String ACTION_NOTIFICATION_REPLY = "com.micklab.llamachat.action.NOTIFICATION_REPLY";
     private static final String KEY_NOTIFICATION_REPLY = "notification_reply_text";
 
@@ -166,6 +168,7 @@ public class FloatOverlayService extends Service {
     private int avatarHeightPx = 0;
     private int activeResponseToken = 0;
     private boolean foregroundStarted = false;
+    private boolean overlayInitialized = false;
     private String latestNotificationResponse = "";
     private int thinkingDotStep = 0;
     private String thinkingLabel = "";
@@ -237,11 +240,7 @@ public class FloatOverlayService extends Service {
             initConversationHistory();
             DebugLogger.log(this, "Conversation history initialized");
             
-            DebugLogger.log(this, "Initializing overlay");
-            initOverlay();
-            DebugLogger.log(this, "Overlay initialized successfully");
-            
-            DebugLogger.log(this, "Building notification");
+            DebugLogger.log(this, "Preparing notification service");
             ensureForegroundNotification();
             
             DebugLogger.log(this, "=== FloatOverlayService onCreate SUCCESS ===");
@@ -258,7 +257,12 @@ public class FloatOverlayService extends Service {
     @Override
     public int onStartCommand(Intent intent, int flags, int startId) {
         DebugLogger.log(this, "onStartCommand called");
-        if (intent != null && ACTION_NOTIFICATION_REPLY.equals(intent.getAction())) {
+        String action = intent != null ? intent.getAction() : null;
+        if (ACTION_SHOW_OVERLAY.equals(action)) {
+            ensureOverlayInitialized();
+        } else if (ACTION_HIDE_OVERLAY.equals(action)) {
+            teardownOverlay();
+        } else if (ACTION_NOTIFICATION_REPLY.equals(action)) {
             handleNotificationReply(intent);
         }
         ensureForegroundNotification();
@@ -500,11 +504,9 @@ public class FloatOverlayService extends Service {
     }
 
     private void openApp() {
-        Intent intent = new Intent(this, MainActivity.class);
-        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        intent.putExtra("disableFloatOverlay", true);
-        startActivity(intent);
-        stopSelf();
+        startActivity(createMainActivityIntent());
+        teardownOverlay();
+        ensureForegroundNotification();
     }
 
     private Intent createMainActivityIntent() {
@@ -525,9 +527,7 @@ public class FloatOverlayService extends Service {
             manager.createNotificationChannel(channel);
         }
 
-        Intent openIntent = new Intent(this, MainActivity.class);
-        openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        openIntent.putExtra("disableFloatOverlay", true);
+        Intent openIntent = createMainActivityIntent();
         PendingIntent pendingIntent = PendingIntent.getActivity(
                 this,
                 0,
@@ -575,9 +575,7 @@ public class FloatOverlayService extends Service {
     }
 
     private Notification buildFallbackNotification() {
-        Intent openIntent = new Intent(this, MainActivity.class);
-        openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        openIntent.putExtra("disableFloatOverlay", true);
+        Intent openIntent = createMainActivityIntent();
         PendingIntent pendingIntent = PendingIntent.getActivity(
                 this,
                 0,
@@ -682,14 +680,18 @@ public class FloatOverlayService extends Service {
         String text = reply.toString().trim();
         if (text.isEmpty()) return;
         submitUserMessage(text);
-        showBubble(true);
+        if (overlayInitialized && bubblePanel != null) {
+            showBubble(true);
+        }
     }
 
     private void toggleBubble() {
+        if (bubblePanel == null) return;
         showBubble(bubblePanel.getVisibility() != View.VISIBLE);
     }
 
     private void showBubble(boolean show) {
+        if (bubblePanel == null || layoutParams == null) return;
         bubblePanel.setVisibility(show ? View.VISIBLE : View.GONE);
         layoutParams.flags = show
                 ? WindowManager.LayoutParams.FLAG_NOT_TOUCH_MODAL
@@ -831,7 +833,9 @@ public class FloatOverlayService extends Service {
 
     private void submitUserMessage(String userMessage) {
         int requestToken = ++activeResponseToken;
-        inputView.setText("");
+        if (inputView != null) {
+            inputView.setText("");
+        }
         clearOverlayMessages();
         appendSharedConversationLog("user", userMessage);
         addToHistory("user", userMessage);
@@ -1428,6 +1432,48 @@ public class FloatOverlayService extends Service {
             latestNotificationResponse = responseText;
             ensureForegroundNotification();
         });
+    }
+
+    private boolean hasOverlayPermission() {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this);
+    }
+
+    private void ensureOverlayInitialized() {
+        if (overlayInitialized) {
+            return;
+        }
+        if (!hasOverlayPermission()) {
+            DebugLogger.log(this, "Overlay initialization skipped: permission missing");
+            return;
+        }
+        initOverlay();
+        overlayInitialized = true;
+        DebugLogger.log(this, "Overlay initialized successfully");
+    }
+
+    private void teardownOverlay() {
+        hideKeyboard();
+        if (windowManager != null && overlayView != null) {
+            try {
+                windowManager.removeView(overlayView);
+            } catch (Exception e) {
+                DebugLogger.log(this, "Overlay teardown failed: " + e.getMessage());
+            }
+        }
+        overlayView = null;
+        layoutParams = null;
+        floatVisualBackground = null;
+        floatVisual = null;
+        bubblePanel = null;
+        messageScrollView = null;
+        messageContainer = null;
+        inputView = null;
+        sendButton = null;
+        hideButton = null;
+        bubbleTitleView = null;
+        gestureDetector = null;
+        currentResponseBubble = null;
+        overlayInitialized = false;
     }
 
     private void clearOverlayMessages() {

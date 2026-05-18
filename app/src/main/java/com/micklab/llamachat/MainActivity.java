@@ -2,7 +2,6 @@ package com.micklab.llamachat;
 
 import android.app.AlertDialog;
 import android.app.Activity;
-import android.app.NotificationManager;
 import android.Manifest;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
@@ -573,7 +572,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (savedInstanceState == null) {
             showQuickStartDialogIfNeeded();
         }
-        ensureNotificationsEnabled();
+        ensureNotificationService();
         fetchModels();
     }
 
@@ -1095,27 +1094,37 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this);
     }
 
-    private void ensureNotificationsEnabled() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
-                NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-                if (manager != null && !manager.areNotificationsEnabled()) {
-                    Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
-                    intent.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
-                    startActivity(intent);
-                }
-            }
-        }
+    private boolean hasNotificationPermission() {
+        return Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU
+                || checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED;
     }
 
-    private void startFloatingOverlayService() {
+    private void startOverlayService(String action) {
         Intent intent = new Intent(this, FloatOverlayService.class);
-        intent.setAction(FloatOverlayService.ACTION_SHOW_OVERLAY);
+        if (action != null) {
+            intent.setAction(action);
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             startForegroundService(intent);
         } else {
             startService(intent);
         }
+    }
+
+    private void ensureNotificationService() {
+        if (!hasNotificationPermission()) {
+            return;
+        }
+        startOverlayService(null);
+    }
+
+    private void disableFloatingOverlay() {
+        isFloatOverlayActive = false;
+        startOverlayService(FloatOverlayService.ACTION_HIDE_OVERLAY);
+    }
+
+    private void startFloatingOverlayService() {
+        startOverlayService(FloatOverlayService.ACTION_SHOW_OVERLAY);
         isFloatOverlayActive = true;
         new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(
                 () -> moveTaskToBack(true), 100
@@ -4097,19 +4106,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     @Override
     protected void onResume() {
         super.onResume();
-        // Check if we should disable float overlay (e.g., when returning from notification tap)
-        if (getIntent() != null && getIntent().getBooleanExtra("disableFloatOverlay", false)) {
-            getIntent().putExtra("disableFloatOverlay", false);  // Clear the flag
+        if (consumeDisableFloatOverlayIntent()) {
+            disableFloatingOverlay();
+        } else if (isFloatOverlayActive) {
             isFloatOverlayActive = false;
-            stopService(new Intent(this, FloatOverlayService.class));
-        }
-        // Only stop the overlay service if we're returning from app and float mode is not active
-        if (!isFloatOverlayActive) {
-            stopService(new Intent(this, FloatOverlayService.class));
-        } else {
-            isFloatOverlayActive = false;
-            // We're in the app now, but overlay might still be running
-            // Let it continue in background
         }
         if (pendingOverlayLaunch) {
             readSettingsFromUi();
@@ -4126,8 +4126,24 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             refreshModelsOnResume = false;
             fetchModels();
         }
+        ensureNotificationService();
         importOverlaySyncLog();
         updateOverlayEntryUi();
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        super.onNewIntent(intent);
+        setIntent(intent);
+    }
+
+    private boolean consumeDisableFloatOverlayIntent() {
+        Intent intent = getIntent();
+        if (intent == null || !intent.getBooleanExtra("disableFloatOverlay", false)) {
+            return false;
+        }
+        intent.removeExtra("disableFloatOverlay");
+        return true;
     }
 
     @Override
@@ -4143,6 +4159,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 } else if (permissions[i].equals(Manifest.permission.POST_NOTIFICATIONS)) {
                     if (grantResults[i] != PackageManager.PERMISSION_GRANTED) {
                         Toast.makeText(this, t("Notification permission denied", "通知権限が拒否されました"), Toast.LENGTH_SHORT).show();
+                    } else {
+                        ensureNotificationService();
                     }
                 }
             }
