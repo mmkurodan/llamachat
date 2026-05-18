@@ -59,6 +59,9 @@ import java.util.Random;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 
+import android.content.pm.ServiceInfo;
+import androidx.core.app.ServiceCompat;
+
 import okhttp3.Call;
 import okhttp3.Callback;
 import okhttp3.MediaType;
@@ -588,9 +591,18 @@ public class FloatOverlayService extends Service {
         try {
             Notification notification = buildNotification();
             if (!foregroundStarted) {
-                startForeground(NOTIFICATION_ID, notification);
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                    ServiceCompat.startForeground(this, NOTIFICATION_ID, notification, 
+                        ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                    DebugLogger.log(this, "notification: ServiceCompat.startForeground with DATA_SYNC type success");
+                } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                    startForeground(NOTIFICATION_ID, notification);
+                    DebugLogger.log(this, "notification: startForeground (API 31+) success");
+                } else {
+                    startForeground(NOTIFICATION_ID, notification);
+                    DebugLogger.log(this, "notification: startForeground (legacy) success");
+                }
                 foregroundStarted = true;
-                DebugLogger.log(this, "notification: startForeground success");
             } else {
                 NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
                 if (manager != null) {
@@ -605,9 +617,21 @@ public class FloatOverlayService extends Service {
             try {
                 Notification fallback = buildFallbackNotification();
                 if (!foregroundStarted) {
-                    startForeground(NOTIFICATION_ID, fallback);
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+                        try {
+                            ServiceCompat.startForeground(this, NOTIFICATION_ID, fallback, 
+                                ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC);
+                            DebugLogger.log(this, "notification: fallback ServiceCompat.startForeground with DATA_SYNC type success");
+                        } catch (Exception typeError) {
+                            DebugLogger.log(this, "fallback with DATA_SYNC type failed: " + typeError.getMessage() + ", retrying without type");
+                            startForeground(NOTIFICATION_ID, fallback);
+                            DebugLogger.log(this, "notification: fallback startForeground (no type) success");
+                        }
+                    } else {
+                        startForeground(NOTIFICATION_ID, fallback);
+                        DebugLogger.log(this, "notification: fallback startForeground (legacy) success");
+                    }
                     foregroundStarted = true;
-                    DebugLogger.log(this, "notification: fallback startForeground success");
                 } else {
                     NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
                     if (manager != null) {
