@@ -557,7 +557,7 @@ public class FloatOverlayService extends Service {
                     .build();
             Notification.Action replyAction = new Notification.Action.Builder(
                     android.R.drawable.ic_menu_send,
-                    t("Reply", "返信"),
+                    t("Send Message", "メッセージ送信"),
                     replyPendingIntent
             ).addRemoteInput(remoteInput).build();
             builder.addAction(replyAction);
@@ -1412,6 +1412,7 @@ public class FloatOverlayService extends Service {
         adjustMessageAreaHeight();
         scrollMessagesToBottom();
         latestNotificationResponse = body.toString();
+        ensureForegroundNotification();
     }
 
     private void clearOverlayMessages() {
