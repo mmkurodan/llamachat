@@ -502,8 +502,16 @@ public class FloatOverlayService extends Service {
     private void openApp() {
         Intent intent = new Intent(this, MainActivity.class);
         intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.putExtra("disableFloatOverlay", true);
         startActivity(intent);
         stopSelf();
+    }
+
+    private Intent createMainActivityIntent() {
+        Intent intent = new Intent(this, MainActivity.class);
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        intent.putExtra("disableFloatOverlay", true);
+        return intent;
     }
 
     private Notification buildNotification() {
@@ -519,6 +527,7 @@ public class FloatOverlayService extends Service {
 
         Intent openIntent = new Intent(this, MainActivity.class);
         openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        openIntent.putExtra("disableFloatOverlay", true);
         PendingIntent pendingIntent = PendingIntent.getActivity(
                 this,
                 0,
@@ -568,6 +577,7 @@ public class FloatOverlayService extends Service {
     private Notification buildFallbackNotification() {
         Intent openIntent = new Intent(this, MainActivity.class);
         openIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP | Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        openIntent.putExtra("disableFloatOverlay", true);
         PendingIntent pendingIntent = PendingIntent.getActivity(
                 this,
                 0,
@@ -1414,8 +1424,10 @@ public class FloatOverlayService extends Service {
     }
 
     private void updateNotificationResponse(String responseText) {
-        latestNotificationResponse = responseText;
-        mainHandler.post(this::ensureForegroundNotification);
+        mainHandler.post(() -> {
+            latestNotificationResponse = responseText;
+            ensureForegroundNotification();
+        });
     }
 
     private void clearOverlayMessages() {

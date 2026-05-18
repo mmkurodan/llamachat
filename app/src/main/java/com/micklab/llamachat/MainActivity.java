@@ -2,6 +2,7 @@ package com.micklab.llamachat;
 
 import android.app.AlertDialog;
 import android.app.Activity;
+import android.app.NotificationManager;
 import android.Manifest;
 import android.content.ActivityNotFoundException;
 import android.content.ClipData;
@@ -572,6 +573,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (savedInstanceState == null) {
             showQuickStartDialogIfNeeded();
         }
+        ensureNotificationsEnabled();
         fetchModels();
     }
 
@@ -1091,6 +1093,19 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private boolean hasOverlayPermission() {
         return Build.VERSION.SDK_INT < Build.VERSION_CODES.M || Settings.canDrawOverlays(this);
+    }
+
+    private void ensureNotificationsEnabled() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+            if (checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) == PackageManager.PERMISSION_GRANTED) {
+                NotificationManager manager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
+                if (manager != null && !manager.areNotificationsEnabled()) {
+                    Intent intent = new Intent(Settings.ACTION_APP_NOTIFICATION_SETTINGS);
+                    intent.putExtra(Settings.EXTRA_APP_PACKAGE, getPackageName());
+                    startActivity(intent);
+                }
+            }
+        }
     }
 
     private void startFloatingOverlayService() {
@@ -4082,6 +4097,12 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     @Override
     protected void onResume() {
         super.onResume();
+        // Check if we should disable float overlay (e.g., when returning from notification tap)
+        if (getIntent() != null && getIntent().getBooleanExtra("disableFloatOverlay", false)) {
+            getIntent().putExtra("disableFloatOverlay", false);  // Clear the flag
+            isFloatOverlayActive = false;
+            stopService(new Intent(this, FloatOverlayService.class));
+        }
         // Only stop the overlay service if we're returning from app and float mode is not active
         if (!isFloatOverlayActive) {
             stopService(new Intent(this, FloatOverlayService.class));
