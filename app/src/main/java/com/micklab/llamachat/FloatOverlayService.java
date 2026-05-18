@@ -827,8 +827,7 @@ public class FloatOverlayService extends Service {
         addToHistory("user", userMessage);
         isProcessing = true;
         startThinkingIndicator(t("Thinking", "思考中"), requestToken);
-        latestNotificationResponse = t("Generating response...", "応答を生成中...");
-        ensureForegroundNotification();
+        updateNotificationResponse(t("Generating response...", "応答を生成中..."));
         updateAvatarAnimation();
         currentResponseBubble = null;
         updateSendButton();
@@ -852,8 +851,7 @@ public class FloatOverlayService extends Service {
         updateSendButton();
         currentResponseBubble = null;
         setResponseText(t("Request cancelled", "リクエストをキャンセルしました"), activeResponseToken);
-        latestNotificationResponse = t("Request cancelled", "リクエストをキャンセルしました");
-        ensureForegroundNotification();
+        updateNotificationResponse(t("Request cancelled", "リクエストをキャンセルしました"));
     }
 
     private void sendChat(String transientUserMessage, boolean replaceLastUserMessage, int requestToken) {
@@ -1258,6 +1256,7 @@ public class FloatOverlayService extends Service {
                         if (json.has("message")) {
                             visibleResponse += json.getJSONObject("message").optString("content", "");
                             setResponseText(visibleResponse, requestToken);
+                            updateNotificationResponse(visibleResponse);
                         }
                         if (json.optBoolean("done", false)) {
                             break;
@@ -1333,8 +1332,7 @@ public class FloatOverlayService extends Service {
             setResponseText(responseText, requestToken);
         }
         isStreamingResponse = false;
-        latestNotificationResponse = responseText;
-        ensureForegroundNotification();
+        updateNotificationResponse(responseText);
         if (hasAssistantContent) {
             speakText(responseText);
             if (autoVoiceInputEnabled) {
@@ -1413,6 +1411,11 @@ public class FloatOverlayService extends Service {
         scrollMessagesToBottom();
         latestNotificationResponse = body.toString();
         ensureForegroundNotification();
+    }
+
+    private void updateNotificationResponse(String responseText) {
+        latestNotificationResponse = responseText;
+        mainHandler.post(this::ensureForegroundNotification);
     }
 
     private void clearOverlayMessages() {
