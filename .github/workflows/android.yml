@@ -11,7 +11,7 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v4
+    - uses: actions/checkout@v5
 
     # Restore keystore
     - name: Restore keystore
@@ -21,29 +21,20 @@ jobs:
       env:
         KEYSTORE_BASE64: ${{ secrets.KEYSTORE_BASE64 }}
 
-    - name: Download Gradle 8.4
-      run: |
-        wget https://services.gradle.org/distributions/gradle-8.4-bin.zip
-        unzip gradle-8.4-bin.zip
-        echo "$PWD/gradle-8.4/bin" >> $GITHUB_PATH
-
-    - name: Generate Gradle Wrapper (8.4)
-      run: gradle wrapper --gradle-version 8.4
-
     - name: Build debug APK
       run: |
         chmod +x gradlew
-        ./gradlew assembleDebug --stacktrace
+        ./gradlew -Pandroid.useAndroidX=true -Pandroid.enableJetifier=true assembleDebug --stacktrace
 
     - name: Build release APK
-      run: ./gradlew assembleRelease --stacktrace
+      run: ./gradlew -Pandroid.useAndroidX=true -Pandroid.enableJetifier=true assembleRelease --stacktrace
       env:
         KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
         KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
 
     - name: Build AAB (bundleRelease)
-      run: ./gradlew bundleRelease --stacktrace
+      run: ./gradlew -Pandroid.useAndroidX=true -Pandroid.enableJetifier=true bundleRelease --stacktrace
       env:
         KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
         KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
