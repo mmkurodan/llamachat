@@ -18,6 +18,7 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.IBinder;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
@@ -101,6 +102,8 @@ public class FloatOverlayService extends Service {
     private static final int AVATAR_BLINK_MAX_MS = 7000;
     private static final int AVATAR_BLINK_DURATION_MS = 120;
     private static final int THINKING_ANIMATION_INTERVAL_MS = 360;
+    private static final int OVERLAY_SCROLL_SETTLE_MS = 72;
+    private static final int OVERLAY_SCROLL_MIN_INTERVAL_MS = 96;
     private static final float FLOAT_AVATAR_HEIGHT_RATIO = 0.33f;
     private static final int FLOAT_BUBBLE_MARGIN_DP = 12;
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
@@ -176,6 +179,9 @@ public class FloatOverlayService extends Service {
     private int thinkingDotStep = 0;
     private String thinkingLabel = "";
     private int thinkingToken = 0;
+    private boolean scrollToBottomScheduled = false;
+    private boolean pendingScrollToBottom = false;
+    private long lastScrollToBottomAtMs = 0L;
     private final Runnable thinkingAnimationRunnable = new Runnable() {
         @Override
         public void run() {
@@ -1328,11 +1334,7 @@ public class FloatOverlayService extends Service {
         isProcessing = false;
         updateAvatarAnimation();
         updateSendButton();
-        // Only display the response text if we're not streaming
-        // (for streaming, it's already been displayed incrementally)
-        if (!isStreamingResponse) {
-            setResponseText(responseText, requestToken);
-        }
+        setResponseText(responseText, requestToken);
         isStreamingResponse = false;
         updateNotificationResponse(responseText);
         if (hasAssistantContent) {
@@ -1549,7 +1551,19 @@ public class FloatOverlayService extends Service {
 
     private void scrollMessagesToBottom() {
         if (messageScrollView == null) return;
-        messageScrollView.post(() -> messageScrollView.fullScroll(View.FOCUS_DOWN));
+        pendingScrollToBottom = true;
+        if (scrollToBottomScheduled) return;
+        long now = SystemClock.uptimeMillis();
+        long elapsed = now - lastScrollToBottomAtMs;
+        long delay = Math.max(OVERLAY_SCROLL_SETTLE_MS, OVERLAY_SCROLL_MIN_INTERVAL_MS - Math.max(0L, elapsed));
+        scrollToBottomScheduled = true;
+        messageScrollView.postDelayed(() -> {
+            scrollToBottomScheduled = false;
+            if (messageScrollView == null || !pendingScrollToBottom) return;
+            pendingScrollToBottom = false;
+            messageScrollView.fullScroll(View.FOCUS_DOWN);
+            lastScrollToBottomAtMs = SystemClock.uptimeMillis();
+        }, delay);
     }
 
     private void appendSharedConversationLog(String role, String content) {

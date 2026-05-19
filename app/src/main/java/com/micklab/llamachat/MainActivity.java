@@ -20,6 +20,7 @@ import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
+import android.os.SystemClock;
 import android.provider.Settings;
 import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
@@ -149,7 +150,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final int AVATAR_BLINK_MIN_MS = 3000;
     private static final int AVATAR_BLINK_MAX_MS = 7000;
     private static final int AVATAR_BLINK_DURATION_MS = 120;
-    private static final int STREAM_FLUSH_INTERVAL_MS = 33;
+    private static final int STREAM_FLUSH_INTERVAL_MS = 80;
+    private static final int CHAT_SCROLL_SETTLE_MS = 72;
+    private static final int CHAT_SCROLL_MIN_INTERVAL_MS = 96;
     private static final int THINKING_ANIMATION_INTERVAL_MS = 360;
     private static final String[] REASONING_OPEN_TAGS = new String[]{
             "<think>", "<analysis>", "<|thought|>"
@@ -378,6 +381,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private final AtomicInteger streamingTokenCounter = new AtomicInteger(0);
     private volatile int activeStreamingToken = 0;
     private volatile boolean layoutUpdateScheduled = false;
+    private boolean scrollToBottomScheduled = false;
+    private boolean pendingScrollToBottom = false;
+    private long lastScrollToBottomAtMs = 0L;
     private Call currentCall = null;
     private final Runnable thinkingAnimationRunnable = new Runnable() {
         @Override
@@ -3589,14 +3595,14 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                         appendDebug("/api/chat Response", buildResponseDebugText(response, debugRaw.toString()));
                     }
                     setThinkingIndicator(false, speaker, token);
+                    String text = visibleResponse;
                     flushStreamingBuffer(token);
-                    finishStreamingMessage(token);
+                    finishStreamingMessage(text, token);
 
                     if (ttsEnabled) {
                         flushSentenceBuffer(speaker);
                     }
 
-                    String text = visibleResponse;
                     if (!text.trim().isEmpty()) {
                         addToHistory(getHistoryForSpeaker(speaker), "assistant", text);
                     } else {
@@ -3923,8 +3929,6 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
         String header = getSpeakerName(currentStreamingSpeaker);
         renderMessageBubble(currentStreamingBubble, header, streamingTextBuffer.toString());
-        currentStreamingBubble.requestLayout();
-        currentStreamingBubble.invalidate();
         requestChatLayoutUpdate();
         maybeScrollToBottom(shouldScroll);
     }
@@ -3936,19 +3940,25 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         streamingTextBuffer.append(content);
         String header = getSpeakerName(currentStreamingSpeaker);
         renderMessageBubble(currentStreamingBubble, header, streamingTextBuffer.toString());
-        currentStreamingBubble.requestLayout();
-        currentStreamingBubble.invalidate();
         requestChatLayoutUpdate();
         maybeScrollToBottom(shouldScroll);
     }
 
-    private void finishStreamingMessage(int token) {
+    private void finishStreamingMessage(String finalText, int token) {
         runOnUiThread(() -> {
             if (token != activeStreamingToken) return;
+            boolean shouldScroll = isNearBottom();
+            if (currentStreamingBubble != null) {
+                renderMessageBubble(
+                        currentStreamingBubble,
+                        getSpeakerName(currentStreamingSpeaker),
+                        finalText
+                );
+            }
             currentStreamingBubble = null;
             streamingTextBuffer.setLength(0);
             requestChatLayoutUpdate();
-            maybeScrollToBottom(false);
+            maybeScrollToBottom(shouldScroll);
         });
     }
 
@@ -4001,7 +4011,19 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private void maybeScrollToBottom(boolean force) {
         if (scrollView == null) return;
         if (!force && !isNearBottom()) return;
-        scrollView.post(() -> scrollView.fullScroll(View.FOCUS_DOWN));
+        pendingScrollToBottom = true;
+        if (scrollToBottomScheduled) return;
+        long now = SystemClock.uptimeMillis();
+        long elapsed = now - lastScrollToBottomAtMs;
+        long delay = Math.max(CHAT_SCROLL_SETTLE_MS, CHAT_SCROLL_MIN_INTERVAL_MS - Math.max(0L, elapsed));
+        scrollToBottomScheduled = true;
+        scrollView.postDelayed(() -> {
+            scrollToBottomScheduled = false;
+            if (scrollView == null || !pendingScrollToBottom) return;
+            pendingScrollToBottom = false;
+            scrollView.fullScroll(View.FOCUS_DOWN);
+            lastScrollToBottomAtMs = SystemClock.uptimeMillis();
+        }, delay);
     }
 
     private boolean isNearBottom() {
