@@ -3863,7 +3863,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             body.append('.');
         }
         String header = getSpeakerName(currentThinkingSpeaker);
-        renderMessageBubble(currentThinkingBubble, header, body.toString());
+        renderPlainMessageBubble(currentThinkingBubble, header, body.toString());
         currentThinkingBubble.requestLayout();
         currentThinkingBubble.invalidate();
         requestChatLayoutUpdate();
@@ -3904,7 +3904,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             currentStreamingBubble = createMessageBubble(getSpeakerName(speaker), isUserSideForSpeaker(speaker));
             String header = getSpeakerName(speaker);
             streamingTextBuffer.setLength(0);
-            renderMessageBubble(currentStreamingBubble, header, "");
+            renderPlainMessageBubble(currentStreamingBubble, header, "");
             flushStreamingBuffer(token);
             requestChatLayoutUpdate();
             maybeScrollToBottom(shouldScroll);
@@ -3928,7 +3928,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             streamingTextBuffer.append(content);
         }
         String header = getSpeakerName(currentStreamingSpeaker);
-        renderMessageBubble(currentStreamingBubble, header, streamingTextBuffer.toString());
+        renderPlainMessageBubble(currentStreamingBubble, header, streamingTextBuffer.toString());
         requestChatLayoutUpdate();
         maybeScrollToBottom(shouldScroll);
     }
@@ -3939,7 +3939,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         boolean shouldScroll = isNearBottom();
         streamingTextBuffer.append(content);
         String header = getSpeakerName(currentStreamingSpeaker);
-        renderMessageBubble(currentStreamingBubble, header, streamingTextBuffer.toString());
+        renderPlainMessageBubble(currentStreamingBubble, header, streamingTextBuffer.toString());
         requestChatLayoutUpdate();
         maybeScrollToBottom(shouldScroll);
     }
@@ -4006,6 +4006,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private void renderMessageBubble(TextView bubble, String name, String text) {
         getMarkdownRenderer().render(bubble, name, text);
+    }
+
+    private void renderPlainMessageBubble(TextView bubble, String name, String text) {
+        getMarkdownRenderer().renderPlain(bubble, name, text);
     }
 
     private void maybeScrollToBottom(boolean force) {

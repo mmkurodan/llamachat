@@ -1355,10 +1355,15 @@ public class FloatOverlayService extends Service {
             if (requestToken != activeResponseToken) return;
             if (TextUtils.isEmpty(text)) return;
             stopThinkingIndicator(requestToken);
+            boolean renderMarkdown = !isStreamingResponse;
             if (currentResponseBubble == null) {
-                currentResponseBubble = appendAssistantMessageBubble(text);
+                currentResponseBubble = appendMessageBubble(baseName, text, false, renderMarkdown);
             } else {
-                renderMessageBubble(currentResponseBubble, baseName, text);
+                if (renderMarkdown) {
+                    renderMessageBubble(currentResponseBubble, baseName, text);
+                } else {
+                    renderPlainMessageBubble(currentResponseBubble, baseName, text);
+                }
                 adjustMessageAreaHeight();
                 scrollMessagesToBottom();
             }
@@ -1410,7 +1415,7 @@ public class FloatOverlayService extends Service {
         for (int i = 0; i < dots; i++) {
             body.append('.');
         }
-        renderMessageBubble(currentResponseBubble, baseName, body.toString());
+        renderPlainMessageBubble(currentResponseBubble, baseName, body.toString());
         adjustMessageAreaHeight();
         scrollMessagesToBottom();
         latestNotificationResponse = body.toString();
@@ -1492,6 +1497,10 @@ public class FloatOverlayService extends Service {
     }
 
     private TextView appendMessageBubble(String name, String text, boolean isUserSide) {
+        return appendMessageBubble(name, text, isUserSide, true);
+    }
+
+    private TextView appendMessageBubble(String name, String text, boolean isUserSide, boolean renderMarkdown) {
         if (messageContainer == null) return null;
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -1511,7 +1520,11 @@ public class FloatOverlayService extends Service {
         bubble.setTextColor(0xFF000000);
         int maxWidth = (int) (getResources().getDisplayMetrics().widthPixels * 0.7f);
         bubble.setMaxWidth(maxWidth);
-        renderMessageBubble(bubble, name, text);
+        if (renderMarkdown) {
+            renderMessageBubble(bubble, name, text);
+        } else {
+            renderPlainMessageBubble(bubble, name, text);
+        }
 
         row.addView(bubble);
         messageContainer.addView(row);
@@ -1529,6 +1542,10 @@ public class FloatOverlayService extends Service {
 
     private void renderMessageBubble(TextView bubble, String name, String text) {
         getMarkdownRenderer().render(bubble, name, text);
+    }
+
+    private void renderPlainMessageBubble(TextView bubble, String name, String text) {
+        getMarkdownRenderer().renderPlain(bubble, name, text);
     }
 
     private void adjustMessageAreaHeight() {

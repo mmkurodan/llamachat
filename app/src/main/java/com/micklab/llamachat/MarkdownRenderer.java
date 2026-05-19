@@ -24,12 +24,21 @@ final class MarkdownRenderer {
     }
 
     void render(TextView textView, String title, String body) {
+        applyTextViewDefaults(textView);
+        markwon.setMarkdown(textView, toMarkdown(title, body));
+    }
+
+    void renderPlain(TextView textView, String title, String body) {
+        applyTextViewDefaults(textView);
+        textView.setText(toPlainText(title, body));
+    }
+
+    private void applyTextViewDefaults(TextView textView) {
         if (textView == null) return;
         textView.setTextIsSelectable(true);
         textView.setLongClickable(true);
         textView.setFocusable(true);
         textView.setFocusableInTouchMode(true);
-        markwon.setMarkdown(textView, toMarkdown(title, body));
     }
 
     private String toMarkdown(String title, String body) {
@@ -41,5 +50,16 @@ final class MarkdownRenderer {
             return "**" + title + "**";
         }
         return "**" + title + "**\n\n" + safeBody;
+    }
+
+    private CharSequence toPlainText(String title, String body) {
+        String safeBody = body == null ? "" : body;
+        if (TextUtils.isEmpty(title)) {
+            return safeBody;
+        }
+        if (TextUtils.isEmpty(safeBody)) {
+            return title;
+        }
+        return title + "\n\n" + safeBody;
     }
 }
