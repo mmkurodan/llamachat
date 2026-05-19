@@ -128,6 +128,7 @@ public class FloatOverlayService extends Service {
     private Button hideButton;
     private TextView bubbleTitleView;
     private GestureDetector gestureDetector;
+    private MarkdownRenderer markdownRenderer;
     private TextView currentResponseBubble;
     private Bitmap avatarC0Bitmap;
     private Bitmap avatarC1Bitmap;
@@ -1355,7 +1356,7 @@ public class FloatOverlayService extends Service {
             if (currentResponseBubble == null) {
                 currentResponseBubble = appendAssistantMessageBubble(text);
             } else {
-                currentResponseBubble.setText(formatMessageText(baseName, text));
+                renderMessageBubble(currentResponseBubble, baseName, text);
                 adjustMessageAreaHeight();
                 scrollMessagesToBottom();
             }
@@ -1407,7 +1408,7 @@ public class FloatOverlayService extends Service {
         for (int i = 0; i < dots; i++) {
             body.append('.');
         }
-        currentResponseBubble.setText(formatMessageText(baseName, body.toString()));
+        renderMessageBubble(currentResponseBubble, baseName, body.toString());
         adjustMessageAreaHeight();
         scrollMessagesToBottom();
         latestNotificationResponse = body.toString();
@@ -1508,7 +1509,7 @@ public class FloatOverlayService extends Service {
         bubble.setTextColor(0xFF000000);
         int maxWidth = (int) (getResources().getDisplayMetrics().widthPixels * 0.7f);
         bubble.setMaxWidth(maxWidth);
-        bubble.setText(formatMessageText(name, text));
+        renderMessageBubble(bubble, name, text);
 
         row.addView(bubble);
         messageContainer.addView(row);
@@ -1517,9 +1518,15 @@ public class FloatOverlayService extends Service {
         return bubble;
     }
 
-    private String formatMessageText(String name, String text) {
-        if (TextUtils.isEmpty(name)) return text == null ? "" : text;
-        return name + "\n" + (text == null ? "" : text);
+    private MarkdownRenderer getMarkdownRenderer() {
+        if (markdownRenderer == null) {
+            markdownRenderer = MarkdownRenderer.create(this);
+        }
+        return markdownRenderer;
+    }
+
+    private void renderMessageBubble(TextView bubble, String name, String text) {
+        getMarkdownRenderer().render(bubble, name, text);
     }
 
     private void adjustMessageAreaHeight() {
