@@ -23,22 +23,20 @@ final class MarkdownRenderer {
         return new MarkdownRenderer(context);
     }
 
+    void prepare(TextView textView) {
+        if (textView == null) return;
+        textView.setTextIsSelectable(true);
+        textView.setLongClickable(true);
+    }
+
     void render(TextView textView, String title, String body) {
-        applyTextViewDefaults(textView);
+        if (textView == null) return;
         markwon.setMarkdown(textView, toMarkdown(title, body));
     }
 
     void renderPlain(TextView textView, String title, String body) {
-        applyTextViewDefaults(textView);
-        textView.setText(toPlainText(title, body));
-    }
-
-    private void applyTextViewDefaults(TextView textView) {
         if (textView == null) return;
-        textView.setTextIsSelectable(true);
-        textView.setLongClickable(true);
-        textView.setFocusable(true);
-        textView.setFocusableInTouchMode(true);
+        textView.setText(toPlainText(title, body));
     }
 
     private String toMarkdown(String title, String body) {

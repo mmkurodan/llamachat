@@ -1355,15 +1355,10 @@ public class FloatOverlayService extends Service {
             if (requestToken != activeResponseToken) return;
             if (TextUtils.isEmpty(text)) return;
             stopThinkingIndicator(requestToken);
-            boolean renderMarkdown = !isStreamingResponse;
             if (currentResponseBubble == null) {
-                currentResponseBubble = appendMessageBubble(baseName, text, false, renderMarkdown);
+                currentResponseBubble = appendMessageBubble(baseName, text, false);
             } else {
-                if (renderMarkdown) {
-                    renderMessageBubble(currentResponseBubble, baseName, text);
-                } else {
-                    renderPlainMessageBubble(currentResponseBubble, baseName, text);
-                }
+                renderMessageBubble(currentResponseBubble, baseName, text);
                 adjustMessageAreaHeight();
                 scrollMessagesToBottom();
             }
@@ -1497,10 +1492,6 @@ public class FloatOverlayService extends Service {
     }
 
     private TextView appendMessageBubble(String name, String text, boolean isUserSide) {
-        return appendMessageBubble(name, text, isUserSide, true);
-    }
-
-    private TextView appendMessageBubble(String name, String text, boolean isUserSide, boolean renderMarkdown) {
         if (messageContainer == null) return null;
         LinearLayout row = new LinearLayout(this);
         row.setOrientation(LinearLayout.HORIZONTAL);
@@ -1520,11 +1511,8 @@ public class FloatOverlayService extends Service {
         bubble.setTextColor(0xFF000000);
         int maxWidth = (int) (getResources().getDisplayMetrics().widthPixels * 0.7f);
         bubble.setMaxWidth(maxWidth);
-        if (renderMarkdown) {
-            renderMessageBubble(bubble, name, text);
-        } else {
-            renderPlainMessageBubble(bubble, name, text);
-        }
+        getMarkdownRenderer().prepare(bubble);
+        renderMessageBubble(bubble, name, text);
 
         row.addView(bubble);
         messageContainer.addView(row);

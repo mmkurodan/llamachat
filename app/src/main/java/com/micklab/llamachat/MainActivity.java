@@ -3904,7 +3904,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             currentStreamingBubble = createMessageBubble(getSpeakerName(speaker), isUserSideForSpeaker(speaker));
             String header = getSpeakerName(speaker);
             streamingTextBuffer.setLength(0);
-            renderPlainMessageBubble(currentStreamingBubble, header, "");
+            renderMessageBubble(currentStreamingBubble, header, "");
             flushStreamingBuffer(token);
             requestChatLayoutUpdate();
             maybeScrollToBottom(shouldScroll);
@@ -3928,7 +3928,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             streamingTextBuffer.append(content);
         }
         String header = getSpeakerName(currentStreamingSpeaker);
-        renderPlainMessageBubble(currentStreamingBubble, header, streamingTextBuffer.toString());
+        renderMessageBubble(currentStreamingBubble, header, streamingTextBuffer.toString());
         requestChatLayoutUpdate();
         maybeScrollToBottom(shouldScroll);
     }
@@ -3939,7 +3939,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         boolean shouldScroll = isNearBottom();
         streamingTextBuffer.append(content);
         String header = getSpeakerName(currentStreamingSpeaker);
-        renderPlainMessageBubble(currentStreamingBubble, header, streamingTextBuffer.toString());
+        renderMessageBubble(currentStreamingBubble, header, streamingTextBuffer.toString());
         requestChatLayoutUpdate();
         maybeScrollToBottom(shouldScroll);
     }
@@ -3991,6 +3991,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         bubble.setTextColor(0xFF000000);
         int maxWidth = (int) (getResources().getDisplayMetrics().widthPixels * 0.7f);
         bubble.setMaxWidth(maxWidth);
+        getMarkdownRenderer().prepare(bubble);
 
         row.addView(bubble);
         messageContainer.addView(row);
