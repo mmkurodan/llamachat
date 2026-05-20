@@ -1566,7 +1566,10 @@ public class FloatOverlayService extends Service {
             scrollToBottomScheduled = false;
             if (messageScrollView == null || !pendingScrollToBottom) return;
             pendingScrollToBottom = false;
-            messageScrollView.fullScroll(View.FOCUS_DOWN);
+            View child = messageScrollView.getChildCount() > 0 ? messageScrollView.getChildAt(0) : null;
+            if (child == null) return;
+            int targetY = Math.max(0, child.getBottom() - messageScrollView.getHeight());
+            messageScrollView.scrollTo(0, targetY);
             lastScrollToBottomAtMs = SystemClock.uptimeMillis();
         }, delay);
     }

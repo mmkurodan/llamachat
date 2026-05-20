@@ -4026,7 +4026,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
             scrollToBottomScheduled = false;
             if (scrollView == null || !pendingScrollToBottom) return;
             pendingScrollToBottom = false;
-            scrollView.fullScroll(View.FOCUS_DOWN);
+            View child = scrollView.getChildCount() > 0 ? scrollView.getChildAt(0) : null;
+            if (child == null) return;
+            int targetY = Math.max(0, child.getBottom() - scrollView.getHeight());
+            scrollView.scrollTo(0, targetY);
             lastScrollToBottomAtMs = SystemClock.uptimeMillis();
         }, delay);
     }
