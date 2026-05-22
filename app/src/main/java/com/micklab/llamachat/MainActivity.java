@@ -3554,10 +3554,22 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     }
 
     private String resolveCalendarJudgeModel() {
-        return resolveBaseChatModel();
+        return resolveConfiguredCalendarModel(R.string.calendar_judge_model);
     }
 
     private String resolveCalendarChatModel() {
+        return resolveConfiguredCalendarModel(R.string.calendar_chat_model);
+    }
+
+    private String resolveConfiguredCalendarModel(int resId) {
+        String configured = "";
+        try {
+            configured = getString(resId).trim();
+        } catch (Exception ignored) {
+        }
+        if (!configured.isEmpty() && modelList.contains(configured)) {
+            return configured;
+        }
         return resolveBaseChatModel();
     }
 
