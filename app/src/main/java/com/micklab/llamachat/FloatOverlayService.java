@@ -536,9 +536,9 @@ public class FloatOverlayService extends Service {
                 ? latestNotificationResponse
                 : (isProcessing
                 ? t("Generating response...", "応答を生成中...")
-                : t("Double tap the overlay to return to the app.", "オーバーレイをダブルタップするとアプリへ戻ります。"));
+                : t("Tap Send Message to use quick chat.", "メッセージ送信をタップすると簡易チャットができます。"));
         builder
-                .setContentTitle(t("Floating chat active", "フロートチャット起動中"))
+                .setContentTitle("Dual AI Chat")
                 .setContentText(statusText)
                 .setSmallIcon(R.drawable.icon)
                 .setContentIntent(pendingIntent)
@@ -580,8 +580,8 @@ public class FloatOverlayService extends Service {
                 ? new Notification.Builder(this, NOTIFICATION_CHANNEL_ID)
                 : new Notification.Builder(this);
         return builder
-                .setContentTitle(t("Floating chat active", "フロートチャット起動中"))
-                .setContentText(t("Tap to return to the app.", "タップしてアプリに戻る"))
+                .setContentTitle("Dual AI Chat")
+                .setContentText(t("Tap Send Message to use quick chat.", "メッセージ送信をタップすると簡易チャットができます。"))
                 .setSmallIcon(R.drawable.icon)
                 .setContentIntent(pendingIntent)
                 .setOngoing(true)

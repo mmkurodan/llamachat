@@ -13,6 +13,8 @@ import com.google.api.services.calendar.model.EventDateTime;
 import com.google.api.services.calendar.model.Events;
 
 import java.io.IOException;
+import java.time.OffsetDateTime;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -104,8 +106,8 @@ public class CalendarRepository {
             if (notes != null && !notes.trim().isEmpty()) {
                 event.setDescription(notes.trim());
             }
-            event.setStart(new EventDateTime().setDateTime(new DateTime(startIso)));
-            event.setEnd(new EventDateTime().setDateTime(new DateTime(endIso)));
+            event.setStart(buildEventDateTime(startIso));
+            event.setEnd(buildEventDateTime(endIso));
             Event created = service.events().insert(PRIMARY_CALENDAR_ID, event).execute();
             CalendarDebugLogger.log(appContext,
                     "createEvent success id=" + safe(created == null ? null : created.getId())
@@ -145,10 +147,10 @@ public class CalendarRepository {
                 event.setDescription(notes.trim());
             }
             if (startIso != null && !startIso.trim().isEmpty()) {
-                event.setStart(new EventDateTime().setDateTime(new DateTime(startIso.trim())));
+                event.setStart(buildEventDateTime(startIso.trim()));
             }
             if (endIso != null && !endIso.trim().isEmpty()) {
-                event.setEnd(new EventDateTime().setDateTime(new DateTime(endIso.trim())));
+                event.setEnd(buildEventDateTime(endIso.trim()));
             }
             if (!isValidTimeRange(
                     event.getStart() != null && event.getStart().getDateTime() != null
@@ -309,11 +311,25 @@ public class CalendarRepository {
             return true;
         }
         try {
-            return new DateTime(endIso).getValue() > new DateTime(startIso).getValue();
-        } catch (IllegalArgumentException e) {
+            return parseEpochMillis(endIso) > parseEpochMillis(startIso);
+        } catch (IllegalArgumentException | DateTimeParseException e) {
             setLastError("INVALID_TIME_RANGE", e.getMessage());
             CalendarDebugLogger.logError(appContext, "isValidTimeRange parse failed", e);
             return false;
+        }
+    }
+
+    private EventDateTime buildEventDateTime(String isoValue) {
+        return new EventDateTime()
+                .setDateTime(new DateTime(isoValue))
+                .setTimeZone(java.util.TimeZone.getDefault().getID());
+    }
+
+    private long parseEpochMillis(String isoValue) {
+        try {
+            return OffsetDateTime.parse(isoValue).toInstant().toEpochMilli();
+        } catch (DateTimeParseException ignored) {
+            return new DateTime(isoValue).getValue();
         }
     }
 

@@ -4,6 +4,7 @@ import com.google.api.services.calendar.model.Event;
 
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
+import java.time.ZonedDateTime;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -156,13 +157,19 @@ public class CalendarViewModel {
     }
 
     public void createTestEventForDebug(Listener listener) {
-        OffsetDateTime start = OffsetDateTime.now(ZoneId.systemDefault()).plusHours(1).withMinute(0).withSecond(0).withNano(0);
-        OffsetDateTime end = start.plusMinutes(30);
+        ZonedDateTime now = ZonedDateTime.now(ZoneId.systemDefault()).withSecond(0).withNano(0);
+        ZonedDateTime start = now.getMinute() < 30
+                ? now.withMinute(30)
+                : now.plusHours(1).withMinute(0);
+        if (!start.isAfter(now)) {
+            start = start.plusMinutes(30);
+        }
+        ZonedDateTime end = start.plusMinutes(30);
         handleCalendarAction(new CalendarActionJson(
                 CalendarActionType.CREATE,
                 "Dual AI Chat Test Event",
-                start.toString(),
-                end.toString(),
+                start.toOffsetDateTime().toString(),
+                end.toOffsetDateTime().toString(),
                 null,
                 new CalendarAdditional("debug: create test event", "created from Calendar Expert Mode")
         ), listener);
