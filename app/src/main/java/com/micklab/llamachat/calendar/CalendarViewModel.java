@@ -33,6 +33,14 @@ public class CalendarViewModel {
         return latestResultForChat;
     }
 
+    public boolean hasReadAccess() {
+        return repository.hasReadAccess();
+    }
+
+    public boolean hasWriteAccess() {
+        return repository.hasWriteAccess();
+    }
+
     public void handleCalendarAction(CalendarActionJson json, Listener listener) {
         executor.execute(() -> {
             CalendarActionJson action = json == null
@@ -66,6 +74,26 @@ public class CalendarViewModel {
                         false,
                         "NOT_SIGNED_IN",
                         "Google Calendar にログインしていません。",
+                        Collections.emptyList()
+                );
+            } else if (requiresWriteAccess(action.getAction()) && !repository.hasWriteAccess()) {
+                state = new CalendarUiState(false, Collections.emptyList(), null, null, false, "MISSING_WRITE_PERMISSION");
+                result = new CalendarResultForChat(
+                        action.getAdditional().getRawText(),
+                        action.getAction().name(),
+                        false,
+                        "MISSING_WRITE_PERMISSION",
+                        "Google Calendar の編集権限がありません。再ログインして権限を許可してください。",
+                        Collections.emptyList()
+                );
+            } else if (requiresReadAccess(action.getAction()) && !repository.hasReadAccess()) {
+                state = new CalendarUiState(false, Collections.emptyList(), null, null, false, "MISSING_READ_PERMISSION");
+                result = new CalendarResultForChat(
+                        action.getAdditional().getRawText(),
+                        action.getAction().name(),
+                        false,
+                        "MISSING_READ_PERMISSION",
+                        "Google Calendar の参照権限がありません。再ログインして権限を許可してください。",
                         Collections.emptyList()
                 );
             } else {
@@ -187,7 +215,7 @@ public class CalendarViewModel {
         boolean success = state.getErrorType() == null;
         String message;
         if (!success) {
-            message = "予定取得に失敗しました。";
+            message = messageForError(state.getErrorType(), "予定取得に失敗しました。");
         } else if (state.getEvents().isEmpty()) {
             message = "一致する予定は見つかりませんでした。";
         } else {
@@ -219,7 +247,7 @@ public class CalendarViewModel {
                 action.getAction().name(),
                 success,
                 state.getErrorType(),
-                success ? successMessage : failureMessage,
+                success ? successMessage : messageForError(state.getErrorType(), failureMessage),
                 summaries
         );
     }
@@ -231,7 +259,7 @@ public class CalendarViewModel {
                 action.getAction().name(),
                 success,
                 state.getErrorType(),
-                success ? "予定を削除しました。" : "予定削除に失敗しました。",
+                success ? "予定を削除しました。" : messageForError(state.getErrorType(), "予定削除に失敗しました。"),
                 Collections.emptyList()
         );
     }
@@ -266,5 +294,37 @@ public class CalendarViewModel {
 
     private boolean isBlank(String value) {
         return value == null || value.trim().isEmpty();
+    }
+
+    private boolean requiresReadAccess(CalendarActionType actionType) {
+        return actionType == CalendarActionType.QUERY
+                || actionType == CalendarActionType.UPDATE
+                || actionType == CalendarActionType.DELETE;
+    }
+
+    private boolean requiresWriteAccess(CalendarActionType actionType) {
+        return actionType == CalendarActionType.CREATE
+                || actionType == CalendarActionType.UPDATE
+                || actionType == CalendarActionType.DELETE;
+    }
+
+    private String messageForError(String errorType, String fallback) {
+        if (errorType == null || errorType.trim().isEmpty()) {
+            return fallback;
+        }
+        switch (errorType) {
+            case "MISSING_READ_PERMISSION":
+                return "Google Calendar の参照権限がありません。再ログインして権限を許可してください。";
+            case "MISSING_WRITE_PERMISSION":
+                return "Google Calendar の編集権限がありません。再ログインして権限を許可してください。";
+            case "PERMISSION_DENIED":
+                return "Google Calendar へのアクセスが拒否されました。権限設定を確認してください。";
+            case "AUTH_ERROR":
+                return "Google Calendar の認証が切れています。再ログインしてください。";
+            case "NETWORK_ERROR":
+                return "Google Calendar への通信に失敗しました。ネットワーク状態を確認してください。";
+            default:
+                return fallback;
+        }
     }
 }

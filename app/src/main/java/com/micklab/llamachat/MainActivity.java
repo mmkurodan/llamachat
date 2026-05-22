@@ -376,6 +376,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private ArrayAdapter<String> webSearchModelAdapter;
     private CalendarSignInHelper calendarSignInHelper;
     private CalendarViewModel calendarViewModel;
+    private boolean pendingCalendarDebugQueryAfterSignIn = false;
+    private boolean pendingCalendarDebugCreateAfterSignIn = false;
     private final ActivityResultLauncher<Intent> calendarSignInLauncher =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
                 GoogleSignInAccount account = null;
@@ -387,6 +389,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                             ? calendarSignInHelper.getLastSignedInAccount(this)
                             : null;
                     if (account == null) {
+                        pendingCalendarDebugQueryAfterSignIn = false;
+                        pendingCalendarDebugCreateAfterSignIn = false;
                         Log.e(TAG, "Calendar sign-in failed", e);
                         updateCalendarSignInUi();
                         if (result.getResultCode() == Activity.RESULT_CANCELED) {
@@ -407,7 +411,41 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                 if (account == null && calendarSignInHelper != null) {
                     account = calendarSignInHelper.getLastSignedInAccount(this);
                 }
+                boolean rerunDebugQuery = pendingCalendarDebugQueryAfterSignIn;
+                boolean rerunDebugCreate = pendingCalendarDebugCreateAfterSignIn;
+                pendingCalendarDebugQueryAfterSignIn = false;
+                pendingCalendarDebugCreateAfterSignIn = false;
                 updateCalendarSignInUi();
+                if (rerunDebugQuery && calendarViewModel != null && calendarViewModel.hasReadAccess()) {
+                    updateCalendarLastResult(t(
+                            "Calendar login succeeded. Fetching calendar events...",
+                            "Calendar ログイン成功。予定を取得しています..."
+                    ));
+                    runCalendarDebugQuery();
+                    return;
+                }
+                if (rerunDebugCreate && calendarViewModel != null && calendarViewModel.hasWriteAccess()) {
+                    updateCalendarLastResult(t(
+                            "Calendar login succeeded. Creating test calendar event...",
+                            "Calendar ログイン成功。テスト予定を登録しています..."
+                    ));
+                    runCalendarDebugCreate();
+                    return;
+                }
+                if (rerunDebugQuery) {
+                    updateCalendarLastResult(t(
+                            "Calendar login succeeded, but read permission is still missing.",
+                            "Calendar ログインには成功しましたが、参照権限がまだ不足しています。"
+                    ));
+                    return;
+                }
+                if (rerunDebugCreate) {
+                    updateCalendarLastResult(t(
+                            "Calendar login succeeded, but edit permission is still missing.",
+                            "Calendar ログインには成功しましたが、編集権限がまだ不足しています。"
+                    ));
+                    return;
+                }
                 updateCalendarLastResult(t(
                         "Calendar login succeeded: " + (account != null ? account.getEmail() : ""),
                         "Calendar ログイン成功: " + (account != null ? account.getEmail() : "")
@@ -1430,12 +1468,32 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
 
     private void runCalendarDebugQuery() {
         if (calendarViewModel == null) return;
+        if (!calendarViewModel.hasReadAccess()) {
+            pendingCalendarDebugQueryAfterSignIn = true;
+            pendingCalendarDebugCreateAfterSignIn = false;
+            updateCalendarLastResult(t(
+                    "Calendar read permission is required. Please sign in again.",
+                    "Calendar の参照権限が必要です。再ログインしてください。"
+            ));
+            launchCalendarSignIn();
+            return;
+        }
         updateCalendarLastResult(t("Fetching calendar events...", "予定を取得しています..."));
         calendarViewModel.fetchUpcomingEventsForDebug(this::handleCalendarDebugResult);
     }
 
     private void runCalendarDebugCreate() {
         if (calendarViewModel == null) return;
+        if (!calendarViewModel.hasWriteAccess()) {
+            pendingCalendarDebugQueryAfterSignIn = false;
+            pendingCalendarDebugCreateAfterSignIn = true;
+            updateCalendarLastResult(t(
+                    "Calendar edit permission is required. Please sign in again.",
+                    "Calendar の編集権限が必要です。再ログインしてください。"
+            ));
+            launchCalendarSignIn();
+            return;
+        }
         updateCalendarLastResult(t("Creating test calendar event...", "テスト予定を登録しています..."));
         calendarViewModel.createTestEventForDebug(this::handleCalendarDebugResult);
     }
@@ -1468,17 +1526,29 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                     ? calendarSignInHelper.getLastSignedInAccount(this)
                     : null;
             boolean signedIn = account != null;
+            boolean hasReadAccess = calendarSignInHelper != null && calendarSignInHelper.hasReadAccess(this);
+            boolean hasWriteAccess = calendarSignInHelper != null && calendarSignInHelper.hasWriteAccess(this);
             if (tvCalendarSignInStatus != null) {
                 String email = account != null ? account.getEmail() : null;
-                String statusText = signedIn
-                        ? t("Calendar signed in: ", "Calendar ログイン中: ") + (email == null ? "(unknown)" : email)
-                        : t("Calendar: not signed in", "Calendar: 未ログイン");
+                String statusText;
+                if (!signedIn) {
+                    statusText = t("Calendar: not signed in", "Calendar: 未ログイン");
+                } else if (hasWriteAccess) {
+                    statusText = t("Calendar signed in: ", "Calendar ログイン中: ")
+                            + (email == null ? "(unknown)" : email);
+                } else if (hasReadAccess) {
+                    statusText = t("Calendar signed in (read only): ", "Calendar ログイン中（参照のみ）: ")
+                            + (email == null ? "(unknown)" : email);
+                } else {
+                    statusText = t("Calendar signed in (permission incomplete): ", "Calendar ログイン中（権限不足）: ")
+                            + (email == null ? "(unknown)" : email);
+                }
                 tvCalendarSignInStatus.setText(statusText);
             }
-            if (btnCalendarSignIn != null) btnCalendarSignIn.setEnabled(!signedIn);
+            if (btnCalendarSignIn != null) btnCalendarSignIn.setEnabled(!signedIn || !hasWriteAccess);
             if (btnCalendarSignOut != null) btnCalendarSignOut.setEnabled(signedIn);
-            if (btnCalendarFetchEvents != null) btnCalendarFetchEvents.setEnabled(signedIn);
-            if (btnCalendarCreateTestEvent != null) btnCalendarCreateTestEvent.setEnabled(signedIn);
+            if (btnCalendarFetchEvents != null) btnCalendarFetchEvents.setEnabled(hasReadAccess);
+            if (btnCalendarCreateTestEvent != null) btnCalendarCreateTestEvent.setEnabled(hasWriteAccess);
         });
     }
 

@@ -32,6 +32,14 @@ public class CalendarRepository {
         return GoogleSignIn.getLastSignedInAccount(appContext) != null;
     }
 
+    public synchronized boolean hasReadAccess() {
+        return CalendarSignInHelper.hasReadAccess(GoogleSignIn.getLastSignedInAccount(appContext));
+    }
+
+    public synchronized boolean hasWriteAccess() {
+        return CalendarSignInHelper.hasWriteAccess(GoogleSignIn.getLastSignedInAccount(appContext));
+    }
+
     public synchronized String getLastErrorType() {
         return lastErrorType;
     }
