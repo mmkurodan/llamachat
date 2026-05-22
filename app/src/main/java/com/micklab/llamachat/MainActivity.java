@@ -126,8 +126,6 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private static final String PROFILE_AVATAR_CHATTER_C3_KEY = "avatarChatterC3";
     private static final String SEARCH_SYSTEM_PROMPT =
             "You are a search-augmented assistant. When the user provides SEARCH_RESULTS, you must read them and base your answer strictly on that information.";
-    private static final String CALENDAR_SYSTEM_PROMPT =
-            "You are a calendar-aware assistant. When the user provides CALENDAR_OPERATION_RESULT, you must explain the result using that structured app output and never invent calendar execution details.";
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
     private static final int REQ_FIRST_LAUNCH_PERMS = 1000;
     private static final int REQ_RECORD_AUDIO = 1001;
@@ -3397,15 +3395,14 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                 }
                 calendarViewModel.handleCalendarAction(action, (uiState, resultForChat) -> {
                     handleCalendarDebugResult(uiState, resultForChat);
-                    String augmentedMessage = buildCalendarAugmentedUserMessage(userMsg, resultForChat);
                     runOnUiThread(() -> {
-                        isProcessing = false;
-                        updateSendButton();
-                        sendChat(augmentedMessage, true);
+                        setThinkingIndicatorLabel(t("Calendar explaining", "Calendar説明生成中"), calendarToken);
+                        sendCalendarExplanation(userMsg, resultForChat, calendarToken);
                     });
                 });
             } catch (Exception e) {
                 Log.e(TAG, "Calendar expert flow error", e);
+                CalendarDebugLogger.logError(this, "performCalendarExpertFlow error", e);
                 continueStandardChatFlow(userMsg);
             }
         }).start();
@@ -3425,10 +3422,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
 
     private CalendarActionJson extractCalendarAction(String userMsg) {
         try {
-            String modelForCalendar = selectedModel != null ? selectedModel.trim() : "";
-            if (modelForCalendar.isEmpty() || !modelList.contains(modelForCalendar)) {
-                modelForCalendar = "default";
-            }
+            String modelForCalendar = resolveCalendarJudgeModel();
             String prompt = CalendarPromptFactory.buildJudgePrompt(
                     userMsg,
                     OffsetDateTime.now(ZoneId.systemDefault()).toString()
@@ -3454,37 +3448,128 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             }
             if (!response.isSuccessful()) {
                 Log.w(TAG, "extractCalendarAction HTTP error: " + response.code());
+                CalendarDebugLogger.log(this, "extractCalendarAction HTTP error: " + response.code());
                 return null;
             }
-            String result = new JSONObject(respBody).optString("response", "").trim();
-            if (result.isEmpty()) {
-                return null;
-            }
-            return CalendarActionJson.fromJsonString(result).withRawTextFallback(userMsg);
+            CalendarDebugLogger.log(this, "extractCalendarAction raw response: " + respBody);
+            CalendarActionJson parsed = CalendarActionJson.fromGenerateApiResponse(respBody, userMsg);
+            CalendarDebugLogger.log(this,
+                    "extractCalendarAction parsed action=" + parsed.getAction()
+                            + ", title=" + parsed.getTitle()
+                            + ", start=" + parsed.getStart()
+                            + ", end=" + parsed.getEnd()
+                            + ", eventId=" + parsed.getEventId());
+            return parsed;
         } catch (Exception e) {
             Log.e(TAG, "extractCalendarAction error", e);
+            CalendarDebugLogger.logError(this, "extractCalendarAction error", e);
             return null;
         }
     }
 
-    private String buildCalendarAugmentedUserMessage(String userMsg, CalendarResultForChat resultForChat) {
+    private void sendCalendarExplanation(String userMsg, CalendarResultForChat resultForChat, int token) {
         if (resultForChat == null) {
-            return userMsg;
+            appendCalendarFallbackAssistantMessage(null, token);
+            return;
+        }
+        try {
+            JSONArray messages = new JSONArray();
+            JSONObject systemMessage = new JSONObject();
+            systemMessage.put("role", "system");
+            systemMessage.put("content", CalendarPromptFactory.buildExplainSystemPrompt());
+            messages.put(systemMessage);
+
+            JSONObject userMessage = new JSONObject();
+            userMessage.put("role", "user");
+            userMessage.put("content", CalendarPromptFactory.buildExplainUserPrompt(userMsg, resultForChat));
+            messages.put(userMessage);
+
+            String modelForCalendarChat = resolveCalendarChatModel();
+            JSONObject body = new JSONObject();
+            body.put("model", modelForCalendarChat);
+            body.put("messages", messages);
+            body.put("stream", streamingEnabled);
+
+            String requestJson = body.toString();
+            RequestBody requestBody = RequestBody.create(requestJson, JSON_MEDIA);
+            Request request = new Request.Builder()
+                    .url(ollamaBaseUrl + "/api/chat")
+                    .post(requestBody)
+                    .build();
+            if (debugEnabled) {
+                appendDebug("/api/chat Calendar Explain Request", buildRequestDebugText(request, requestJson));
+            }
+            CalendarDebugLogger.log(this,
+                    "sendCalendarExplanation model=" + modelForCalendarChat
+                            + ", action=" + resultForChat.getAction()
+                            + ", success=" + resultForChat.isSuccess());
+            if (streamingEnabled) {
+                sendStreaming(request, ChatSpeaker.BASE, token);
+            } else {
+                sendNonStreaming(request, ChatSpeaker.BASE);
+            }
+        } catch (Exception e) {
+            Log.e(TAG, "sendCalendarExplanation error", e);
+            CalendarDebugLogger.logError(this, "sendCalendarExplanation error", e);
+            appendCalendarFallbackAssistantMessage(resultForChat, token);
+        }
+    }
+
+    private void appendCalendarFallbackAssistantMessage(CalendarResultForChat resultForChat, int token) {
+        String fallbackText = buildCalendarFallbackAssistantMessage(resultForChat);
+        runOnUiThread(() -> {
+            currentCall = null;
+            setThinkingIndicator(false, ChatSpeaker.BASE, token);
+            setStreamingResponse(false, null);
+            isProcessing = false;
+            updateSendButton();
+            if (!fallbackText.trim().isEmpty()) {
+                appendAssistantMessage(ChatSpeaker.BASE, fallbackText);
+                addToHistory(conversationHistory, "assistant", fallbackText);
+                handleAssistantResponseComplete(ChatSpeaker.BASE, fallbackText);
+            } else {
+                appendAssistantMessage(ChatSpeaker.BASE, "(No response)");
+            }
+        });
+    }
+
+    private String buildCalendarFallbackAssistantMessage(CalendarResultForChat resultForChat) {
+        if (resultForChat == null) {
+            return t("Calendar result is unavailable.", "Calendar の結果を取得できませんでした。");
         }
         StringBuilder sb = new StringBuilder();
-        sb.append("以下はアプリが Google Calendar API を実行した結果です。CALENDAR_OPERATION_RESULT として扱ってください。\n");
-        sb.append("action: ").append(resultForChat.getAction()).append("\n");
-        sb.append("success: ").append(resultForChat.isSuccess()).append("\n");
-        sb.append("errorType: ").append(resultForChat.getErrorType() == null ? "null" : resultForChat.getErrorType()).append("\n");
-        sb.append("errorDetail: ").append(resultForChat.getErrorDetail() == null ? "null" : resultForChat.getErrorDetail()).append("\n");
-        sb.append("message: ").append(resultForChat.getMessageForSystem()).append("\n");
+        if (resultForChat.getMessageForSystem() != null && !resultForChat.getMessageForSystem().trim().isEmpty()) {
+            sb.append(resultForChat.getMessageForSystem().trim());
+        }
+        if (resultForChat.getErrorDetail() != null && !resultForChat.getErrorDetail().trim().isEmpty()) {
+            if (sb.length() > 0) sb.append("\n");
+            sb.append(resultForChat.getErrorDetail().trim());
+        }
         List<String> summaries = resultForChat.getEventSummaries();
         if (summaries != null && !summaries.isEmpty()) {
-            sb.append("events:\n").append(joinLines(summaries)).append("\n");
+            if (sb.length() > 0) sb.append("\n");
+            sb.append(joinLines(summaries));
         }
-        sb.append("\n元のユーザ入力:\n").append(userMsg).append("\n");
-        sb.append("この結果に基づいて、日本語で簡潔に説明してください。");
-        return sb.toString();
+        return sb.toString().trim();
+    }
+
+    private String resolveCalendarJudgeModel() {
+        return resolveBaseChatModel();
+    }
+
+    private String resolveCalendarChatModel() {
+        return resolveBaseChatModel();
+    }
+
+    private String resolveBaseChatModel() {
+        String model = selectedModel != null ? selectedModel.trim() : "";
+        if (spinnerModel != null && spinnerModel.getSelectedItem() != null) {
+            model = spinnerModel.getSelectedItem().toString().trim();
+        }
+        if (model.isEmpty() || !modelList.contains(model)) {
+            model = "default";
+        }
+        return model;
     }
 
     private void performWebSearchFlow(String userMsg) {
@@ -3892,11 +3977,6 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                                 && webSearchEnabled
                                 && !systemContent.contains(SEARCH_SYSTEM_PROMPT)) {
                             systemContent = systemContent + "\n" + SEARCH_SYSTEM_PROMPT;
-                        }
-                        if (speaker == ChatSpeaker.BASE
-                                && calendarExpertModeEnabled
-                                && !systemContent.contains(CALENDAR_SYSTEM_PROMPT)) {
-                            systemContent = systemContent + "\n" + CALENDAR_SYSTEM_PROMPT;
                         }
                         JSONObject sys = new JSONObject();
                         sys.put("role", "system");

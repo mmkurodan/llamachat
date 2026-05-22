@@ -1,5 +1,6 @@
 package com.micklab.llamachat.calendar;
 
+import org.json.JSONException;
 import org.json.JSONObject;
 
 public class CalendarActionJson {
@@ -62,7 +63,7 @@ public class CalendarActionJson {
     }
 
     public static CalendarActionJson fromJsonString(String raw) throws Exception {
-        JSONObject json = new JSONObject(sanitizeJson(raw));
+        JSONObject json = new JSONObject(requireStrictJsonObject(raw));
         return new CalendarActionJson(
                 CalendarActionType.fromString(json.optString("action", "NONE")),
                 optNullableString(json, "title", null),
@@ -71,6 +72,10 @@ public class CalendarActionJson {
                 optNullableString(json, "eventId", null),
                 CalendarAdditional.fromJson(json.optJSONObject("additional"))
         );
+    }
+
+    public static CalendarActionJson fromGenerateApiResponse(String rawApiResponse, String userInput) throws Exception {
+        return fromJsonString(extractGenerateResponseJson(rawApiResponse)).withRawTextFallback(userInput);
     }
 
     static String optNullableString(JSONObject json, String key, String fallback) {
@@ -86,21 +91,44 @@ public class CalendarActionJson {
         return trimmed;
     }
 
-    private static String sanitizeJson(String raw) {
-        String trimmed = raw == null ? "" : raw.trim();
-        if (trimmed.startsWith("```")) {
-            int firstNewLine = trimmed.indexOf('\n');
-            if (firstNewLine >= 0) {
-                trimmed = trimmed.substring(firstNewLine + 1).trim();
-            }
-            if (trimmed.endsWith("```")) {
-                trimmed = trimmed.substring(0, trimmed.length() - 3).trim();
-            }
+    private static String extractGenerateResponseJson(String rawApiResponse) throws Exception {
+        String trimmed = rawApiResponse == null ? "" : rawApiResponse.trim();
+        if (trimmed.isEmpty()) {
+            throw new IllegalArgumentException("Judge API response is empty.");
         }
-        int firstBrace = trimmed.indexOf('{');
-        int lastBrace = trimmed.lastIndexOf('}');
-        if (firstBrace >= 0 && lastBrace > firstBrace) {
-            trimmed = trimmed.substring(firstBrace, lastBrace + 1);
+        try {
+            JSONObject root = new JSONObject(trimmed);
+            if (looksLikeJudgeObject(root)) {
+                return requireStrictJsonObject(trimmed);
+            }
+            Object responseValue = root.opt("response");
+            if (!(responseValue instanceof String)) {
+                throw new IllegalArgumentException("Judge API response does not contain a valid response field.");
+            }
+            return requireStrictJsonObject((String) responseValue);
+        } catch (JSONException ignored) {
+            return requireStrictJsonObject(trimmed);
+        }
+    }
+
+    private static boolean looksLikeJudgeObject(JSONObject json) {
+        return json != null && json.has("action");
+    }
+
+    private static String requireStrictJsonObject(String raw) {
+        String trimmed = raw == null ? "" : raw.trim();
+        if (trimmed.isEmpty()) {
+            throw new IllegalArgumentException("Judge output is empty.");
+        }
+        if (trimmed.startsWith("```")) {
+            throw new IllegalArgumentException("Judge output must not contain Markdown.");
+        }
+        if ((trimmed.startsWith("\"") && trimmed.endsWith("\""))
+                || (trimmed.startsWith("'") && trimmed.endsWith("'"))) {
+            throw new IllegalArgumentException("Judge output must be a JSON object, not a quoted string.");
+        }
+        if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) {
+            throw new IllegalArgumentException("Judge output must be exactly one JSON object.");
         }
         return trimmed;
     }
