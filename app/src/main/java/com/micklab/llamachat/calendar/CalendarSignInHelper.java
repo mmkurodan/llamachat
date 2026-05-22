@@ -12,6 +12,11 @@ import com.google.android.gms.auth.api.signin.GoogleSignInClient;
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
 import com.google.android.gms.common.api.Scope;
 
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
+import java.util.Set;
+
 public class CalendarSignInHelper {
     public static final Scope CALENDAR_EVENTS_SCOPE =
             new Scope("https://www.googleapis.com/auth/calendar.events");
@@ -36,6 +41,18 @@ public class CalendarSignInHelper {
     public void launchSignIn(ActivityResultLauncher<Intent> launcher) {
         if (launcher == null) return;
         launcher.launch(signInClient.getSignInIntent());
+    }
+
+    public void requestReadAccess(int requestCode) {
+        GoogleSignInAccount account = getLastSignedInAccount(activity);
+        if (account == null) return;
+        GoogleSignIn.requestPermissions(activity, requestCode, account, CALENDAR_READONLY_SCOPE);
+    }
+
+    public void requestWriteAccess(int requestCode) {
+        GoogleSignInAccount account = getLastSignedInAccount(activity);
+        if (account == null) return;
+        GoogleSignIn.requestPermissions(activity, requestCode, account, CALENDAR_EVENTS_SCOPE);
     }
 
     public void signOut(Runnable onComplete) {
@@ -67,5 +84,23 @@ public class CalendarSignInHelper {
 
     public static boolean hasWriteAccess(GoogleSignInAccount account) {
         return account != null && GoogleSignIn.hasPermissions(account, CALENDAR_EVENTS_SCOPE);
+    }
+
+    public static String describeGrantedScopes(GoogleSignInAccount account) {
+        if (account == null) {
+            return "(none)";
+        }
+        Set<Scope> grantedScopes = account.getGrantedScopes();
+        if (grantedScopes == null || grantedScopes.isEmpty()) {
+            return "(none)";
+        }
+        List<String> values = new ArrayList<>();
+        for (Scope scope : grantedScopes) {
+            if (scope != null && scope.getScopeUri() != null) {
+                values.add(scope.getScopeUri());
+            }
+        }
+        Collections.sort(values);
+        return values.isEmpty() ? "(none)" : values.toString();
     }
 }

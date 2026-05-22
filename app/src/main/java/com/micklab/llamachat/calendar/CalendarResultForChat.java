@@ -9,6 +9,7 @@ public class CalendarResultForChat {
     private final String action;
     private final boolean success;
     private final String errorType;
+    private final String errorDetail;
     private final String messageForSystem;
     private final List<String> eventSummaries;
 
@@ -17,6 +18,7 @@ public class CalendarResultForChat {
             String action,
             boolean success,
             String errorType,
+            String errorDetail,
             String messageForSystem,
             List<String> eventSummaries
     ) {
@@ -24,6 +26,7 @@ public class CalendarResultForChat {
         this.action = action == null ? CalendarActionType.NONE.name() : action;
         this.success = success;
         this.errorType = errorType;
+        this.errorDetail = errorDetail;
         this.messageForSystem = messageForSystem == null ? "" : messageForSystem;
         this.eventSummaries = eventSummaries == null
                 ? Collections.emptyList()
@@ -44,6 +47,10 @@ public class CalendarResultForChat {
 
     public String getErrorType() {
         return errorType;
+    }
+
+    public String getErrorDetail() {
+        return errorDetail;
     }
 
     public String getMessageForSystem() {

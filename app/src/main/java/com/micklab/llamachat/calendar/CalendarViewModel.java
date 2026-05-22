@@ -18,7 +18,7 @@ public class CalendarViewModel {
     private final CalendarRepository repository;
     private final ExecutorService executor = Executors.newSingleThreadExecutor();
     private volatile CalendarUiState latestUiState =
-            new CalendarUiState(false, Collections.emptyList(), null, null, false, null);
+            new CalendarUiState(false, Collections.emptyList(), null, null, false, null, null);
     private volatile CalendarResultForChat latestResultForChat;
 
     public CalendarViewModel(CalendarRepository repository) {
@@ -57,42 +57,49 @@ public class CalendarViewModel {
             CalendarUiState state;
             CalendarResultForChat result;
             if (action.getAction() == CalendarActionType.NONE) {
-                state = new CalendarUiState(false, Collections.emptyList(), null, null, false, null);
+                state = new CalendarUiState(false, Collections.emptyList(), null, null, false, null, null);
                 result = new CalendarResultForChat(
                         action.getAdditional().getRawText(),
                         CalendarActionType.NONE.name(),
                         true,
                         null,
+                        null,
                         "カレンダー操作は不要と判定されました。",
                         Collections.emptyList()
                 );
             } else if (!repository.isSignedIn()) {
-                state = new CalendarUiState(false, Collections.emptyList(), null, null, false, "NOT_SIGNED_IN");
+                state = new CalendarUiState(false, Collections.emptyList(), null, null, false,
+                        "NOT_SIGNED_IN", "No Google account is signed in.");
                 result = new CalendarResultForChat(
                         action.getAdditional().getRawText(),
                         action.getAction().name(),
                         false,
                         "NOT_SIGNED_IN",
+                        "No Google account is signed in.",
                         "Google Calendar にログインしていません。",
                         Collections.emptyList()
                 );
             } else if (requiresWriteAccess(action.getAction()) && !repository.hasWriteAccess()) {
-                state = new CalendarUiState(false, Collections.emptyList(), null, null, false, "MISSING_WRITE_PERMISSION");
+                state = new CalendarUiState(false, Collections.emptyList(), null, null, false,
+                        "MISSING_WRITE_PERMISSION", "Missing https://www.googleapis.com/auth/calendar.events");
                 result = new CalendarResultForChat(
                         action.getAdditional().getRawText(),
                         action.getAction().name(),
                         false,
                         "MISSING_WRITE_PERMISSION",
+                        "Missing https://www.googleapis.com/auth/calendar.events",
                         "Google Calendar の編集権限がありません。再ログインして権限を許可してください。",
                         Collections.emptyList()
                 );
             } else if (requiresReadAccess(action.getAction()) && !repository.hasReadAccess()) {
-                state = new CalendarUiState(false, Collections.emptyList(), null, null, false, "MISSING_READ_PERMISSION");
+                state = new CalendarUiState(false, Collections.emptyList(), null, null, false,
+                        "MISSING_READ_PERMISSION", "Missing https://www.googleapis.com/auth/calendar.readonly");
                 result = new CalendarResultForChat(
                         action.getAdditional().getRawText(),
                         action.getAction().name(),
                         false,
                         "MISSING_READ_PERMISSION",
+                        "Missing https://www.googleapis.com/auth/calendar.readonly",
                         "Google Calendar の参照権限がありません。再ログインして権限を許可してください。",
                         Collections.emptyList()
                 );
@@ -115,11 +122,12 @@ public class CalendarViewModel {
                         result = buildDeleteResult(action, state);
                         break;
                     default:
-                        state = new CalendarUiState(false, Collections.emptyList(), null, null, false, null);
+                        state = new CalendarUiState(false, Collections.emptyList(), null, null, false, null, null);
                         result = new CalendarResultForChat(
                                 action.getAdditional().getRawText(),
                                 CalendarActionType.NONE.name(),
                                 true,
+                                null,
                                 null,
                                 "カレンダー操作は不要と判定されました。",
                                 Collections.emptyList()
@@ -161,17 +169,22 @@ public class CalendarViewModel {
     }
 
     private CalendarUiState handleQuery(CalendarActionJson action) {
-        OffsetDateTime now = OffsetDateTime.now(ZoneId.systemDefault());
-        String start = action.getStart() == null ? now.toString() : action.getStart();
-        String end = action.getEnd() == null ? now.plusDays(7).toString() : action.getEnd();
+        String start = blankToNull(action.getStart());
+        String end = blankToNull(action.getEnd());
+        if (start == null && end == null) {
+            OffsetDateTime now = OffsetDateTime.now(ZoneId.systemDefault());
+            start = now.toString();
+            end = now.plusDays(7).toString();
+        }
         List<Event> events = repository.queryEvents(action.getTitle(), start, end, 10);
         String errorType = repository.getLastErrorType();
-        return new CalendarUiState(false, events, null, null, false, errorType);
+        return new CalendarUiState(false, events, null, null, false, errorType, repository.getLastErrorDetail());
     }
 
     private CalendarUiState handleCreate(CalendarActionJson action) {
         if (isBlank(action.getTitle()) || isBlank(action.getStart()) || isBlank(action.getEnd())) {
-            return new CalendarUiState(false, Collections.emptyList(), null, null, false, "INVALID_INPUT");
+            return new CalendarUiState(false, Collections.emptyList(), null, null, false,
+                    "INVALID_INPUT", "title, start, and end are required.");
         }
         Event event = repository.createEvent(
                 action.getTitle(),
@@ -180,14 +193,17 @@ public class CalendarViewModel {
                 action.getAdditional().getNotes()
         );
         String errorType = event == null ? defaultError(repository.getLastErrorType(), "CREATE_FAILED") : null;
-        return new CalendarUiState(false, Collections.emptyList(), event, null, false, errorType);
+        String errorDetail = event == null ? repository.getLastErrorDetail() : null;
+        return new CalendarUiState(false, Collections.emptyList(), event, null, false, errorType, errorDetail);
     }
 
     private CalendarUiState handleUpdate(CalendarActionJson action) {
-        Event target = repository.resolveEvent(action.getEventId(), action.getTitle(), action.getStart(), action.getEnd());
+        Event target = repository.resolveEventForWrite(
+                action.getEventId(), action.getTitle(), action.getStart(), action.getEnd());
         if (target == null) {
             return new CalendarUiState(false, Collections.emptyList(), null, null, false,
-                    defaultError(repository.getLastErrorType(), "NOT_FOUND"));
+                    defaultError(repository.getLastErrorType(), "NOT_FOUND"),
+                    repository.getLastErrorDetail());
         }
         Event updated = repository.updateEvent(
                 target.getId(),
@@ -197,18 +213,22 @@ public class CalendarViewModel {
                 action.getAdditional().getNotes()
         );
         String errorType = updated == null ? defaultError(repository.getLastErrorType(), "UPDATE_FAILED") : null;
-        return new CalendarUiState(false, Collections.emptyList(), null, updated, false, errorType);
+        String errorDetail = updated == null ? repository.getLastErrorDetail() : null;
+        return new CalendarUiState(false, Collections.emptyList(), null, updated, false, errorType, errorDetail);
     }
 
     private CalendarUiState handleDelete(CalendarActionJson action) {
-        Event target = repository.resolveEvent(action.getEventId(), action.getTitle(), action.getStart(), action.getEnd());
+        Event target = repository.resolveEventForWrite(
+                action.getEventId(), action.getTitle(), action.getStart(), action.getEnd());
         if (target == null) {
             return new CalendarUiState(false, Collections.emptyList(), null, null, false,
-                    defaultError(repository.getLastErrorType(), "NOT_FOUND"));
+                    defaultError(repository.getLastErrorType(), "NOT_FOUND"),
+                    repository.getLastErrorDetail());
         }
         boolean deleted = repository.deleteEvent(target.getId());
         String errorType = deleted ? null : defaultError(repository.getLastErrorType(), "DELETE_FAILED");
-        return new CalendarUiState(false, Collections.emptyList(), null, null, deleted, errorType);
+        String errorDetail = deleted ? null : repository.getLastErrorDetail();
+        return new CalendarUiState(false, Collections.emptyList(), null, null, deleted, errorType, errorDetail);
     }
 
     private CalendarResultForChat buildQueryResult(CalendarActionJson action, CalendarUiState state) {
@@ -226,6 +246,7 @@ public class CalendarViewModel {
                 action.getAction().name(),
                 success,
                 state.getErrorType(),
+                state.getErrorDetail(),
                 message,
                 summarizeEvents(state.getEvents())
         );
@@ -247,6 +268,7 @@ public class CalendarViewModel {
                 action.getAction().name(),
                 success,
                 state.getErrorType(),
+                state.getErrorDetail(),
                 success ? successMessage : messageForError(state.getErrorType(), failureMessage),
                 summaries
         );
@@ -259,6 +281,7 @@ public class CalendarViewModel {
                 action.getAction().name(),
                 success,
                 state.getErrorType(),
+                state.getErrorDetail(),
                 success ? "予定を削除しました。" : messageForError(state.getErrorType(), "予定削除に失敗しました。"),
                 Collections.emptyList()
         );
@@ -321,10 +344,20 @@ public class CalendarViewModel {
                 return "Google Calendar へのアクセスが拒否されました。権限設定を確認してください。";
             case "AUTH_ERROR":
                 return "Google Calendar の認証が切れています。再ログインしてください。";
+            case "AUTH_RECOVERY_REQUIRED":
+                return "Google Calendar の追加認証が必要です。再ログインして権限を許可してください。";
             case "NETWORK_ERROR":
                 return "Google Calendar への通信に失敗しました。ネットワーク状態を確認してください。";
+            case "INVALID_INPUT":
+                return "Google Calendar の入力値が不足しています。";
+            case "INVALID_TIME_RANGE":
+                return "Google Calendar の開始時刻と終了時刻が不正です。";
             default:
                 return fallback;
         }
+    }
+
+    private String blankToNull(String value) {
+        return isBlank(value) ? null : value.trim();
     }
 }

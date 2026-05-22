@@ -13,6 +13,7 @@ public class CalendarUiState {
     private final Event updatedEvent;
     private final boolean deleted;
     private final String errorType;
+    private final String errorDetail;
 
     public CalendarUiState(
             boolean loading,
@@ -20,7 +21,8 @@ public class CalendarUiState {
             Event createdEvent,
             Event updatedEvent,
             boolean deleted,
-            String errorType
+            String errorType,
+            String errorDetail
     ) {
         this.loading = loading;
         this.events = events == null ? Collections.emptyList() : Collections.unmodifiableList(new ArrayList<>(events));
@@ -28,6 +30,7 @@ public class CalendarUiState {
         this.updatedEvent = updatedEvent;
         this.deleted = deleted;
         this.errorType = errorType;
+        this.errorDetail = errorDetail;
     }
 
     public boolean isLoading() {
@@ -52,5 +55,9 @@ public class CalendarUiState {
 
     public String getErrorType() {
         return errorType;
+    }
+
+    public String getErrorDetail() {
+        return errorDetail;
     }
 }

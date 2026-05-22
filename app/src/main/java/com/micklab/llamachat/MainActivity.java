@@ -61,6 +61,7 @@ import com.google.api.services.calendar.model.Event;
 import com.micklab.llamachat.calendar.CalendarActionJson;
 import com.micklab.llamachat.calendar.CalendarActionType;
 import com.micklab.llamachat.calendar.CalendarAdditional;
+import com.micklab.llamachat.calendar.CalendarDebugLogger;
 import com.micklab.llamachat.calendar.CalendarPromptFactory;
 import com.micklab.llamachat.calendar.CalendarRepository;
 import com.micklab.llamachat.calendar.CalendarResultForChat;
@@ -130,6 +131,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
     private static final int REQ_FIRST_LAUNCH_PERMS = 1000;
     private static final int REQ_RECORD_AUDIO = 1001;
+    private static final int REQ_CALENDAR_READ_ACCESS = 1002;
+    private static final int REQ_CALENDAR_WRITE_ACCESS = 1003;
     private static final int REQ_PICK_C0 = 2000;
     private static final int REQ_PICK_C1 = 2001;
     private static final int REQ_PICK_C2 = 2002;
@@ -379,78 +382,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private boolean pendingCalendarDebugQueryAfterSignIn = false;
     private boolean pendingCalendarDebugCreateAfterSignIn = false;
     private final ActivityResultLauncher<Intent> calendarSignInLauncher =
-            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
-                GoogleSignInAccount account = null;
-                try {
-                    account = GoogleSignIn.getSignedInAccountFromIntent(result.getData())
-                            .getResult(ApiException.class);
-                } catch (ApiException e) {
-                    account = calendarSignInHelper != null
-                            ? calendarSignInHelper.getLastSignedInAccount(this)
-                            : null;
-                    if (account == null) {
-                        pendingCalendarDebugQueryAfterSignIn = false;
-                        pendingCalendarDebugCreateAfterSignIn = false;
-                        Log.e(TAG, "Calendar sign-in failed", e);
-                        updateCalendarSignInUi();
-                        if (result.getResultCode() == Activity.RESULT_CANCELED) {
-                            updateCalendarLastResult(t(
-                                    "Calendar login canceled.",
-                                    "Calendar ログインをキャンセルしました。"
-                            ));
-                        } else {
-                            updateCalendarLastResult(t(
-                                    "Calendar login failed (" + e.getStatusCode() + ")",
-                                    "Calendar ログインに失敗しました (" + e.getStatusCode() + ")"
-                            ));
-                        }
-                        return;
-                    }
-                    Log.w(TAG, "Calendar sign-in result fallback succeeded after ApiException", e);
-                }
-                if (account == null && calendarSignInHelper != null) {
-                    account = calendarSignInHelper.getLastSignedInAccount(this);
-                }
-                boolean rerunDebugQuery = pendingCalendarDebugQueryAfterSignIn;
-                boolean rerunDebugCreate = pendingCalendarDebugCreateAfterSignIn;
-                pendingCalendarDebugQueryAfterSignIn = false;
-                pendingCalendarDebugCreateAfterSignIn = false;
-                updateCalendarSignInUi();
-                if (rerunDebugQuery && calendarViewModel != null && calendarViewModel.hasReadAccess()) {
-                    updateCalendarLastResult(t(
-                            "Calendar login succeeded. Fetching calendar events...",
-                            "Calendar ログイン成功。予定を取得しています..."
-                    ));
-                    runCalendarDebugQuery();
-                    return;
-                }
-                if (rerunDebugCreate && calendarViewModel != null && calendarViewModel.hasWriteAccess()) {
-                    updateCalendarLastResult(t(
-                            "Calendar login succeeded. Creating test calendar event...",
-                            "Calendar ログイン成功。テスト予定を登録しています..."
-                    ));
-                    runCalendarDebugCreate();
-                    return;
-                }
-                if (rerunDebugQuery) {
-                    updateCalendarLastResult(t(
-                            "Calendar login succeeded, but read permission is still missing.",
-                            "Calendar ログインには成功しましたが、参照権限がまだ不足しています。"
-                    ));
-                    return;
-                }
-                if (rerunDebugCreate) {
-                    updateCalendarLastResult(t(
-                            "Calendar login succeeded, but edit permission is still missing.",
-                            "Calendar ログインには成功しましたが、編集権限がまだ不足しています。"
-                    ));
-                    return;
-                }
-                updateCalendarLastResult(t(
-                        "Calendar login succeeded: " + (account != null ? account.getEmail() : ""),
-                        "Calendar ログイン成功: " + (account != null ? account.getEmail() : "")
-                ));
-            });
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(),
+                    result -> handleCalendarAccountResult(result.getResultCode(), result.getData(), "sign-in"));
 
     // --- Chat ---
     private final List<JSONObject> conversationHistory = new ArrayList<>();
@@ -670,7 +603,9 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     protected void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         DebugLogger.clear(this);
+        CalendarDebugLogger.clear(this);
         DebugLogger.log(this, "=== MainActivity onCreate ===");
+        CalendarDebugLogger.log(this, "=== MainActivity onCreate ===");
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         setContentView(R.layout.activity_main);
@@ -1454,6 +1389,26 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
 
     private void launchCalendarSignIn() {
         if (calendarSignInHelper == null) return;
+        GoogleSignInAccount account = calendarSignInHelper.getLastSignedInAccount(this);
+        if (account != null) {
+            if (!calendarSignInHelper.hasWriteAccess(this)) {
+                CalendarDebugLogger.log(this,
+                        "launchCalendarSignIn: signed in but write scope missing, requesting write access. grantedScopes="
+                                + CalendarSignInHelper.describeGrantedScopes(account));
+                updateCalendarLastResult(t(
+                        "Requesting Calendar edit permission...",
+                        "Calendar の編集権限を要求しています..."
+                ));
+                calendarSignInHelper.requestWriteAccess(REQ_CALENDAR_WRITE_ACCESS);
+                return;
+            }
+            updateCalendarLastResult(t(
+                    "Calendar is already signed in.",
+                    "Calendar は既にログイン済みです。"
+            ));
+            return;
+        }
+        CalendarDebugLogger.log(this, "launchCalendarSignIn: launching sign-in intent");
         updateCalendarLastResult(t("Launching Calendar login...", "Calendar ログインを開始します..."));
         calendarSignInHelper.launchSignIn(calendarSignInLauncher);
     }
@@ -1471,13 +1426,15 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (!calendarViewModel.hasReadAccess()) {
             pendingCalendarDebugQueryAfterSignIn = true;
             pendingCalendarDebugCreateAfterSignIn = false;
+            CalendarDebugLogger.log(this, "runCalendarDebugQuery: read access missing");
             updateCalendarLastResult(t(
                     "Calendar read permission is required. Please sign in again.",
                     "Calendar の参照権限が必要です。再ログインしてください。"
             ));
-            launchCalendarSignIn();
+            requestCalendarReadAccess();
             return;
         }
+        CalendarDebugLogger.log(this, "runCalendarDebugQuery: executing debug fetch");
         updateCalendarLastResult(t("Fetching calendar events...", "予定を取得しています..."));
         calendarViewModel.fetchUpcomingEventsForDebug(this::handleCalendarDebugResult);
     }
@@ -1487,13 +1444,15 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (!calendarViewModel.hasWriteAccess()) {
             pendingCalendarDebugQueryAfterSignIn = false;
             pendingCalendarDebugCreateAfterSignIn = true;
+            CalendarDebugLogger.log(this, "runCalendarDebugCreate: write access missing");
             updateCalendarLastResult(t(
                     "Calendar edit permission is required. Please sign in again.",
                     "Calendar の編集権限が必要です。再ログインしてください。"
             ));
-            launchCalendarSignIn();
+            requestCalendarWriteAccess();
             return;
         }
+        CalendarDebugLogger.log(this, "runCalendarDebugCreate: executing debug create");
         updateCalendarLastResult(t("Creating test calendar event...", "テスト予定を登録しています..."));
         calendarViewModel.createTestEventForDebug(this::handleCalendarDebugResult);
     }
@@ -1507,17 +1466,150 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                 if (resultForChat.getErrorType() != null && !resultForChat.getErrorType().isEmpty()) {
                     sb.append(" [").append(resultForChat.getErrorType()).append("]");
                 }
+                if (resultForChat.getErrorDetail() != null && !resultForChat.getErrorDetail().trim().isEmpty()) {
+                    sb.append("\n").append(resultForChat.getErrorDetail().trim());
+                }
                 List<String> summaries = resultForChat.getEventSummaries();
                 if (summaries != null && !summaries.isEmpty()) {
                     sb.append("\n").append(joinLines(summaries));
                 }
+                CalendarDebugLogger.log(this,
+                        "handleCalendarDebugResult result action=" + resultForChat.getAction()
+                                + ", success=" + resultForChat.isSuccess()
+                                + ", errorType=" + resultForChat.getErrorType()
+                                + ", errorDetail=" + resultForChat.getErrorDetail());
             } else if (uiState != null && uiState.getErrorType() != null) {
                 sb.append(uiState.getErrorType());
+                if (uiState.getErrorDetail() != null && !uiState.getErrorDetail().trim().isEmpty()) {
+                    sb.append("\n").append(uiState.getErrorDetail().trim());
+                }
+                CalendarDebugLogger.log(this,
+                        "handleCalendarDebugResult state errorType=" + uiState.getErrorType()
+                                + ", errorDetail=" + uiState.getErrorDetail());
             }
             updateCalendarLastResult(sb.length() == 0
                     ? t("No calendar result.", "Calendar の結果はありません。")
                     : sb.toString());
         });
+    }
+
+    private void requestCalendarReadAccess() {
+        if (calendarSignInHelper == null) return;
+        GoogleSignInAccount account = calendarSignInHelper.getLastSignedInAccount(this);
+        if (account == null) {
+            CalendarDebugLogger.log(this, "requestCalendarReadAccess: launching sign-in");
+            calendarSignInHelper.launchSignIn(calendarSignInLauncher);
+            return;
+        }
+        CalendarDebugLogger.log(this,
+                "requestCalendarReadAccess: requesting readonly scope, grantedScopes="
+                        + CalendarSignInHelper.describeGrantedScopes(account));
+        calendarSignInHelper.requestReadAccess(REQ_CALENDAR_READ_ACCESS);
+    }
+
+    private void requestCalendarWriteAccess() {
+        if (calendarSignInHelper == null) return;
+        GoogleSignInAccount account = calendarSignInHelper.getLastSignedInAccount(this);
+        if (account == null) {
+            CalendarDebugLogger.log(this, "requestCalendarWriteAccess: launching sign-in");
+            calendarSignInHelper.launchSignIn(calendarSignInLauncher);
+            return;
+        }
+        CalendarDebugLogger.log(this,
+                "requestCalendarWriteAccess: requesting write scope, grantedScopes="
+                        + CalendarSignInHelper.describeGrantedScopes(account));
+        calendarSignInHelper.requestWriteAccess(REQ_CALENDAR_WRITE_ACCESS);
+    }
+
+    private void handleCalendarAccountResult(int resultCode, Intent data, String source) {
+        GoogleSignInAccount account = null;
+        try {
+            if (data != null) {
+                account = GoogleSignIn.getSignedInAccountFromIntent(data).getResult(ApiException.class);
+            }
+        } catch (ApiException e) {
+            account = calendarSignInHelper != null
+                    ? calendarSignInHelper.getLastSignedInAccount(this)
+                    : null;
+            if (account == null) {
+                clearPendingCalendarActions();
+                Log.e(TAG, "Calendar auth failed: " + source, e);
+                CalendarDebugLogger.logError(this, "Calendar auth failed: " + source, e);
+                updateCalendarSignInUi();
+                if (resultCode == Activity.RESULT_CANCELED) {
+                    updateCalendarLastResult(t(
+                            "Calendar login canceled.",
+                            "Calendar ログインをキャンセルしました。"
+                    ));
+                } else {
+                    updateCalendarLastResult(t(
+                            "Calendar login failed (" + e.getStatusCode() + ")",
+                            "Calendar ログインに失敗しました (" + e.getStatusCode() + ")"
+                    ));
+                }
+                return;
+            }
+            CalendarDebugLogger.log(this,
+                    "Calendar auth fallback succeeded after ApiException source=" + source
+                            + ", grantedScopes=" + CalendarSignInHelper.describeGrantedScopes(account));
+        }
+        if (account == null && calendarSignInHelper != null) {
+            account = calendarSignInHelper.getLastSignedInAccount(this);
+        }
+        CalendarDebugLogger.log(this,
+                "Calendar auth success source=" + source
+                        + ", email=" + (account != null ? account.getEmail() : "(null)")
+                        + ", grantedScopes=" + CalendarSignInHelper.describeGrantedScopes(account));
+        updateCalendarSignInUi();
+        if (resumePendingCalendarActionIfPossible()) {
+            return;
+        }
+        updateCalendarLastResult(t(
+                "Calendar login succeeded: " + (account != null ? account.getEmail() : ""),
+                "Calendar ログイン成功: " + (account != null ? account.getEmail() : "")
+        ));
+    }
+
+    private boolean resumePendingCalendarActionIfPossible() {
+        boolean rerunDebugQuery = pendingCalendarDebugQueryAfterSignIn;
+        boolean rerunDebugCreate = pendingCalendarDebugCreateAfterSignIn;
+        clearPendingCalendarActions();
+        if (rerunDebugQuery && calendarViewModel != null && calendarViewModel.hasReadAccess()) {
+            updateCalendarLastResult(t(
+                    "Calendar login succeeded. Fetching calendar events...",
+                    "Calendar ログイン成功。予定を取得しています..."
+            ));
+            runCalendarDebugQuery();
+            return true;
+        }
+        if (rerunDebugCreate && calendarViewModel != null && calendarViewModel.hasWriteAccess()) {
+            updateCalendarLastResult(t(
+                    "Calendar login succeeded. Creating test calendar event...",
+                    "Calendar ログイン成功。テスト予定を登録しています..."
+            ));
+            runCalendarDebugCreate();
+            return true;
+        }
+        if (rerunDebugQuery) {
+            updateCalendarLastResult(t(
+                    "Calendar login succeeded, but read permission is still missing.",
+                    "Calendar ログインには成功しましたが、参照権限がまだ不足しています。"
+            ));
+            return true;
+        }
+        if (rerunDebugCreate) {
+            updateCalendarLastResult(t(
+                    "Calendar login succeeded, but edit permission is still missing.",
+                    "Calendar ログインには成功しましたが、編集権限がまだ不足しています。"
+            ));
+            return true;
+        }
+        return false;
+    }
+
+    private void clearPendingCalendarActions() {
+        pendingCalendarDebugQueryAfterSignIn = false;
+        pendingCalendarDebugCreateAfterSignIn = false;
     }
 
     private void updateCalendarSignInUi() {
@@ -3384,6 +3476,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         sb.append("action: ").append(resultForChat.getAction()).append("\n");
         sb.append("success: ").append(resultForChat.isSuccess()).append("\n");
         sb.append("errorType: ").append(resultForChat.getErrorType() == null ? "null" : resultForChat.getErrorType()).append("\n");
+        sb.append("errorDetail: ").append(resultForChat.getErrorDetail() == null ? "null" : resultForChat.getErrorDetail()).append("\n");
         sb.append("message: ").append(resultForChat.getMessageForSystem()).append("\n");
         List<String> summaries = resultForChat.getEventSummaries();
         if (summaries != null && !summaries.isEmpty()) {
@@ -4518,6 +4611,14 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode == REQ_CALENDAR_READ_ACCESS) {
+            handleCalendarAccountResult(resultCode, data, "read-permission");
+            return;
+        }
+        if (requestCode == REQ_CALENDAR_WRITE_ACCESS) {
+            handleCalendarAccountResult(resultCode, data, "write-permission");
+            return;
+        }
         if (resultCode != RESULT_OK || data == null) return;
         Uri uri = data.getData();
         if (uri == null) return;
