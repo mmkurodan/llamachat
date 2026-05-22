@@ -14,6 +14,7 @@ import com.google.api.services.calendar.model.Events;
 
 import java.io.IOException;
 import java.time.OffsetDateTime;
+import java.time.format.DateTimeFormatter;
 import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -22,6 +23,8 @@ import java.util.List;
 public class CalendarRepository {
     private static final String TAG = "CalendarRepository";
     private static final String PRIMARY_CALENDAR_ID = "primary";
+    private static final DateTimeFormatter RFC3339_SECONDS_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX");
 
     private final Context appContext;
     private String lastErrorType;
@@ -295,10 +298,10 @@ public class CalendarRepository {
                         .setOrderBy("startTime")
                         .setMaxResults(Math.max(1, maxResults));
         if (startIso != null && !startIso.trim().isEmpty()) {
-            request.setTimeMin(new DateTime(startIso.trim()));
+            request.setTimeMin(new DateTime(normalizeIsoValue(startIso.trim())));
         }
         if (endIso != null && !endIso.trim().isEmpty()) {
-            request.setTimeMax(new DateTime(endIso.trim()));
+            request.setTimeMax(new DateTime(normalizeIsoValue(endIso.trim())));
         }
         if (title != null && !title.trim().isEmpty()) {
             request.setQ(title.trim());
@@ -321,7 +324,7 @@ public class CalendarRepository {
 
     private EventDateTime buildEventDateTime(String isoValue) {
         return new EventDateTime()
-                .setDateTime(new DateTime(isoValue))
+                .setDateTime(new DateTime(normalizeIsoValue(isoValue)))
                 .setTimeZone(java.util.TimeZone.getDefault().getID());
     }
 
@@ -329,7 +332,18 @@ public class CalendarRepository {
         try {
             return OffsetDateTime.parse(isoValue).toInstant().toEpochMilli();
         } catch (DateTimeParseException ignored) {
-            return new DateTime(isoValue).getValue();
+            return new DateTime(normalizeIsoValue(isoValue)).getValue();
+        }
+    }
+
+    private String normalizeIsoValue(String isoValue) {
+        if (isoValue == null) {
+            return null;
+        }
+        try {
+            return OffsetDateTime.parse(isoValue.trim()).format(RFC3339_SECONDS_FORMATTER);
+        } catch (DateTimeParseException ignored) {
+            return isoValue.trim();
         }
     }
 

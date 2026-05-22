@@ -5,6 +5,7 @@ import com.google.api.services.calendar.model.Event;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -12,6 +13,9 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
 public class CalendarViewModel {
+    private static final DateTimeFormatter RFC3339_SECONDS_FORMATTER =
+            DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX");
+
     public interface Listener {
         void onCalendarResult(CalendarUiState uiState, CalendarResultForChat resultForChat);
     }
@@ -168,8 +172,8 @@ public class CalendarViewModel {
         handleCalendarAction(new CalendarActionJson(
                 CalendarActionType.CREATE,
                 "Dual AI Chat Test Event",
-                start.toOffsetDateTime().toString(),
-                end.toOffsetDateTime().toString(),
+                start.toOffsetDateTime().format(RFC3339_SECONDS_FORMATTER),
+                end.toOffsetDateTime().format(RFC3339_SECONDS_FORMATTER),
                 null,
                 new CalendarAdditional("debug: create test event", "created from Calendar Expert Mode")
         ), listener);
