@@ -11,7 +11,6 @@ import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
 import com.google.android.gms.auth.api.signin.GoogleSignInClient;
 import com.google.android.gms.auth.api.signin.GoogleSignInOptions;
 import com.google.android.gms.common.api.Scope;
-import com.micklab.llamachat.R;
 
 public class CalendarSignInHelper {
     private final ComponentActivity activity;
@@ -21,7 +20,6 @@ public class CalendarSignInHelper {
         this.activity = activity;
         GoogleSignInOptions signInOptions = new GoogleSignInOptions.Builder(GoogleSignInOptions.DEFAULT_SIGN_IN)
                 .requestEmail()
-                .requestIdToken(activity.getString(R.string.server_client_id))
                 .requestScopes(
                         new Scope("https://www.googleapis.com/auth/calendar.events"),
                         new Scope("https://www.googleapis.com/auth/calendar.readonly")

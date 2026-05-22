@@ -57,7 +57,6 @@ import androidx.activity.result.contract.ActivityResultContracts;
 import com.google.android.gms.auth.api.signin.GoogleSignIn;
 import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
 import com.google.android.gms.common.api.ApiException;
-import com.google.android.gms.tasks.Task;
 import com.google.api.services.calendar.model.Event;
 import com.micklab.llamachat.calendar.CalendarActionJson;
 import com.micklab.llamachat.calendar.CalendarActionType;
@@ -379,19 +378,40 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private CalendarViewModel calendarViewModel;
     private final ActivityResultLauncher<Intent> calendarSignInLauncher =
             registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+                GoogleSignInAccount account = null;
                 try {
-                    Task<GoogleSignInAccount> task = GoogleSignIn.getSignedInAccountFromIntent(result.getData());
-                    GoogleSignInAccount account = task.getResult(ApiException.class);
-                    updateCalendarSignInUi();
-                    updateCalendarLastResult(t(
-                            "Calendar login succeeded: " + (account != null ? account.getEmail() : ""),
-                            "Calendar ログイン成功: " + (account != null ? account.getEmail() : "")
-                    ));
-                } catch (Exception e) {
-                    Log.e(TAG, "Calendar sign-in failed", e);
-                    updateCalendarSignInUi();
-                    updateCalendarLastResult(t("Calendar login failed", "Calendar ログインに失敗しました"));
+                    account = GoogleSignIn.getSignedInAccountFromIntent(result.getData())
+                            .getResult(ApiException.class);
+                } catch (ApiException e) {
+                    account = calendarSignInHelper != null
+                            ? calendarSignInHelper.getLastSignedInAccount(this)
+                            : null;
+                    if (account == null) {
+                        Log.e(TAG, "Calendar sign-in failed", e);
+                        updateCalendarSignInUi();
+                        if (result.getResultCode() == Activity.RESULT_CANCELED) {
+                            updateCalendarLastResult(t(
+                                    "Calendar login canceled.",
+                                    "Calendar ログインをキャンセルしました。"
+                            ));
+                        } else {
+                            updateCalendarLastResult(t(
+                                    "Calendar login failed (" + e.getStatusCode() + ")",
+                                    "Calendar ログインに失敗しました (" + e.getStatusCode() + ")"
+                            ));
+                        }
+                        return;
+                    }
+                    Log.w(TAG, "Calendar sign-in result fallback succeeded after ApiException", e);
                 }
+                if (account == null && calendarSignInHelper != null) {
+                    account = calendarSignInHelper.getLastSignedInAccount(this);
+                }
+                updateCalendarSignInUi();
+                updateCalendarLastResult(t(
+                        "Calendar login succeeded: " + (account != null ? account.getEmail() : ""),
+                        "Calendar ログイン成功: " + (account != null ? account.getEmail() : "")
+                ));
             });
 
     // --- Chat ---
