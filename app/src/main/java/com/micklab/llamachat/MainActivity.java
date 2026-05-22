@@ -50,6 +50,25 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.Toast;
 
+import androidx.activity.ComponentActivity;
+import androidx.activity.result.ActivityResultLauncher;
+import androidx.activity.result.contract.ActivityResultContracts;
+
+import com.google.android.gms.auth.api.signin.GoogleSignIn;
+import com.google.android.gms.auth.api.signin.GoogleSignInAccount;
+import com.google.android.gms.common.api.ApiException;
+import com.google.android.gms.tasks.Task;
+import com.google.api.services.calendar.model.Event;
+import com.micklab.llamachat.calendar.CalendarActionJson;
+import com.micklab.llamachat.calendar.CalendarActionType;
+import com.micklab.llamachat.calendar.CalendarAdditional;
+import com.micklab.llamachat.calendar.CalendarPromptFactory;
+import com.micklab.llamachat.calendar.CalendarRepository;
+import com.micklab.llamachat.calendar.CalendarResultForChat;
+import com.micklab.llamachat.calendar.CalendarSignInHelper;
+import com.micklab.llamachat.calendar.CalendarUiState;
+import com.micklab.llamachat.calendar.CalendarViewModel;
+
 import org.json.JSONArray;
 import org.json.JSONObject;
 
@@ -62,6 +81,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -87,7 +108,7 @@ import okhttp3.Response;
  * - Streaming 有効時はセンテンス単位で TTS 読み上げ
  * - 設定は JSON ファイル (chat_settings.json) に保存
  */
-public class MainActivity extends Activity implements TextToSpeech.OnInitListener {
+public class MainActivity extends ComponentActivity implements TextToSpeech.OnInitListener {
 
     private static final String TAG = "OllamaChat";
     private static final String SETTINGS_FILE = "chat_settings.json";
@@ -105,6 +126,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private static final String PROFILE_AVATAR_CHATTER_C3_KEY = "avatarChatterC3";
     private static final String SEARCH_SYSTEM_PROMPT =
             "You are a search-augmented assistant. When the user provides SEARCH_RESULTS, you must read them and base your answer strictly on that information.";
+    private static final String CALENDAR_SYSTEM_PROMPT =
+            "You are a calendar-aware assistant. When the user provides CALENDAR_OPERATION_RESULT, you must explain the result using that structured app output and never invent calendar execution details.";
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
     private static final int REQ_FIRST_LAUNCH_PERMS = 1000;
     private static final int REQ_RECORD_AUDIO = 1001;
@@ -167,8 +190,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private Button btnClearChatterC0, btnClearChatterC1, btnClearChatterC2, btnClearChatterC3;
     private Button btnResetLogs, btnProfileSave, btnProfileLoad, btnProfileDelete, btnLaunchLlmTester;
     private Button btnHelp, btnPrivacy, btnRights;
+    private Button btnCalendarSignIn, btnCalendarSignOut, btnCalendarFetchEvents, btnCalendarCreateTestEvent;
     private TextView tvC0Filename, tvC1Filename, tvC2Filename, tvC3Filename;
     private TextView tvChatterC0Filename, tvChatterC1Filename, tvChatterC2Filename, tvChatterC3Filename;
+    private TextView tvCalendarSignInStatus, tvCalendarLastResult;
     private ScrollView scrollView;
     private View settingsPanel;
     private View topPanel;
@@ -191,7 +216,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private TextView tvChatterSettingsTitle, tvChatterNameLabel, tvChatterModelLabel;
     private TextView tvChatterSpeechLangLabel, tvChatterSpeechRateLabel, tvChatterSpeechPitchLabel, tvChatterSystemPromptLabel, tvChatterAvatarTitle;
     private View sectionGeneralHeader, sectionChatHeader, sectionExpertHeader;
-    private Switch switchStreaming, switchTts, switchVoiceInput, switchAutoVoiceInput, switchWebSearch, switchDebug;
+    private Switch switchStreaming, switchTts, switchVoiceInput, switchAutoVoiceInput, switchWebSearch, switchCalendarExpertMode, switchDebug;
     private EditText etOllamaUrl, etSpeechLang, etSpeechRate, etSpeechPitch, etSystemPrompt;
     private EditText etChatterSpeechLang, etChatterSpeechRate, etChatterSpeechPitch, etChatterSystemPrompt;
     private EditText etBaseName, etChatterName;
@@ -213,6 +238,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private boolean autoChatterEnabled = false;
     private boolean autoVoiceInputEnabled = false;
     private boolean webSearchEnabled = false;
+    private boolean calendarExpertModeEnabled = false;
     private boolean debugEnabled = false;
     private String webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
     private String webSearchApiKey = "";
@@ -349,6 +375,24 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
     private ArrayAdapter<String> modelAdapter;
     private ArrayAdapter<String> chatterModelAdapter;
     private ArrayAdapter<String> webSearchModelAdapter;
+    private CalendarSignInHelper calendarSignInHelper;
+    private CalendarViewModel calendarViewModel;
+    private final ActivityResultLauncher<Intent> calendarSignInLauncher =
+            registerForActivityResult(new ActivityResultContracts.StartActivityForResult(), result -> {
+                try {
+                    Task<GoogleSignInAccount> task = GoogleSignIn.getSignedInAccountFromIntent(result.getData());
+                    GoogleSignInAccount account = task.getResult(ApiException.class);
+                    updateCalendarSignInUi();
+                    updateCalendarLastResult(t(
+                            "Calendar login succeeded: " + (account != null ? account.getEmail() : ""),
+                            "Calendar ログイン成功: " + (account != null ? account.getEmail() : "")
+                    ));
+                } catch (Exception e) {
+                    Log.e(TAG, "Calendar sign-in failed", e);
+                    updateCalendarSignInUi();
+                    updateCalendarLastResult(t("Calendar login failed", "Calendar ログインに失敗しました"));
+                }
+            });
 
     // --- Chat ---
     private final List<JSONObject> conversationHistory = new ArrayList<>();
@@ -572,6 +616,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         requestWindowFeature(Window.FEATURE_NO_TITLE);
         getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         setContentView(R.layout.activity_main);
+        calendarSignInHelper = new CalendarSignInHelper(this);
+        calendarViewModel = new CalendarViewModel(new CalendarRepository(this));
 
         // Request necessary permissions on first launch
         requestPermissionsOnFirstLaunch();
@@ -680,6 +726,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         btnHelp = findViewById(R.id.btnHelp);
         btnPrivacy = findViewById(R.id.btnPrivacy);
         btnRights = findViewById(R.id.btnRights);
+        btnCalendarSignIn = findViewById(R.id.btnCalendarSignIn);
+        btnCalendarSignOut = findViewById(R.id.btnCalendarSignOut);
+        btnCalendarFetchEvents = findViewById(R.id.btnCalendarFetchEvents);
+        btnCalendarCreateTestEvent = findViewById(R.id.btnCalendarCreateTestEvent);
         tvC0Filename = findViewById(R.id.tvC0Filename);
         tvC1Filename = findViewById(R.id.tvC1Filename);
         tvC2Filename = findViewById(R.id.tvC2Filename);
@@ -688,6 +738,8 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         tvChatterC1Filename = findViewById(R.id.tvChatterC1Filename);
         tvChatterC2Filename = findViewById(R.id.tvChatterC2Filename);
         tvChatterC3Filename = findViewById(R.id.tvChatterC3Filename);
+        tvCalendarSignInStatus = findViewById(R.id.tvCalendarSignInStatus);
+        tvCalendarLastResult = findViewById(R.id.tvCalendarLastResult);
         ivAvatarBackground = findViewById(R.id.ivAvatarBackground);
         ivAvatar = findViewById(R.id.ivAvatar);
         counterpartMiniContainer = findViewById(R.id.counterpartMiniContainer);
@@ -723,6 +775,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         switchTts = findViewById(R.id.switchTts);
         switchVoiceInput = findViewById(R.id.switchVoiceInput);
         switchAutoVoiceInput = findViewById(R.id.switchAutoVoiceInput);
+        switchCalendarExpertMode = findViewById(R.id.switchCalendarExpertMode);
         etProfileName = findViewById(R.id.etProfileName);
         etOllamaUrl = findViewById(R.id.etOllamaUrl);
         etUserName = findViewById(R.id.etUserName);
@@ -836,6 +889,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         webSearchModelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerWebSearchModel.setAdapter(webSearchModelAdapter);
         updateOllamaStatusTile(ollamaApiAvailable);
+        updateCalendarSignInUi();
     }
 
     private void setupListeners() {
@@ -869,6 +923,18 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
 
         btnLaunchLlmTester.setOnClickListener(v -> openLlmTesterOrStore());
+        if (btnCalendarSignIn != null) {
+            btnCalendarSignIn.setOnClickListener(v -> launchCalendarSignIn());
+        }
+        if (btnCalendarSignOut != null) {
+            btnCalendarSignOut.setOnClickListener(v -> signOutCalendar());
+        }
+        if (btnCalendarFetchEvents != null) {
+            btnCalendarFetchEvents.setOnClickListener(v -> runCalendarDebugQuery());
+        }
+        if (btnCalendarCreateTestEvent != null) {
+            btnCalendarCreateTestEvent.setOnClickListener(v -> runCalendarDebugCreate());
+        }
 
         groupMode.setOnCheckedChangeListener((group, checkedId) -> {
             autoChatterEnabled = checkedId == R.id.radioModeChatter;
@@ -1281,6 +1347,10 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (btnProfileSave != null) btnProfileSave.setText(t("Save", "保存"));
         if (btnProfileDelete != null) btnProfileDelete.setText(t("Delete", "削除"));
         if (btnLaunchLlmTester != null) btnLaunchLlmTester.setText(t("Launch LLM API", "LLM APIを起動"));
+        if (btnCalendarSignIn != null) btnCalendarSignIn.setText(t("Calendar Login", "Calendar ログイン"));
+        if (btnCalendarSignOut != null) btnCalendarSignOut.setText(t("Calendar Logout", "Calendar ログアウト"));
+        if (btnCalendarFetchEvents != null) btnCalendarFetchEvents.setText(t("Fetch Events", "予定を取得"));
+        if (btnCalendarCreateTestEvent != null) btnCalendarCreateTestEvent.setText(t("Create Test Event", "テスト予定を登録"));
         if (btnHelp != null) btnHelp.setText(t("Help", "ヘルプ"));
         if (btnPrivacy != null) btnPrivacy.setText(t("Privacy", "プライバシー"));
         if (btnRights != null) btnRights.setText(t("Rights", "権利情報"));
@@ -1289,6 +1359,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (switchVoiceInput != null) switchVoiceInput.setText(t("Voice Input (on empty send)", "音声入力（空送信）"));
         if (switchAutoVoiceInput != null) switchAutoVoiceInput.setText(t("Auto Voice Input (after response)", "自動音声入力（応答後）"));
         if (switchWebSearch != null) switchWebSearch.setText(t("Web Search", "Web検索"));
+        if (switchCalendarExpertMode != null) switchCalendarExpertMode.setText(t("Calendar Expert Mode", "Calendar Expert Mode"));
         if (switchDebug != null) switchDebug.setText(t("Debug Mode", "デバッグモード"));
         if (radioModeNormal != null) radioModeNormal.setText(t("Normal", "ノーマル"));
         if (radioModeChatter != null) radioModeChatter.setText(t("Chatter", "おしゃべり"));
@@ -1302,6 +1373,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         if (sectionExpertContent != null) sectionExpertContent.setVisibility(sectionExpertExpanded ? View.VISIBLE : View.GONE);
         updateSendButton();
         updateOverlayEntryUi();
+        updateCalendarSignInUi();
     }
 
     private int languageSpinnerPositionForCurrentLanguage() {
@@ -1320,6 +1392,95 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                 );
             }
         });
+    }
+
+    private void launchCalendarSignIn() {
+        if (calendarSignInHelper == null) return;
+        updateCalendarLastResult(t("Launching Calendar login...", "Calendar ログインを開始します..."));
+        calendarSignInHelper.launchSignIn(calendarSignInLauncher);
+    }
+
+    private void signOutCalendar() {
+        if (calendarSignInHelper == null) return;
+        calendarSignInHelper.signOut(() -> {
+            updateCalendarSignInUi();
+            updateCalendarLastResult(t("Calendar logout completed.", "Calendar ログアウトが完了しました。"));
+        });
+    }
+
+    private void runCalendarDebugQuery() {
+        if (calendarViewModel == null) return;
+        updateCalendarLastResult(t("Fetching calendar events...", "予定を取得しています..."));
+        calendarViewModel.fetchUpcomingEventsForDebug(this::handleCalendarDebugResult);
+    }
+
+    private void runCalendarDebugCreate() {
+        if (calendarViewModel == null) return;
+        updateCalendarLastResult(t("Creating test calendar event...", "テスト予定を登録しています..."));
+        calendarViewModel.createTestEventForDebug(this::handleCalendarDebugResult);
+    }
+
+    private void handleCalendarDebugResult(CalendarUiState uiState, CalendarResultForChat resultForChat) {
+        runOnUiThread(() -> {
+            updateCalendarSignInUi();
+            StringBuilder sb = new StringBuilder();
+            if (resultForChat != null) {
+                sb.append(resultForChat.getMessageForSystem());
+                if (resultForChat.getErrorType() != null && !resultForChat.getErrorType().isEmpty()) {
+                    sb.append(" [").append(resultForChat.getErrorType()).append("]");
+                }
+                List<String> summaries = resultForChat.getEventSummaries();
+                if (summaries != null && !summaries.isEmpty()) {
+                    sb.append("\n").append(joinLines(summaries));
+                }
+            } else if (uiState != null && uiState.getErrorType() != null) {
+                sb.append(uiState.getErrorType());
+            }
+            updateCalendarLastResult(sb.length() == 0
+                    ? t("No calendar result.", "Calendar の結果はありません。")
+                    : sb.toString());
+        });
+    }
+
+    private void updateCalendarSignInUi() {
+        runOnUiThread(() -> {
+            GoogleSignInAccount account = calendarSignInHelper != null
+                    ? calendarSignInHelper.getLastSignedInAccount(this)
+                    : null;
+            boolean signedIn = account != null;
+            if (tvCalendarSignInStatus != null) {
+                String email = account != null ? account.getEmail() : null;
+                String statusText = signedIn
+                        ? t("Calendar signed in: ", "Calendar ログイン中: ") + (email == null ? "(unknown)" : email)
+                        : t("Calendar: not signed in", "Calendar: 未ログイン");
+                tvCalendarSignInStatus.setText(statusText);
+            }
+            if (btnCalendarSignIn != null) btnCalendarSignIn.setEnabled(!signedIn);
+            if (btnCalendarSignOut != null) btnCalendarSignOut.setEnabled(signedIn);
+            if (btnCalendarFetchEvents != null) btnCalendarFetchEvents.setEnabled(signedIn);
+            if (btnCalendarCreateTestEvent != null) btnCalendarCreateTestEvent.setEnabled(signedIn);
+        });
+    }
+
+    private void updateCalendarLastResult(String text) {
+        runOnUiThread(() -> {
+            if (tvCalendarLastResult != null) {
+                tvCalendarLastResult.setText(text == null || text.trim().isEmpty()
+                        ? t("Calendar result will appear here.", "Calendar の結果をここに表示します。")
+                        : text);
+            }
+        });
+    }
+
+    private String joinLines(List<String> values) {
+        if (values == null || values.isEmpty()) return "";
+        StringBuilder sb = new StringBuilder();
+        for (String value : values) {
+            if (value == null || value.trim().isEmpty()) continue;
+            if (sb.length() > 0) sb.append("\n");
+            sb.append("- ").append(value.trim());
+        }
+        return sb.toString();
     }
 
     private void openLlmTesterOrStore() {
@@ -2134,6 +2295,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         s.put("appLanguage", appLanguage);
         s.put("floatDisplayMode", floatDisplayMode);
         s.put("webSearchEnabled", webSearchEnabled);
+        s.put("calendarExpertModeEnabled", calendarExpertModeEnabled);
         s.put("debugEnabled", debugEnabled);
         s.put("webSearchUrl", webSearchUrl);
         s.put("webSearchApiKey", webSearchApiKey);
@@ -2175,6 +2337,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         appLanguage = s.optString("appLanguage", appLanguage);
         floatDisplayMode = normalizeFloatDisplayMode(s.optString("floatDisplayMode", floatDisplayMode));
         webSearchEnabled = s.optBoolean("webSearchEnabled", webSearchEnabled);
+        calendarExpertModeEnabled = s.optBoolean("calendarExpertModeEnabled", calendarExpertModeEnabled);
         debugEnabled = s.optBoolean("debugEnabled", debugEnabled);
         webSearchUrl = s.optString("webSearchUrl", webSearchUrl);
         webSearchApiKey = s.optString("webSearchApiKey", webSearchApiKey);
@@ -2480,6 +2643,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         }
         if (autoChatterSeconds < 0) autoChatterSeconds = 0;
         webSearchEnabled = switchWebSearch.isChecked();
+        calendarExpertModeEnabled = switchCalendarExpertMode != null && switchCalendarExpertMode.isChecked();
         debugEnabled = switchDebug.isChecked();
         webSearchUrl = etWebSearchUrl.getText().toString().trim();
         if (webSearchUrl.isEmpty()) webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
@@ -2529,6 +2693,9 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         etHistoryLimit.setText(String.valueOf(historyLimit));
         etAutoChatterSeconds.setText(String.valueOf(autoChatterSeconds));
         switchWebSearch.setChecked(webSearchEnabled);
+        if (switchCalendarExpertMode != null) {
+            switchCalendarExpertMode.setChecked(calendarExpertModeEnabled);
+        }
         switchDebug.setChecked(debugEnabled);
         etWebSearchUrl.setText(webSearchUrl);
         etWebSearchApiKey.setText(webSearchApiKey);
@@ -2555,6 +2722,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         applyLanguageToUi();
         updateOllamaStatusTile(ollamaApiAvailable);
         updateOverlayEntryUi();
+        updateCalendarSignInUi();
     }
 
     private void updateChatterModeUi() {
@@ -3002,12 +3170,15 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
 
     private void submitUserMessage(String userMsg) {
         if (userMsg == null || userMsg.trim().isEmpty()) return;
+        readSettingsFromUi();
         cancelAutoChatter();
         etInput.setText("");
         appendUserMessage(userMsg);
         addToHistory(conversationHistory, "user", userMsg);
 
-        if (webSearchEnabled && !webSearchApiKey.isEmpty()) {
+        if (calendarExpertModeEnabled) {
+            performCalendarExpertFlow(userMsg);
+        } else if (webSearchEnabled && !webSearchApiKey.isEmpty()) {
             performWebSearchFlow(userMsg);
         } else {
             sendChat(null);
@@ -3020,6 +3191,119 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
      * 2. SEARCH: が返れば Web検索APIを呼び出す
      * 3. 検索結果をユーザメッセージに付与して api/chat に渡す
      */
+    private void performCalendarExpertFlow(String userMsg) {
+        isProcessing = true;
+        updateSendButton();
+        int calendarToken = startStreamingSession();
+        setThinkingIndicator(true, ChatSpeaker.BASE, calendarToken);
+        setThinkingIndicatorLabel(t("Calendar analyzing", "Calendar解析中"), calendarToken);
+
+        new Thread(() -> {
+            try {
+                CalendarActionJson action = extractCalendarAction(userMsg);
+                if (action == null || !action.getAction().requiresCalendarOperation()) {
+                    continueStandardChatFlow(userMsg);
+                    return;
+                }
+                runOnUiThread(() -> setThinkingIndicatorLabel(
+                        t("Calendar action: ", "Calendar判定: ") + action.getAction().name(),
+                        calendarToken
+                ));
+                if (calendarViewModel == null) {
+                    continueStandardChatFlow(userMsg);
+                    return;
+                }
+                calendarViewModel.handleCalendarAction(action, (uiState, resultForChat) -> {
+                    handleCalendarDebugResult(uiState, resultForChat);
+                    String augmentedMessage = buildCalendarAugmentedUserMessage(userMsg, resultForChat);
+                    runOnUiThread(() -> {
+                        isProcessing = false;
+                        updateSendButton();
+                        sendChat(augmentedMessage, true);
+                    });
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "Calendar expert flow error", e);
+                continueStandardChatFlow(userMsg);
+            }
+        }).start();
+    }
+
+    private void continueStandardChatFlow(String userMsg) {
+        runOnUiThread(() -> {
+            isProcessing = false;
+            updateSendButton();
+            if (webSearchEnabled && !webSearchApiKey.isEmpty()) {
+                performWebSearchFlow(userMsg);
+            } else {
+                sendChat(null);
+            }
+        });
+    }
+
+    private CalendarActionJson extractCalendarAction(String userMsg) {
+        try {
+            String modelForCalendar = selectedModel != null ? selectedModel.trim() : "";
+            if (modelForCalendar.isEmpty() || !modelList.contains(modelForCalendar)) {
+                modelForCalendar = "default";
+            }
+            String prompt = CalendarPromptFactory.buildJudgePrompt(
+                    userMsg,
+                    OffsetDateTime.now(ZoneId.systemDefault()).toString()
+            );
+            JSONObject body = new JSONObject();
+            body.put("model", modelForCalendar);
+            body.put("prompt", prompt);
+            body.put("stream", false);
+
+            RequestBody requestBody = RequestBody.create(body.toString(), JSON_MEDIA);
+            Request request = new Request.Builder()
+                    .url(ollamaBaseUrl + "/api/generate")
+                    .post(requestBody)
+                    .build();
+            if (debugEnabled) {
+                appendDebug("/api/generate Calendar Request", buildRequestDebugText(request, body.toString()));
+            }
+
+            Response response = client.newCall(request).execute();
+            String respBody = response.body() != null ? response.body().string() : "";
+            if (debugEnabled) {
+                appendDebug("/api/generate Calendar Response", buildResponseDebugText(response, respBody));
+            }
+            if (!response.isSuccessful()) {
+                Log.w(TAG, "extractCalendarAction HTTP error: " + response.code());
+                return null;
+            }
+            String result = new JSONObject(respBody).optString("response", "").trim();
+            if (result.isEmpty()) {
+                return null;
+            }
+            return CalendarActionJson.fromJsonString(result).withRawTextFallback(userMsg);
+        } catch (Exception e) {
+            Log.e(TAG, "extractCalendarAction error", e);
+            return null;
+        }
+    }
+
+    private String buildCalendarAugmentedUserMessage(String userMsg, CalendarResultForChat resultForChat) {
+        if (resultForChat == null) {
+            return userMsg;
+        }
+        StringBuilder sb = new StringBuilder();
+        sb.append("以下はアプリが Google Calendar API を実行した結果です。CALENDAR_OPERATION_RESULT として扱ってください。\n");
+        sb.append("action: ").append(resultForChat.getAction()).append("\n");
+        sb.append("success: ").append(resultForChat.isSuccess()).append("\n");
+        sb.append("errorType: ").append(resultForChat.getErrorType() == null ? "null" : resultForChat.getErrorType()).append("\n");
+        sb.append("message: ").append(resultForChat.getMessageForSystem()).append("\n");
+        List<String> summaries = resultForChat.getEventSummaries();
+        if (summaries != null && !summaries.isEmpty()) {
+            sb.append("events:\n").append(joinLines(summaries)).append("\n");
+        }
+        sb.append("\n元のユーザ入力:\n").append(userMsg).append("\n");
+        sb.append("この結果に基づいて、日本語で簡潔に説明してください。");
+        return sb.toString();
+    }
+
     private void performWebSearchFlow(String userMsg) {
         isProcessing = true;
         updateSendButton();
@@ -3425,6 +3709,11 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
                                 && webSearchEnabled
                                 && !systemContent.contains(SEARCH_SYSTEM_PROMPT)) {
                             systemContent = systemContent + "\n" + SEARCH_SYSTEM_PROMPT;
+                        }
+                        if (speaker == ChatSpeaker.BASE
+                                && calendarExpertModeEnabled
+                                && !systemContent.contains(CALENDAR_SYSTEM_PROMPT)) {
+                            systemContent = systemContent + "\n" + CALENDAR_SYSTEM_PROMPT;
                         }
                         JSONObject sys = new JSONObject();
                         sys.put("role", "system");
@@ -4198,6 +4487,7 @@ public class MainActivity extends Activity implements TextToSpeech.OnInitListene
         ensureNotificationService();
         importOverlaySyncLog();
         updateOverlayEntryUi();
+        updateCalendarSignInUi();
     }
 
     @Override
