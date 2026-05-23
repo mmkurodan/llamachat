@@ -65,6 +65,7 @@ import com.micklab.llamachat.calendar.CalendarDebugLogger;
 import com.micklab.llamachat.calendar.CalendarPromptFactory;
 import com.micklab.llamachat.calendar.CalendarRepository;
 import com.micklab.llamachat.calendar.CalendarResultForChat;
+import com.micklab.llamachat.calendar.CalendarRetryHandler;
 import com.micklab.llamachat.calendar.CalendarSignInHelper;
 import com.micklab.llamachat.calendar.CalendarUiState;
 import com.micklab.llamachat.calendar.CalendarViewModel;
@@ -3423,38 +3424,14 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private CalendarActionJson extractCalendarAction(String userMsg) {
         try {
             String modelForCalendar = resolveCalendarJudgeModel();
-            String prompt = CalendarPromptFactory.buildJudgePrompt(
-                    userMsg,
-                    OffsetDateTime.now(ZoneId.systemDefault()).toString()
+            String nowIso8601 = OffsetDateTime.now(ZoneId.systemDefault()).toString();
+            CalendarRetryHandler retryHandler = new CalendarRetryHandler(
+                    this,
+                    prompt -> requestCalendarJudgeResponse(modelForCalendar, prompt)
             );
-            JSONObject body = new JSONObject();
-            body.put("model", modelForCalendar);
-            body.put("prompt", prompt);
-            body.put("stream", false);
-
-            RequestBody requestBody = RequestBody.create(body.toString(), JSON_MEDIA);
-            Request request = new Request.Builder()
-                    .url(ollamaBaseUrl + "/api/generate")
-                    .post(requestBody)
-                    .build();
-            if (debugEnabled) {
-                appendDebug("/api/generate Calendar Request", buildRequestDebugText(request, body.toString()));
-            }
-
-            Response response = client.newCall(request).execute();
-            String respBody = response.body() != null ? response.body().string() : "";
-            if (debugEnabled) {
-                appendDebug("/api/generate Calendar Response", buildResponseDebugText(response, respBody));
-            }
-            if (!response.isSuccessful()) {
-                Log.w(TAG, "extractCalendarAction HTTP error: " + response.code());
-                CalendarDebugLogger.log(this, "extractCalendarAction HTTP error: " + response.code());
-                return null;
-            }
-            CalendarDebugLogger.log(this, "extractCalendarAction raw response: " + respBody);
-            CalendarActionJson parsed = CalendarActionJson.fromGenerateApiResponse(respBody, userMsg);
+            CalendarActionJson parsed = retryHandler.resolveAction(userMsg, nowIso8601);
             CalendarDebugLogger.log(this,
-                    "extractCalendarAction parsed action=" + parsed.getAction()
+                    "extractCalendarAction final action=" + parsed.getAction()
                             + ", title=" + parsed.getTitle()
                             + ", start=" + parsed.getStart()
                             + ", end=" + parsed.getEnd()
@@ -3463,8 +3440,37 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         } catch (Exception e) {
             Log.e(TAG, "extractCalendarAction error", e);
             CalendarDebugLogger.logError(this, "extractCalendarAction error", e);
-            return null;
+            return CalendarActionJson.none(userMsg, e.getMessage());
         }
+    }
+
+    private String requestCalendarJudgeResponse(String modelForCalendar, String prompt) throws Exception {
+        JSONObject body = new JSONObject();
+        body.put("model", modelForCalendar);
+        body.put("prompt", prompt);
+        body.put("stream", false);
+
+        RequestBody requestBody = RequestBody.create(body.toString(), JSON_MEDIA);
+        Request request = new Request.Builder()
+                .url(ollamaBaseUrl + "/api/generate")
+                .post(requestBody)
+                .build();
+        if (debugEnabled) {
+            appendDebug("/api/generate Calendar Request", buildRequestDebugText(request, body.toString()));
+        }
+
+        Response response = client.newCall(request).execute();
+        String respBody = response.body() != null ? response.body().string() : "";
+        if (debugEnabled) {
+            appendDebug("/api/generate Calendar Response", buildResponseDebugText(response, respBody));
+        }
+        if (!response.isSuccessful()) {
+            Log.w(TAG, "requestCalendarJudgeResponse HTTP error: " + response.code());
+            CalendarDebugLogger.log(this, "requestCalendarJudgeResponse HTTP error: " + response.code());
+            throw new IllegalStateException("Judge API HTTP error: " + response.code());
+        }
+        CalendarDebugLogger.log(this, "requestCalendarJudgeResponse raw response: " + respBody);
+        return respBody;
     }
 
     private void sendCalendarExplanation(String userMsg, CalendarResultForChat resultForChat, int token) {

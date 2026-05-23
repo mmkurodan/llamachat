@@ -66,8 +66,26 @@ public class CalendarActionJson {
         );
     }
 
+    public static CalendarActionJson none(String rawText, String notes) {
+        return new CalendarActionJson(
+                CalendarActionType.NONE,
+                null,
+                null,
+                null,
+                null,
+                new CalendarAdditional(rawText, notes)
+        );
+    }
+
     public static CalendarActionJson fromJsonString(String raw) throws Exception {
-        JSONObject json = new JSONObject(requireStrictJsonObject(raw));
+        return fromJsonObject(parseStrictJsonObject(raw));
+    }
+
+    public static CalendarActionJson fromGenerateApiResponse(String rawApiResponse, String userInput) throws Exception {
+        return fromJsonString(extractGenerateResponseJson(rawApiResponse)).withRawTextFallback(userInput);
+    }
+
+    public static CalendarActionJson fromJsonObject(JSONObject json) {
         return new CalendarActionJson(
                 CalendarActionType.fromString(json.optString("action", "NONE")),
                 optNullableString(json, "title", null),
@@ -78,8 +96,8 @@ public class CalendarActionJson {
         );
     }
 
-    public static CalendarActionJson fromGenerateApiResponse(String rawApiResponse, String userInput) throws Exception {
-        return fromJsonString(extractGenerateResponseJson(rawApiResponse)).withRawTextFallback(userInput);
+    public static JSONObject parseStrictJsonObject(String raw) throws JSONException {
+        return new JSONObject(requireStrictJsonObject(raw));
     }
 
     static String optNullableString(JSONObject json, String key, String fallback) {
@@ -95,7 +113,7 @@ public class CalendarActionJson {
         return trimmed;
     }
 
-    private static String extractGenerateResponseJson(String rawApiResponse) throws Exception {
+    public static String extractGenerateResponseJson(String rawApiResponse) throws Exception {
         String trimmed = rawApiResponse == null ? "" : rawApiResponse.trim();
         if (trimmed.isEmpty()) {
             throw new IllegalArgumentException("Judge API response is empty.");
@@ -119,7 +137,7 @@ public class CalendarActionJson {
         return json != null && json.has("action");
     }
 
-    private static String requireStrictJsonObject(String raw) {
+    public static String requireStrictJsonObject(String raw) {
         String trimmed = raw == null ? "" : raw.trim();
         if (trimmed.isEmpty()) {
             throw new IllegalArgumentException("Judge output is empty.");

@@ -311,6 +311,19 @@ public class CalendarViewModel {
         if (action == null) {
             return null;
         }
+        if (action.getAction() == CalendarActionType.DELETE) {
+            return new CalendarActionJson(
+                    action.getAction(),
+                    action.getTitle(),
+                    null,
+                    null,
+                    action.getEventId(),
+                    action.getAdditional()
+            );
+        }
+        if (action.getAction() == CalendarActionType.NONE) {
+            return action;
+        }
         return applyAbsoluteTimePriority(action);
     }
 

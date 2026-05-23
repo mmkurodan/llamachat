@@ -342,7 +342,7 @@ public class CalendarRepository {
 
     private long parseEpochMillis(String isoValue) {
         try {
-            return OffsetDateTime.parse(isoValue).toInstant().toEpochMilli();
+            return parseOffsetDateTimeValue(isoValue).toInstant().toEpochMilli();
         } catch (DateTimeParseException ignored) {
             return new DateTime(normalizeIsoValue(isoValue)).getValue();
         }
@@ -360,7 +360,26 @@ public class CalendarRepository {
     }
 
     private boolean hasExplicitOffset(String isoValue) {
-        return isoValue != null && ISO_OFFSET_PATTERN.matcher(isoValue).matches();
+        return hasExplicitOffsetValue(isoValue);
+    }
+
+    static OffsetDateTime parseOffsetDateTimeValue(String isoValue) {
+        return OffsetDateTime.parse(normalizeIsoValueValue(isoValue));
+    }
+
+    static boolean hasExplicitOffsetValue(String isoValue) {
+        return isoValue != null && ISO_OFFSET_PATTERN.matcher(isoValue.trim()).matches();
+    }
+
+    static String normalizeIsoValueValue(String isoValue) {
+        if (isoValue == null) {
+            return null;
+        }
+        try {
+            return OffsetDateTime.parse(isoValue.trim()).format(RFC3339_SECONDS_FORMATTER);
+        } catch (DateTimeParseException ignored) {
+            return isoValue.trim();
+        }
     }
 
     private String summarizeEvent(Event event) {
