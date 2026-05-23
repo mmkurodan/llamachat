@@ -2,19 +2,27 @@ package com.micklab.llamachat.calendar;
 
 import com.google.api.services.calendar.model.Event;
 
+import java.time.LocalDate;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 public class CalendarViewModel {
     private static final DateTimeFormatter RFC3339_SECONDS_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX");
+    private static final Pattern ABSOLUTE_HOUR_DURATION_PATTERN = Pattern.compile(
+            "(?:(本日|今日)(?:の)?\\s*)?(午前|午後)?\\s*(\\d{1,2})時(?:\\s*(\\d{1,2})分)?\\s*(?:から|より)\\s*(\\d{1,2})時間"
+    );
 
     public interface Listener {
         void onCalendarResult(CalendarUiState uiState, CalendarResultForChat resultForChat);
@@ -58,6 +66,7 @@ public class CalendarViewModel {
                     new CalendarAdditional("", null)
             )
                     : json;
+            action = normalizeActionForExecution(action);
 
             CalendarUiState state;
             CalendarResultForChat result;
@@ -298,6 +307,47 @@ public class CalendarViewModel {
         );
     }
 
+    private CalendarActionJson normalizeActionForExecution(CalendarActionJson action) {
+        if (action == null) {
+            return null;
+        }
+        return applyAbsoluteTimePriority(action);
+    }
+
+    private CalendarActionJson applyAbsoluteTimePriority(CalendarActionJson action) {
+        String rawText = action.getAdditional() == null ? null : action.getAdditional().getRawText();
+        if (rawText == null || rawText.trim().isEmpty()) {
+            return action;
+        }
+        Matcher matcher = ABSOLUTE_HOUR_DURATION_PATTERN.matcher(rawText);
+        if (!matcher.find()) {
+            return action;
+        }
+
+        int resolvedHour = resolveAbsoluteHour(matcher.group(2), matcher.group(3));
+        int resolvedMinute = parseMinute(matcher.group(4));
+        int durationHours = Integer.parseInt(matcher.group(5));
+        OffsetDateTime reference = resolveReferenceDateTime(action);
+        LocalDate targetDate = matcher.group(1) == null
+                ? reference.toLocalDate()
+                : OffsetDateTime.now(reference.getOffset()).toLocalDate();
+        OffsetDateTime normalizedStart = OffsetDateTime.of(
+                targetDate,
+                LocalTime.of(resolvedHour, resolvedMinute),
+                reference.getOffset()
+        );
+        OffsetDateTime normalizedEnd = normalizedStart.plusHours(durationHours);
+
+        return new CalendarActionJson(
+                action.getAction(),
+                action.getTitle(),
+                normalizedStart.format(RFC3339_SECONDS_FORMATTER),
+                normalizedEnd.format(RFC3339_SECONDS_FORMATTER),
+                action.getEventId(),
+                action.getAdditional()
+        );
+    }
+
     private List<String> summarizeEvents(List<Event> events) {
         if (events == null || events.isEmpty()) {
             return Collections.emptyList();
@@ -320,6 +370,47 @@ public class CalendarViewModel {
             }
         }
         return title + (start.isEmpty() ? "" : " / " + start);
+    }
+
+    private OffsetDateTime resolveReferenceDateTime(CalendarActionJson action) {
+        OffsetDateTime parsedStart = parseOffsetDateTimeOrNull(action.getStart());
+        if (parsedStart != null) {
+            return parsedStart;
+        }
+        OffsetDateTime parsedEnd = parseOffsetDateTimeOrNull(action.getEnd());
+        if (parsedEnd != null) {
+            return parsedEnd;
+        }
+        return OffsetDateTime.now(ZoneId.systemDefault());
+    }
+
+    private OffsetDateTime parseOffsetDateTimeOrNull(String value) {
+        if (isBlank(value)) {
+            return null;
+        }
+        try {
+            return OffsetDateTime.parse(value.trim());
+        } catch (DateTimeParseException ignored) {
+            return null;
+        }
+    }
+
+    private int resolveAbsoluteHour(String meridiem, String hourText) {
+        int hour = Integer.parseInt(hourText);
+        if ("午後".equals(meridiem) && hour < 12) {
+            return hour + 12;
+        }
+        if ("午前".equals(meridiem) && hour == 12) {
+            return 0;
+        }
+        return hour;
+    }
+
+    private int parseMinute(String minuteText) {
+        if (minuteText == null || minuteText.trim().isEmpty()) {
+            return 0;
+        }
+        return Integer.parseInt(minuteText);
     }
 
     private String defaultError(String value, String fallback) {

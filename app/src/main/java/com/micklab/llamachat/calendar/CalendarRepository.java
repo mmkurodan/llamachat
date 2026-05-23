@@ -19,12 +19,15 @@ import java.time.format.DateTimeParseException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
+import java.util.regex.Pattern;
 
 public class CalendarRepository {
     private static final String TAG = "CalendarRepository";
     private static final String PRIMARY_CALENDAR_ID = "primary";
     private static final DateTimeFormatter RFC3339_SECONDS_FORMATTER =
             DateTimeFormatter.ofPattern("yyyy-MM-dd'T'HH:mm:ssXXX");
+    private static final Pattern ISO_OFFSET_PATTERN =
+            Pattern.compile(".*(?:Z|[+-]\\d{2}:\\d{2})$");
 
     private final Context appContext;
     private String lastErrorType;
@@ -323,9 +326,18 @@ public class CalendarRepository {
     }
 
     private EventDateTime buildEventDateTime(String isoValue) {
-        return new EventDateTime()
-                .setDateTime(new DateTime(normalizeIsoValue(isoValue)))
-                .setTimeZone(java.util.TimeZone.getDefault().getID());
+        String normalizedIso = normalizeIsoValue(isoValue);
+        boolean hasExplicitOffset = hasExplicitOffset(normalizedIso);
+        EventDateTime eventDateTime = new EventDateTime()
+                .setDateTime(new DateTime(normalizedIso));
+        if (!hasExplicitOffset) {
+            eventDateTime.setTimeZone(java.util.TimeZone.getDefault().getID());
+        }
+        CalendarDebugLogger.log(appContext,
+                "buildEventDateTime normalized=" + safe(normalizedIso)
+                        + ", explicitOffset=" + hasExplicitOffset
+                        + ", appliedTimeZone=" + safe(eventDateTime.getTimeZone()));
+        return eventDateTime;
     }
 
     private long parseEpochMillis(String isoValue) {
@@ -345,6 +357,10 @@ public class CalendarRepository {
         } catch (DateTimeParseException ignored) {
             return isoValue.trim();
         }
+    }
+
+    private boolean hasExplicitOffset(String isoValue) {
+        return isoValue != null && ISO_OFFSET_PATTERN.matcher(isoValue).matches();
     }
 
     private String summarizeEvent(Event event) {
