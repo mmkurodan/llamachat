@@ -4,6 +4,10 @@ import org.json.JSONException;
 import org.json.JSONObject;
 
 public class CalendarActionJson {
+    private static final String[] FORBIDDEN_TITLE_WORDS = new String[]{
+            "予定", "イベント", "日程", "スケジュール"
+    };
+
     private final CalendarActionType action;
     private final String title;
     private final String start;
@@ -20,7 +24,7 @@ public class CalendarActionJson {
             CalendarAdditional additional
     ) {
         this.action = action == null ? CalendarActionType.NONE : action;
-        this.title = title;
+        this.title = normalizeTitle(title);
         this.start = start;
         this.end = end;
         this.eventId = eventId;
@@ -131,5 +135,47 @@ public class CalendarActionJson {
             throw new IllegalArgumentException("Judge output must be exactly one JSON object.");
         }
         return trimmed;
+    }
+
+    private static String normalizeTitle(String rawTitle) {
+        if (rawTitle == null) {
+            return null;
+        }
+        String title = rawTitle.trim();
+        if (title.isEmpty()) {
+            return null;
+        }
+        title = stripWrappingQuotes(title);
+        title = title.replaceAll("\\s+", " ").trim();
+        title = title.replaceFirst("(?:という)?(?:予定|イベント|日程|スケジュール)\\s*$", "").trim();
+        title = title.replaceFirst("の(?:予定|イベント|日程|スケジュール)\\s*$", "").trim();
+        title = title.replaceFirst("を(?:予定|イベント|日程|スケジュール)\\s*$", "").trim();
+        if (title.isEmpty()) {
+            return null;
+        }
+        for (String forbidden : FORBIDDEN_TITLE_WORDS) {
+            if (title.contains(forbidden)) {
+                return null;
+            }
+        }
+        return title;
+    }
+
+    private static String stripWrappingQuotes(String value) {
+        String result = value;
+        while (result.length() >= 2) {
+            boolean stripped = false;
+            if ((result.startsWith("\"") && result.endsWith("\""))
+                    || (result.startsWith("'") && result.endsWith("'"))
+                    || (result.startsWith("「") && result.endsWith("」"))
+                    || (result.startsWith("『") && result.endsWith("』"))) {
+                result = result.substring(1, result.length() - 1).trim();
+                stripped = true;
+            }
+            if (!stripped) {
+                break;
+            }
+        }
+        return result;
     }
 }
