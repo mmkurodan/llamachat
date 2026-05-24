@@ -195,7 +195,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private Button btnPickChatterC0, btnPickChatterC1, btnPickChatterC2, btnPickChatterC3;
     private Button btnClearChatterC0, btnClearChatterC1, btnClearChatterC2, btnClearChatterC3;
     private Button btnResetLogs, btnProfileSave, btnProfileLoad, btnProfileDelete, btnLaunchLlmTester;
-    private Button btnHelp, btnPrivacy, btnRights;
+    private Button btnHelp, btnPrivacy, btnRights, btnPromptEditor;
     private Button btnCalendarSignIn, btnCalendarSignOut, btnCalendarFetchEvents, btnCalendarCreateTestEvent;
     private TextView tvC0Filename, tvC1Filename, tvC2Filename, tvC3Filename;
     private TextView tvChatterC0Filename, tvChatterC1Filename, tvChatterC2Filename, tvChatterC3Filename;
@@ -760,6 +760,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         btnHelp = findViewById(R.id.btnHelp);
         btnPrivacy = findViewById(R.id.btnPrivacy);
         btnRights = findViewById(R.id.btnRights);
+        btnPromptEditor = findViewById(R.id.btnPromptEditor);
         btnCalendarSignIn = findViewById(R.id.btnCalendarSignIn);
         btnCalendarSignOut = findViewById(R.id.btnCalendarSignOut);
         btnCalendarFetchEvents = findViewById(R.id.btnCalendarFetchEvents);
@@ -948,6 +949,9 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                 launchPromptEditor();
                 return true;
             });
+        }
+        if (btnPromptEditor != null) {
+            btnPromptEditor.setOnClickListener(v -> launchPromptEditor());
         }
         if (btnFloatOverlay != null) {
             btnFloatOverlay.setOnClickListener(v -> enterFloatingOverlayMode());
@@ -1400,6 +1404,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (btnHelp != null) btnHelp.setText(t("Help", "ヘルプ"));
         if (btnPrivacy != null) btnPrivacy.setText(t("Privacy", "プライバシー"));
         if (btnRights != null) btnRights.setText(t("Rights", "権利情報"));
+        if (btnPromptEditor != null) btnPromptEditor.setText(t("Open Prompt Editor", "プロンプト編集を開く"));
         if (switchStreaming != null) switchStreaming.setText("Streaming");
         if (switchTts != null) switchTts.setText(t("Text-to-Speech", "音声読み上げ"));
         if (switchVoiceInput != null) switchVoiceInput.setText(t("Voice Input (on empty send)", "音声入力（空送信）"));
@@ -3855,6 +3860,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         sb.append("start=").append(action.getStart()).append("\n");
         sb.append("end=").append(action.getEnd()).append("\n");
         sb.append("eventId=").append(action.getEventId()).append("\n");
+        sb.append("targetQuery=").append(action.getAdditional() == null ? "" : action.getAdditional().getTargetQuery()).append("\n");
         sb.append("rawText=").append(action.getAdditional() == null ? "" : action.getAdditional().getRawText());
         return sb.toString();
     }
@@ -3863,6 +3869,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         StringBuilder sb = new StringBuilder();
         sb.append("action=").append(action == null || action.getAction() == null ? "NONE" : action.getAction().name()).append("\n");
         sb.append("title=").append(action == null ? "" : action.getTitle()).append("\n");
+        sb.append("targetQuery=").append(action == null || action.getAdditional() == null ? "" : action.getAdditional().getTargetQuery()).append("\n");
         sb.append("rawText=").append(action == null || action.getAdditional() == null ? "" : action.getAdditional().getRawText());
         if (candidates == null) {
             return sb.toString();

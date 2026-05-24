@@ -58,7 +58,7 @@ public class CalendarViewModel {
         if (action == null) {
             return Collections.emptyList();
         }
-        String keyword = blankToNull(action.getTitle());
+        String keyword = resolveTargetQuery(action);
         if (keyword == null && action.getAdditional() != null) {
             keyword = blankToNull(action.getAdditional().getRawText());
         }
@@ -233,7 +233,7 @@ public class CalendarViewModel {
 
     private CalendarUiState handleUpdate(CalendarActionJson action) {
         Event target = repository.resolveEventForWrite(
-                action.getEventId(), action.getTitle(), action.getStart(), action.getEnd());
+                action.getEventId(), resolveTargetQuery(action), null, null);
         if (target == null) {
             return new CalendarUiState(false, Collections.emptyList(), null, null, false,
                     defaultError(repository.getLastErrorType(), "NOT_FOUND"),
@@ -253,7 +253,7 @@ public class CalendarViewModel {
 
     private CalendarUiState handleDelete(CalendarActionJson action) {
         Event target = repository.resolveEventForWrite(
-                action.getEventId(), action.getTitle(), action.getStart(), action.getEnd());
+                action.getEventId(), resolveTargetQuery(action), null, null);
         if (target == null) {
             return new CalendarUiState(false, Collections.emptyList(), null, null, false,
                     defaultError(repository.getLastErrorType(), "NOT_FOUND"),
@@ -494,5 +494,18 @@ public class CalendarViewModel {
 
     private String blankToNull(String value) {
         return isBlank(value) ? null : value.trim();
+    }
+
+    private String resolveTargetQuery(CalendarActionJson action) {
+        if (action == null) {
+            return null;
+        }
+        if (action.getAdditional() != null) {
+            String targetQuery = blankToNull(action.getAdditional().getTargetQuery());
+            if (targetQuery != null) {
+                return targetQuery;
+            }
+        }
+        return blankToNull(action.getTitle());
     }
 }

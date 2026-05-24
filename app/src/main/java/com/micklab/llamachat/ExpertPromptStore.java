@@ -138,17 +138,17 @@ public final class ExpertPromptStore {
                             + "- JSON オブジェクト 1 つのみ。前後に何も付けない。\n"
                             + "- action は UPDATE または NONE のみ。\n"
                             + "- eventId は必ず null。対象選択はアプリ側で行う。\n"
-                            + "【title 抽出】\n"
-                            + "- 変更対象を検索するための予定名やキーワードを title に入れる。\n"
-                            + "- 「予定」「イベント」「日程」「スケジュール」は title に含めない。\n"
-                            + "- あいまいでも最も自然な検索語を title にする。\n"
+                            + "【targetQuery と title の役割】\n"
+                            + "- additional.targetQuery には変更対象を検索するための予定名やキーワードを入れる。\n"
+                            + "- title には変更後の予定名だけを入れる。予定名を変えない場合は null にする。\n"
+                            + "- 「予定」「イベント」「日程」「スケジュール」は title / targetQuery に含めない。\n"
                             + "【時間】\n"
                             + "- start/end は変更後の日時だけを入れる。\n"
                             + "- 変更後日時の指定がない項目は null にしてよい。\n"
                             + "- 「11時から2時間」→ 11:00〜13:00。\n"
                             + "- DELETE と違い、変更後時刻が分かるなら start/end を入れる。\n"
                             + "【JSON 仕様】\n"
-                            + "{\"action\":\"UPDATE|NONE\",\"title\":\"string or null\",\"start\":\"ISO8601 string or null\",\"end\":\"ISO8601 string or null\",\"eventId\":null,\"additional\":{\"rawText\":\"元のユーザ入力\",\"notes\":\"補足\"}}\n"
+                            + "{\"action\":\"UPDATE|NONE\",\"title\":\"変更後の予定名 or null\",\"start\":\"ISO8601 string or null\",\"end\":\"ISO8601 string or null\",\"eventId\":null,\"additional\":{\"rawText\":\"元のユーザ入力\",\"targetQuery\":\"変更対象検索用キーワード or null\",\"notes\":\"補足\"}}\n"
                             + "現在日時:\n"
                             + "{{now_iso8601}}\n"
                             + "ユーザ入力:\n"
@@ -163,14 +163,14 @@ public final class ExpertPromptStore {
                             + "- JSON オブジェクト 1 つのみ。前後に何も付けない。\n"
                             + "- action は DELETE または NONE のみ。\n"
                             + "- eventId は必ず null。対象選択はアプリ側で行う。\n"
-                            + "【title 抽出】\n"
-                            + "- 削除対象を検索するための予定名やキーワードを title に入れる。\n"
-                            + "- 「予定」「イベント」「日程」「スケジュール」は title に含めない。\n"
-                            + "- あいまいでも最も自然な検索語を title にする。\n"
+                            + "【targetQuery】\n"
+                            + "- additional.targetQuery に削除対象を検索するための予定名やキーワードを入れる。\n"
+                            + "- title は null でもよい。title に入れる場合も検索語のみを入れる。\n"
+                            + "- 「予定」「イベント」「日程」「スケジュール」は title / targetQuery に含めない。\n"
                             + "【時間】\n"
                             + "- DELETE の start/end は必ず null。\n"
                             + "【JSON 仕様】\n"
-                            + "{\"action\":\"DELETE|NONE\",\"title\":\"string or null\",\"start\":null,\"end\":null,\"eventId\":null,\"additional\":{\"rawText\":\"元のユーザ入力\",\"notes\":\"補足\"}}\n"
+                            + "{\"action\":\"DELETE|NONE\",\"title\":\"string or null\",\"start\":null,\"end\":null,\"eventId\":null,\"additional\":{\"rawText\":\"元のユーザ入力\",\"targetQuery\":\"削除対象検索用キーワード or null\",\"notes\":\"補足\"}}\n"
                             + "現在日時:\n"
                             + "{{now_iso8601}}\n"
                             + "ユーザ入力:\n"
@@ -386,23 +386,8 @@ public final class ExpertPromptStore {
 
     private static String getCalendarJudgePromptTemplate(Context context, ExpertType expertType) {
         String key = calendarPromptKeyFor(expertType);
-        String prompt = getPromptWithLegacyFallback(context, key, KEY_CALENDAR_JUDGE);
+        String prompt = getPrompt(context, key);
         return prompt.trim().isEmpty() ? getPromptSpec(key).getDefaultValue() : prompt;
-    }
-
-    private static String getPromptWithLegacyFallback(Context context, String key, String legacyKey) {
-        JSONObject json = readJson(context);
-        String saved = json.optString(key, "");
-        if (!TextUtils.isEmpty(saved)) {
-            return saved;
-        }
-        if (!TextUtils.isEmpty(legacyKey)) {
-            String legacySaved = json.optString(legacyKey, "");
-            if (!TextUtils.isEmpty(legacySaved)) {
-                return legacySaved;
-            }
-        }
-        return getPromptSpec(key).getDefaultValue();
     }
 
     private static String buildCalendarResultBlock(CalendarResultForChat resultForChat) {
