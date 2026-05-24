@@ -844,7 +844,7 @@
                      <TextView
                          android:id="@+id/tvLabelWebSearchModel"
                          android:layout_width="wrap_content" android:layout_height="wrap_content"
-                         android:text="Web Search Model" android:layout_marginTop="4dp"/>
+                         android:text="Expert Model" android:layout_marginTop="4dp"/>
                      <Spinner android:id="@+id/etWebSearchModel"
                          android:layout_width="match_parent" android:layout_height="wrap_content"/>
 

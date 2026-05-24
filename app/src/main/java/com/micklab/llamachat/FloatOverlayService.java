@@ -155,7 +155,7 @@ public class FloatOverlayService extends Service {
     private String floatDisplayMode = FLOAT_DISPLAY_MODE_AVATAR;
     private String webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
     private String webSearchApiKey = "";
-    private String webSearchModel = "default";
+    private String expertModel = "default";
     private String speechLang = "ja-JP";
     private int historyLimit = 10;
     private float speechRate = 1.0f;
@@ -835,6 +835,7 @@ public class FloatOverlayService extends Service {
             inputView.setText("");
         }
         clearOverlayMessages();
+        appendUserMessageBubble(userMessage);
         appendSharedConversationLog("user", userMessage);
         addToHistory("user", userMessage);
         isProcessing = true;
@@ -872,7 +873,7 @@ public class FloatOverlayService extends Service {
         List<String> enabledFeatures = Collections.singletonList(ExpertPromptStore.FEATURE_WEB_SEARCH);
         try {
             JSONObject body = new JSONObject();
-            body.put("model", selectedModel);
+            body.put("model", resolveExpertModel());
             body.put("prompt", ExpertPromptStore.buildExpertRouterPrompt(this, enabledFeatures, userMessage));
             body.put("stream", false);
 
@@ -992,8 +993,7 @@ public class FloatOverlayService extends Service {
 
     private String extractSearchKeywords(String userMsg) {
         try {
-            String modelForWebSearch = webSearchModel == null ? "" : webSearchModel.trim();
-            if (modelForWebSearch.isEmpty()) modelForWebSearch = "default";
+            String modelForWebSearch = resolveExpertModel();
             String prompt = ExpertPromptStore.buildWebSearchKeywordPrompt(this, userMsg);
             JSONObject body = new JSONObject();
             body.put("model", modelForWebSearch);
@@ -1796,7 +1796,7 @@ public class FloatOverlayService extends Service {
         webSearchEnabled = settings.optBoolean("webSearchEnabled", webSearchEnabled);
         webSearchUrl = settings.optString("webSearchUrl", webSearchUrl);
         webSearchApiKey = settings.optString("webSearchApiKey", webSearchApiKey);
-        webSearchModel = settings.optString("webSearchModel", webSearchModel);
+        expertModel = settings.optString("expertModel", settings.optString("webSearchModel", expertModel));
         systemPromptText = settings.optString("systemPrompt", systemPromptText);
         baseName = settings.optString("baseName", baseName);
         userName = settings.optString("userName", userName);
@@ -1813,8 +1813,8 @@ public class FloatOverlayService extends Service {
         if (TextUtils.isEmpty(selectedModel)) {
             selectedModel = "default";
         }
-        if (TextUtils.isEmpty(webSearchModel)) {
-            webSearchModel = "default";
+        if (TextUtils.isEmpty(expertModel)) {
+            expertModel = "default";
         }
         if (TextUtils.isEmpty(webSearchUrl)) {
             webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
@@ -1823,6 +1823,14 @@ public class FloatOverlayService extends Service {
             speechLang = "ja-JP";
         }
         applyTtsSettings();
+    }
+
+    private String resolveExpertModel() {
+        String model = expertModel == null ? "" : expertModel.trim();
+        if (model.isEmpty()) {
+            model = "default";
+        }
+        return model;
     }
 
     private String normalizeFloatDisplayMode(String value) {

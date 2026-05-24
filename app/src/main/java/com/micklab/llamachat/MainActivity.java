@@ -247,7 +247,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private boolean debugEnabled = false;
     private String webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
     private String webSearchApiKey = "";
-    private String webSearchModel = "default";
+    private String expertModel = "default";
     private String speechLang = DEFAULT_SPEECH_LANG_JA;
     private float speechRate = 1.0f;
     private float speechPitch = 1.0f;
@@ -391,7 +391,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private final List<String> modelList = new ArrayList<>();
     private ArrayAdapter<String> modelAdapter;
     private ArrayAdapter<String> chatterModelAdapter;
-    private ArrayAdapter<String> webSearchModelAdapter;
+    private ArrayAdapter<String> expertModelAdapter;
     private CalendarSignInHelper calendarSignInHelper;
     private CalendarViewModel calendarViewModel;
     private boolean pendingCalendarDebugQueryAfterSignIn = false;
@@ -488,7 +488,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             "・History Limit controls how many past messages are sent.\n\n" +
             "■ Expert Settings\n" +
             "・Web Search: Enable to use the configured search API.\n" +
-            "・Web Search Model is selected from /api/tags list (default: default).\n" +
+            "・Expert Model is selected from /api/tags list (default: default).\n" +
+            "・Expert Model is used for expert routing, web search keyword extraction, and calendar judgment.\n" +
             "・Brave endpoints use Brave-optimized search handling.\n" +
             "・Debug Mode shows API request/response logs.\n\n" +
             "■ Avatar\n" +
@@ -537,7 +538,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             "・History Limitで送信する履歴数を調整します。\n\n" +
             "■ エキスパート設定\n" +
             "・Web Search: 有効にすると検索APIを使います。\n" +
-            "・Web Search Modelは/api/tagsの一覧から選択できます（初期値: default）。\n" +
+            "・エキスパートモデルは/api/tagsの一覧から選択できます（初期値: default）。\n" +
+            "・エキスパートモデルは、エキスパート判定・Web検索キーワード抽出・Calendar判定で使用します。\n" +
             "・Brave URLの場合はBrave向けに最適化した検索処理を使います。\n" +
             "・Debug Modeで通信ログを表示します。\n\n" +
             "■ アバター\n" +
@@ -884,8 +886,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                 String current = spinnerWebSearchModel.getSelectedItem() != null
                         ? spinnerWebSearchModel.getSelectedItem().toString().trim() : "";
                 if (model != null && !model.isEmpty() && (current.isEmpty() || "default".equals(current))) {
-                    int webSearchIdx = modelList.indexOf(model);
-                    if (webSearchIdx >= 0) spinnerWebSearchModel.setSelection(webSearchIdx);
+                    int expertIdx = modelList.indexOf(model);
+                    if (expertIdx >= 0) spinnerWebSearchModel.setSelection(expertIdx);
                 }
             }
             @Override public void onNothingSelected(android.widget.AdapterView<?> parent) {}
@@ -893,9 +895,9 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         chatterModelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
         chatterModelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerChatterModel.setAdapter(chatterModelAdapter);
-        webSearchModelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
-        webSearchModelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
-        spinnerWebSearchModel.setAdapter(webSearchModelAdapter);
+        expertModelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
+        expertModelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerWebSearchModel.setAdapter(expertModelAdapter);
         updateOllamaStatusTile(ollamaApiAvailable);
         updateCalendarSignInUi();
     }
@@ -1345,7 +1347,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (tvLabelChatterInterval != null) tvLabelChatterInterval.setText(t("Chatter Interval (sec)", "おしゃべり間隔（秒）"));
         if (tvLabelWebSearchUrl != null) tvLabelWebSearchUrl.setText(t("Web Search API URL", "Web検索 API URL"));
         if (tvLabelWebSearchApiKey != null) tvLabelWebSearchApiKey.setText(t("Web Search API Key", "Web検索 APIキー"));
-        if (tvLabelWebSearchModel != null) tvLabelWebSearchModel.setText(t("Web Search Model", "Web検索モデル"));
+        if (tvLabelWebSearchModel != null) tvLabelWebSearchModel.setText(t("Expert Model", "エキスパートモデル"));
         if (tvBaseSettingsTitle != null) tvBaseSettingsTitle.setText(t("Base Settings", "Baseの設定"));
         if (tvBaseNameLabel != null) tvBaseNameLabel.setText(t("Name", "名前"));
         if (tvBaseModelLabel != null) tvBaseModelLabel.setText(t("Model", "モデル"));
@@ -2508,7 +2510,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         s.put("debugEnabled", debugEnabled);
         s.put("webSearchUrl", webSearchUrl);
         s.put("webSearchApiKey", webSearchApiKey);
-        s.put("webSearchModel", webSearchModel);
+        s.put("expertModel", expertModel);
         s.put("suppressQuickStartPopup", suppressQuickStartPopup);
         s.put("avatarC0FileInfo", getAvatarFileInfo(avatarC0File));
         s.put("avatarC1FileInfo", getAvatarFileInfo(avatarC1File));
@@ -2550,14 +2552,14 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         debugEnabled = s.optBoolean("debugEnabled", debugEnabled);
         webSearchUrl = s.optString("webSearchUrl", webSearchUrl);
         webSearchApiKey = s.optString("webSearchApiKey", webSearchApiKey);
-        webSearchModel = s.optString("webSearchModel", webSearchModel);
+        expertModel = s.optString("expertModel", s.optString("webSearchModel", expertModel));
         suppressQuickStartPopup = s.optBoolean("suppressQuickStartPopup", suppressQuickStartPopup);
         if (speechLang.trim().isEmpty()) speechLang = defaultSpeechLangForCurrentLanguage();
         if (chatterSpeechLang.trim().isEmpty()) chatterSpeechLang = defaultSpeechLangForCurrentLanguage();
         if (baseName.trim().isEmpty()) baseName = defaultBaseNameForCurrentLanguage();
         if (chatterName.trim().isEmpty()) chatterName = defaultChatterNameForCurrentLanguage();
 
-        if (webSearchModel.trim().isEmpty()) webSearchModel = "default";
+        if (expertModel.trim().isEmpty()) expertModel = "default";
         if (historyLimit < 0) historyLimit = 0;
         if (autoChatterSeconds < 0) autoChatterSeconds = 0;
         floatDisplayMode = normalizeFloatDisplayMode(floatDisplayMode);
@@ -2857,9 +2859,9 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         webSearchUrl = etWebSearchUrl.getText().toString().trim();
         if (webSearchUrl.isEmpty()) webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
         webSearchApiKey = etWebSearchApiKey.getText().toString().trim();
-        webSearchModel = spinnerWebSearchModel.getSelectedItem() != null
+        expertModel = spinnerWebSearchModel.getSelectedItem() != null
                 ? spinnerWebSearchModel.getSelectedItem().toString().trim() : "";
-        if (webSearchModel.isEmpty()) webSearchModel = "default";
+        if (expertModel.isEmpty()) expertModel = "default";
         floatDisplayMode = radioFloatIcon != null && radioFloatIcon.isChecked()
                 ? FLOAT_DISPLAY_MODE_ICON
                 : FLOAT_DISPLAY_MODE_AVATAR;
@@ -2918,9 +2920,9 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (idx >= 0) spinnerModel.setSelection(idx);
         int chatterIdx = modelList.indexOf(chatterModel);
         if (chatterIdx >= 0) spinnerChatterModel.setSelection(chatterIdx);
-        int webSearchIdx = modelList.indexOf(webSearchModel);
-        if (webSearchIdx >= 0) {
-            spinnerWebSearchModel.setSelection(webSearchIdx);
+        int expertIdx = modelList.indexOf(expertModel);
+        if (expertIdx >= 0) {
+            spinnerWebSearchModel.setSelection(expertIdx);
         } else {
             spinnerWebSearchModel.setSelection(0);
         }
@@ -3367,16 +3369,16 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                             modelList.addAll(names);
                             modelAdapter.notifyDataSetChanged();
                             chatterModelAdapter.notifyDataSetChanged();
-                            webSearchModelAdapter.notifyDataSetChanged();
+                            expertModelAdapter.notifyDataSetChanged();
                             int idx = modelList.indexOf(selectedModel);
                             if (idx >= 0) spinnerModel.setSelection(idx);
                             int chatterIdx = modelList.indexOf(chatterModel);
                             if (chatterIdx >= 0) spinnerChatterModel.setSelection(chatterIdx);
-                            int webSearchIdx = modelList.indexOf(webSearchModel);
-                            if (webSearchIdx >= 0) {
-                                spinnerWebSearchModel.setSelection(webSearchIdx);
+                            int expertIdx = modelList.indexOf(expertModel);
+                            if (expertIdx >= 0) {
+                                spinnerWebSearchModel.setSelection(expertIdx);
                             } else {
-                                webSearchModel = "default";
+                                expertModel = "default";
                                 spinnerWebSearchModel.setSelection(0);
                             }
                         });
@@ -3455,10 +3457,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
 
     private ExpertPromptStore.ExpertRouteDecision requestExpertRouteDecision(String userMsg, List<String> enabledFeatures) {
         try {
-            String model = selectedModel == null ? "" : selectedModel.trim();
-            if (model.isEmpty() || !modelList.contains(model)) {
-                model = "default";
-            }
+            String model = resolveExpertModel();
             JSONObject body = new JSONObject();
             body.put("model", model);
             body.put("prompt", ExpertPromptStore.buildExpertRouterPrompt(this, enabledFeatures, userMsg));
@@ -3827,7 +3826,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     }
 
     private String resolveCalendarJudgeModel() {
-        return resolveConfiguredCalendarModel(R.string.calendar_judge_model);
+        return resolveExpertModel();
     }
 
     private String resolveCalendarChatModel() {
@@ -3844,6 +3843,17 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             return configured;
         }
         return resolveBaseChatModel();
+    }
+
+    private String resolveExpertModel() {
+        String model = expertModel != null ? expertModel.trim() : "";
+        if (spinnerWebSearchModel != null && spinnerWebSearchModel.getSelectedItem() != null) {
+            model = spinnerWebSearchModel.getSelectedItem().toString().trim();
+        }
+        if (model.isEmpty() || !modelList.contains(model)) {
+            model = "default";
+        }
+        return model;
     }
 
     private String resolveBaseChatModel() {
@@ -3899,9 +3909,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     /** api/generate を使って検索キーワードを抽出。NONE なら null を返す */
     private String extractSearchKeywords(String userMsg) {
         try {
-            String modelForWebSearch = webSearchModel != null ? webSearchModel.trim() : "";
-            if (modelForWebSearch.isEmpty()) modelForWebSearch = "default";
-            if (!modelList.contains(modelForWebSearch)) modelForWebSearch = "default";
+            String modelForWebSearch = resolveExpertModel();
             String prompt = ExpertPromptStore.buildWebSearchKeywordPrompt(this, userMsg);
 
             JSONObject body = new JSONObject();
