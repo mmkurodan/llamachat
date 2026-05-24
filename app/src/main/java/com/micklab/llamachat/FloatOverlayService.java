@@ -115,6 +115,10 @@ public class FloatOverlayService extends Service {
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Object historyLock = new Object();
     private final List<JSONObject> conversationHistory = new ArrayList<>();
+    private final ExpertSelector expertSelector = new ExpertSelector();
+    private final WebSearchExpertHandler webSearchExpertHandler = new WebSearchExpertHandler();
+    private final ChatFlowController chatFlowController =
+            new ChatFlowController(expertSelector, webSearchExpertHandler);
     private final OkHttpClient client = new OkHttpClient.Builder()
             .connectTimeout(60, TimeUnit.SECONDS)
             .readTimeout(3600, TimeUnit.SECONDS)
@@ -844,52 +848,20 @@ public class FloatOverlayService extends Service {
         updateAvatarAnimation();
         currentResponseBubble = null;
         updateSendButton();
-        if (webSearchEnabled && !webSearchApiKey.isEmpty()) {
-            performExpertRoutingFlow(userMessage, requestToken);
+        ChatFlowController.ChatFlowResult flowResult = chatFlowController.route(
+                userMessage,
+                isWebSearchExpertAvailable(),
+                false
+        );
+        if (flowResult.getExpertType() == ExpertType.WEB) {
+            performWebSearchFlow(userMessage, flowResult.getWebSearchQuery(), requestToken);
         } else {
             sendChat(null, false, requestToken);
         }
     }
 
-    private void performExpertRoutingFlow(String userMessage, int requestToken) {
-        updateThinkingLabel(t("Expert routing", "エキスパート判定中"), requestToken);
-        new Thread(() -> {
-            ExpertPromptStore.ExpertRouteDecision decision = requestExpertRouteDecision(userMessage);
-            boolean needsWebSearch = decision != null && decision.requires(ExpertPromptStore.FEATURE_WEB_SEARCH);
-            mainHandler.post(() -> {
-                if (requestToken != activeResponseToken) {
-                    return;
-                }
-                if (needsWebSearch) {
-                    performWebSearchFlow(userMessage, requestToken);
-                } else {
-                    sendChat(null, false, requestToken);
-                }
-            });
-        }).start();
-    }
-
-    private ExpertPromptStore.ExpertRouteDecision requestExpertRouteDecision(String userMessage) {
-        List<String> enabledFeatures = Collections.singletonList(ExpertPromptStore.FEATURE_WEB_SEARCH);
-        try {
-            JSONObject body = new JSONObject();
-            body.put("model", resolveExpertModel());
-            body.put("prompt", ExpertPromptStore.buildExpertRouterPrompt(this, enabledFeatures, userMessage));
-            body.put("stream", false);
-
-            Request request = new Request.Builder()
-                    .url(ollamaBaseUrl + "/api/generate")
-                    .post(RequestBody.create(body.toString(), JSON_MEDIA))
-                    .build();
-            Response response = client.newCall(request).execute();
-            String respBody = response.body() != null ? response.body().string() : "";
-            if (response.isSuccessful() && respBody.contains("required_functions")) {
-                return ExpertPromptStore.parseExpertRouteDecision(respBody, enabledFeatures);
-            }
-        } catch (Exception e) {
-            DebugLogger.log(this, "requestExpertRouteDecision error: " + e.getMessage());
-        }
-        return ExpertPromptStore.createRouteDecision(enabledFeatures, "fallback");
+    private boolean isWebSearchExpertAvailable() {
+        return webSearchEnabled && !webSearchApiKey.isEmpty();
     }
 
     private void cancelCurrentRequest() {
@@ -969,12 +941,12 @@ public class FloatOverlayService extends Service {
         }
     }
 
-    private void performWebSearchFlow(String userMsg, int requestToken) {
+    private void performWebSearchFlow(String userMsg, String searchKeywords, int requestToken) {
         updateThinkingLabel(t("Web searching", "Web検索中"), requestToken);
         new Thread(() -> {
             String augmentedMessage = null;
             try {
-                String keywords = extractSearchKeywords(userMsg);
+                String keywords = searchKeywords == null ? null : searchKeywords.trim();
                 if (!TextUtils.isEmpty(keywords)) {
                     String keywordText = keywords.length() > 80 ? keywords.substring(0, 80) + "..." : keywords;
                     updateThinkingLabel(t("Web searching: ", "Web検索中: ") + keywordText, requestToken);
@@ -989,33 +961,6 @@ public class FloatOverlayService extends Service {
             String finalAugmented = augmentedMessage;
             mainHandler.post(() -> sendChat(finalAugmented, finalAugmented != null, requestToken));
         }).start();
-    }
-
-    private String extractSearchKeywords(String userMsg) {
-        try {
-            String modelForWebSearch = resolveExpertModel();
-            String prompt = ExpertPromptStore.buildWebSearchKeywordPrompt(this, userMsg);
-            JSONObject body = new JSONObject();
-            body.put("model", modelForWebSearch);
-            body.put("prompt", prompt);
-            body.put("stream", false);
-            Request request = new Request.Builder()
-                    .url(ollamaBaseUrl + "/api/generate")
-                    .post(RequestBody.create(body.toString(), JSON_MEDIA))
-                    .build();
-            Response response = client.newCall(request).execute();
-            String respBody = response.body() != null ? response.body().string() : "";
-            if (!response.isSuccessful()) return null;
-            String result = new JSONObject(respBody).optString("response", "").trim();
-            if (result.startsWith("SEARCH:")) {
-                String keywords = result.substring("SEARCH:".length()).trim();
-                return keywords.isEmpty() ? null : keywords;
-            }
-            return null;
-        } catch (Exception e) {
-            DebugLogger.log(this, "extractSearchKeywords error: " + e.getMessage());
-            return null;
-        }
     }
 
     private String callWebSearchApi(String keywords) {

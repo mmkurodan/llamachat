@@ -394,6 +394,11 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private ArrayAdapter<String> expertModelAdapter;
     private CalendarSignInHelper calendarSignInHelper;
     private CalendarViewModel calendarViewModel;
+    private final ExpertSelector expertSelector = new ExpertSelector();
+    private final CalendarExpertHandler calendarExpertHandler = new CalendarExpertHandler();
+    private final WebSearchExpertHandler webSearchExpertHandler = new WebSearchExpertHandler();
+    private final ChatFlowController chatFlowController =
+            new ChatFlowController(expertSelector, webSearchExpertHandler);
     private boolean pendingCalendarDebugQueryAfterSignIn = false;
     private boolean pendingCalendarDebugCreateAfterSignIn = false;
     private final ActivityResultLauncher<Intent> calendarSignInLauncher =
@@ -489,7 +494,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             "■ Expert Settings\n" +
             "・Web Search: Enable to use the configured search API.\n" +
             "・Expert Model is selected from /api/tags list (default: default).\n" +
-            "・Expert Model is used for expert routing, web search keyword extraction, and calendar judgment.\n" +
+            "・Expert Model is used only for calendar model judgment when keyword routing selects Calendar analysis.\n" +
             "・Brave endpoints use Brave-optimized search handling.\n" +
             "・Debug Mode shows API request/response logs.\n\n" +
             "■ Avatar\n" +
@@ -539,7 +544,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             "■ エキスパート設定\n" +
             "・Web Search: 有効にすると検索APIを使います。\n" +
             "・エキスパートモデルは/api/tagsの一覧から選択できます（初期値: default）。\n" +
-            "・エキスパートモデルは、エキスパート判定・Web検索キーワード抽出・Calendar判定で使用します。\n" +
+            "・エキスパートモデルは、キーワード分岐で Calendar 解析が選ばれた場合の Calendar 判定にのみ使用します。\n" +
             "・Brave URLの場合はBrave向けに最適化した検索処理を使います。\n" +
             "・Debug Modeで通信ログを表示します。\n\n" +
             "■ アバター\n" +
@@ -3413,158 +3418,79 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         etInput.setText("");
         appendUserMessage(userMsg);
         addToHistory(conversationHistory, "user", userMsg);
-
-        List<String> enabledExpertFeatures = resolveEnabledExpertFeatures();
-        if (!enabledExpertFeatures.isEmpty()) {
-            performExpertRoutingFlow(userMsg, enabledExpertFeatures);
-        } else {
-            sendChat(null);
-        }
+        ChatFlowController.ChatFlowResult flowResult = chatFlowController.route(
+                userMsg,
+                isWebSearchExpertAvailable(),
+                calendarExpertModeEnabled
+        );
+        dispatchChatFlow(userMsg, flowResult);
     }
 
-    private List<String> resolveEnabledExpertFeatures() {
-        List<String> enabled = new ArrayList<>();
-        if (calendarExpertModeEnabled) {
-            enabled.add(ExpertPromptStore.FEATURE_CALENDAR);
-        }
-        if (webSearchEnabled && !webSearchApiKey.isEmpty()) {
-            enabled.add(ExpertPromptStore.FEATURE_WEB_SEARCH);
-        }
-        return enabled;
-    }
-
-    private void performExpertRoutingFlow(String userMsg, List<String> enabledFeatures) {
-        isProcessing = true;
-        updateSendButton();
-        int routingToken = startStreamingSession();
-        setThinkingIndicator(true, ChatSpeaker.BASE, routingToken);
-        setThinkingIndicatorLabel(t("Expert routing", "エキスパート判定中"), routingToken);
-
-        new Thread(() -> {
-            ExpertPromptStore.ExpertRouteDecision decision = requestExpertRouteDecision(userMsg, enabledFeatures);
-            runOnUiThread(() -> {
-                if (routingToken != activeStreamingToken) {
-                    return;
-                }
-                setThinkingIndicator(false, ChatSpeaker.BASE, routingToken);
-                setStreamingResponse(false, null);
-                isProcessing = false;
-                updateSendButton();
-                dispatchExpertRouteDecision(userMsg, decision);
-            });
-        }).start();
-    }
-
-    private ExpertPromptStore.ExpertRouteDecision requestExpertRouteDecision(String userMsg, List<String> enabledFeatures) {
-        try {
-            String model = resolveExpertModel();
-            JSONObject body = new JSONObject();
-            body.put("model", model);
-            body.put("prompt", ExpertPromptStore.buildExpertRouterPrompt(this, enabledFeatures, userMsg));
-            body.put("stream", false);
-
-            RequestBody requestBody = RequestBody.create(body.toString(), JSON_MEDIA);
-            Request request = new Request.Builder()
-                    .url(ollamaBaseUrl + "/api/generate")
-                    .post(requestBody)
-                    .build();
-            if (debugEnabled) {
-                appendDebug("/api/generate Expert Router Request", buildRequestDebugText(request, body.toString()));
-            }
-
-            Response response = client.newCall(request).execute();
-            String respBody = response.body() != null ? response.body().string() : "";
-            if (debugEnabled) {
-                appendDebug("/api/generate Expert Router Response", buildResponseDebugText(response, respBody));
-            }
-            if (response.isSuccessful() && respBody.contains("required_functions")) {
-                return ExpertPromptStore.parseExpertRouteDecision(respBody, enabledFeatures);
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "requestExpertRouteDecision failed", e);
-        }
-        return ExpertPromptStore.createRouteDecision(enabledFeatures, "fallback");
-    }
-
-    private void dispatchExpertRouteDecision(String userMsg, ExpertPromptStore.ExpertRouteDecision decision) {
-        List<String> orderedFeatures = decision == null
-                ? Collections.emptyList()
-                : decision.getOrderedFunctionIds();
-        if (orderedFeatures.isEmpty()) {
-            sendChat(null);
+    /**
+     * キーワードベースで選ばれたエキスパートを実行する。
+     */
+    private void dispatchChatFlow(String userMsg, ChatFlowController.ChatFlowResult flowResult) {
+        ExpertType expertType = flowResult == null ? ExpertType.NONE : flowResult.getExpertType();
+        if (expertType == ExpertType.WEB) {
+            performWebSearchFlow(userMsg, flowResult.getWebSearchQuery());
             return;
         }
-        performRoutedExpertFlow(userMsg, orderedFeatures);
+        if (expertType == ExpertType.CALENDAR_CREATE || expertType == ExpertType.CALENDAR_MODEL) {
+            performCalendarExpertFlow(userMsg, expertType);
+            return;
+        }
+        sendChat(null);
     }
 
-    private void performRoutedExpertFlow(String userMsg, List<String> orderedFeatures) {
+    private boolean isWebSearchExpertAvailable() {
+        return webSearchEnabled && !webSearchApiKey.isEmpty();
+    }
+
+    private void performCalendarExpertFlow(String userMsg, ExpertType expertType) {
         isProcessing = true;
         updateSendButton();
-        int token = startStreamingSession();
-        setThinkingIndicator(true, ChatSpeaker.BASE, token);
-        setThinkingIndicatorLabel(t("Expert processing", "エキスパート処理中"), token);
+        int calendarToken = startStreamingSession();
+        setThinkingIndicator(true, ChatSpeaker.BASE, calendarToken);
+        setThinkingIndicatorLabel(t("Calendar analyzing", "Calendar解析中"), calendarToken);
 
         new Thread(() -> {
-            String searchResults = null;
-            String augmentedMessage = null;
-            RoutedCalendarExecution calendarExecution = new RoutedCalendarExecution(false, null, null);
-
-            for (String feature : orderedFeatures) {
-                if (ExpertPromptStore.FEATURE_WEB_SEARCH.equals(feature) && (searchResults == null || searchResults.trim().isEmpty())) {
-                    runOnUiThread(() -> setThinkingIndicatorLabel(labelForExpertFeature(feature), token));
-                    try {
-                        String keywords = extractSearchKeywords(userMsg);
-                        if (keywords != null && !keywords.trim().isEmpty()) {
-                            String keywordText = keywords.length() > 80 ? keywords.substring(0, 80) + "..." : keywords;
-                            runOnUiThread(() -> setThinkingIndicatorLabel(
-                                    t("Web searching: ", "Web検索中: ") + keywordText,
-                                    token
-                            ));
-                            searchResults = callWebSearchApi(keywords);
-                            if (searchResults != null && !searchResults.trim().isEmpty()) {
-                                augmentedMessage = buildSearchAugmentedUserMessage(userMsg, searchResults);
-                            }
-                        }
-                    } catch (Exception e) {
-                        Log.w(TAG, "performRoutedExpertFlow web search failed", e);
+            try {
+                CalendarActionJson action = calendarExpertHandler.resolveAction(
+                        userMsg,
+                        expertType,
+                        this::extractCalendarAction
+                );
+                if (action == null || !action.getAction().requiresCalendarOperation()) {
+                    continueStandardChatFlow();
+                    return;
+                }
+                runOnUiThread(() -> setThinkingIndicatorLabel(
+                        t("Calendar action: ", "Calendar判定: ") + action.getAction().name(),
+                        calendarToken
+                ));
+                RoutedCalendarExecution calendarExecution = executeCalendarAction(userMsg, action);
+                if (!calendarExecution.executed || calendarExecution.resultForChat == null) {
+                    continueStandardChatFlow();
+                    return;
+                }
+                runOnUiThread(() -> {
+                    if (calendarToken != activeStreamingToken) {
+                        return;
                     }
-                } else if (ExpertPromptStore.FEATURE_CALENDAR.equals(feature) && !calendarExecution.executed) {
-                    runOnUiThread(() -> setThinkingIndicatorLabel(labelForExpertFeature(feature), token));
-                    calendarExecution = executeCalendarActionForRoute(userMsg);
-                }
+                    handleCalendarDebugResult(calendarExecution.uiState, calendarExecution.resultForChat);
+                    setThinkingIndicatorLabel(t("Calendar explaining", "Calendar説明生成中"), calendarToken);
+                    sendCalendarExplanation(userMsg, calendarExecution.resultForChat, calendarToken);
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "Calendar expert flow error", e);
+                CalendarDebugLogger.logError(this, "performCalendarExpertFlow error", e);
+                continueStandardChatFlow();
             }
-
-            final String finalSearchResults = searchResults;
-            final String finalAugmentedMessage = augmentedMessage;
-            final RoutedCalendarExecution finalCalendarExecution = calendarExecution;
-            runOnUiThread(() -> {
-                if (token != activeStreamingToken) {
-                    return;
-                }
-                if (finalCalendarExecution.uiState != null || finalCalendarExecution.resultForChat != null) {
-                    handleCalendarDebugResult(finalCalendarExecution.uiState, finalCalendarExecution.resultForChat);
-                }
-                if (finalCalendarExecution.executed && finalCalendarExecution.resultForChat != null) {
-                    setThinkingIndicatorLabel(t("Calendar explaining", "Calendar説明生成中"), token);
-                    sendCalendarExplanation(userMsg, finalCalendarExecution.resultForChat, finalSearchResults, token);
-                    return;
-                }
-                setThinkingIndicator(false, ChatSpeaker.BASE, token);
-                setStreamingResponse(false, null);
-                isProcessing = false;
-                updateSendButton();
-                if (finalAugmentedMessage != null) {
-                    sendChat(finalAugmentedMessage, true);
-                } else {
-                    sendChat(null);
-                }
-            });
         }).start();
     }
 
-    private RoutedCalendarExecution executeCalendarActionForRoute(String userMsg) {
+    private RoutedCalendarExecution executeCalendarAction(String userMsg, CalendarActionJson action) {
         try {
-            CalendarActionJson action = extractCalendarAction(userMsg);
             if (action == null || !action.getAction().requiresCalendarOperation()) {
                 return new RoutedCalendarExecution(false, null, null);
             }
@@ -3602,10 +3528,10 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             }
             return new RoutedCalendarExecution(true, uiStateHolder[0], resultHolder[0]);
         } catch (Exception e) {
-            Log.e(TAG, "executeCalendarActionForRoute failed", e);
+            Log.e(TAG, "executeCalendarAction failed", e);
             return new RoutedCalendarExecution(true, null, new CalendarResultForChat(
                     userMsg,
-                    CalendarActionType.NONE.name(),
+                    action == null ? CalendarActionType.NONE.name() : action.getAction().name(),
                     false,
                     "CALENDAR_ERROR",
                     e.getMessage(),
@@ -3615,68 +3541,11 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         }
     }
 
-    private String labelForExpertFeature(String featureId) {
-        if (ExpertPromptStore.FEATURE_WEB_SEARCH.equals(featureId)) {
-            return t("Web searching", "Web検索中");
-        }
-        if (ExpertPromptStore.FEATURE_CALENDAR.equals(featureId)) {
-            return t("Calendar analyzing", "Calendar解析中");
-        }
-        return t("Expert processing", "エキスパート処理中");
-    }
-
-    /**
-     * Web検索フロー:
-     * 1. api/generate でユーザメッセージから検索キーワードを抽出
-     * 2. SEARCH: が返れば Web検索APIを呼び出す
-     * 3. 検索結果をユーザメッセージに付与して api/chat に渡す
-     */
-    private void performCalendarExpertFlow(String userMsg) {
-        isProcessing = true;
-        updateSendButton();
-        int calendarToken = startStreamingSession();
-        setThinkingIndicator(true, ChatSpeaker.BASE, calendarToken);
-        setThinkingIndicatorLabel(t("Calendar analyzing", "Calendar解析中"), calendarToken);
-
-        new Thread(() -> {
-            try {
-                CalendarActionJson action = extractCalendarAction(userMsg);
-                if (action == null || !action.getAction().requiresCalendarOperation()) {
-                    continueStandardChatFlow(userMsg);
-                    return;
-                }
-                runOnUiThread(() -> setThinkingIndicatorLabel(
-                        t("Calendar action: ", "Calendar判定: ") + action.getAction().name(),
-                        calendarToken
-                ));
-                if (calendarViewModel == null) {
-                    continueStandardChatFlow(userMsg);
-                    return;
-                }
-                calendarViewModel.handleCalendarAction(action, (uiState, resultForChat) -> {
-                    handleCalendarDebugResult(uiState, resultForChat);
-                    runOnUiThread(() -> {
-                        setThinkingIndicatorLabel(t("Calendar explaining", "Calendar説明生成中"), calendarToken);
-                        sendCalendarExplanation(userMsg, resultForChat, calendarToken);
-                    });
-                });
-            } catch (Exception e) {
-                Log.e(TAG, "Calendar expert flow error", e);
-                CalendarDebugLogger.logError(this, "performCalendarExpertFlow error", e);
-                continueStandardChatFlow(userMsg);
-            }
-        }).start();
-    }
-
-    private void continueStandardChatFlow(String userMsg) {
+    private void continueStandardChatFlow() {
         runOnUiThread(() -> {
             isProcessing = false;
             updateSendButton();
-            if (webSearchEnabled && !webSearchApiKey.isEmpty()) {
-                performWebSearchFlow(userMsg);
-            } else {
-                sendChat(null);
-            }
+            sendChat(null);
         });
     }
 
@@ -3867,7 +3736,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         return model;
     }
 
-    private void performWebSearchFlow(String userMsg) {
+    private void performWebSearchFlow(String userMsg, String searchKeywords) {
         isProcessing = true;
         updateSendButton();
         int webSearchToken = startStreamingSession();
@@ -3877,8 +3746,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         final String[] augmentedMessageHolder = new String[1];
         new Thread(() -> {
             try {
-                String keywords = extractSearchKeywords(userMsg);
-                if (keywords != null) {
+                String keywords = searchKeywords == null ? null : searchKeywords.trim();
+                if (keywords != null && !keywords.isEmpty()) {
                     String keywordText = keywords.length() > 80 ? keywords.substring(0, 80) + "..." : keywords;
                     runOnUiThread(() -> setThinkingIndicatorLabel(
                             t("Web searching: ", "Web検索中: ") + keywordText,
@@ -3904,52 +3773,6 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                 });
             }
         }).start();
-    }
-
-    /** api/generate を使って検索キーワードを抽出。NONE なら null を返す */
-    private String extractSearchKeywords(String userMsg) {
-        try {
-            String modelForWebSearch = resolveExpertModel();
-            String prompt = ExpertPromptStore.buildWebSearchKeywordPrompt(this, userMsg);
-
-            JSONObject body = new JSONObject();
-            body.put("model", modelForWebSearch);
-            body.put("prompt", prompt);
-            body.put("stream", false);
-
-            RequestBody requestBody = RequestBody.create(body.toString(), JSON_MEDIA);
-            Request request = new Request.Builder()
-                    .url(ollamaBaseUrl + "/api/generate")
-                    .post(requestBody)
-                    .build();
-            if (debugEnabled) {
-                appendDebug("/api/generate 送信", buildRequestDebugText(request, body.toString()));
-            }
-
-            Response response = client.newCall(request).execute();
-            String respBody = response.body() != null ? response.body().string() : "";
-            if (debugEnabled) {
-                appendDebug("/api/generate 返信", buildResponseDebugText(response, respBody));
-            }
-            if (!response.isSuccessful()) {
-                Log.w(TAG, "extractSearchKeywords HTTP error: " + response.code());
-                return null;
-            }
-            JSONObject json = new JSONObject(respBody);
-            String result = json.optString("response", "").trim();
-
-            if (result.startsWith("SEARCH:")) {
-                String keywords = result.substring("SEARCH:".length()).trim();
-                if (!keywords.isEmpty()) {
-                    Log.d(TAG, "Web search keywords: " + keywords);
-                    return keywords;
-                }
-            }
-            return null;
-        } catch (Exception e) {
-            Log.e(TAG, "extractSearchKeywords error", e);
-            return null;
-        }
     }
 
     /** Call Web Search API and get structured results (generic) */
