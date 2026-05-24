@@ -137,7 +137,13 @@ public final class ExpertPromptStore {
     }
 
     public static List<PromptSpec> getPromptSpecs() {
-        return Collections.unmodifiableList(Arrays.asList(PROMPT_SPECS));
+        List<PromptSpec> visibleSpecs = new ArrayList<>();
+        for (PromptSpec spec : PROMPT_SPECS) {
+            if (!KEY_EXPERT_ROUTER.equals(spec.getKey())) {
+                visibleSpecs.add(spec);
+            }
+        }
+        return Collections.unmodifiableList(visibleSpecs);
     }
 
     public static PromptSpec getPromptSpec(String key) {

@@ -54,6 +54,20 @@ public class CalendarViewModel {
         return repository.hasWriteAccess();
     }
 
+    public List<Event> searchEventCandidates(CalendarActionJson action, int maxResults) {
+        if (action == null) {
+            return Collections.emptyList();
+        }
+        String keyword = blankToNull(action.getTitle());
+        if (keyword == null && action.getAdditional() != null) {
+            keyword = blankToNull(action.getAdditional().getRawText());
+        }
+        if (keyword == null) {
+            return Collections.emptyList();
+        }
+        return repository.queryEvents(keyword, null, null, maxResults);
+    }
+
     public void handleCalendarAction(CalendarActionJson json, Listener listener) {
         executor.execute(() -> {
             CalendarActionJson action = json == null
@@ -467,6 +481,12 @@ public class CalendarViewModel {
                 return "Google Calendar の入力値が不足しています。";
             case "INVALID_TIME_RANGE":
                 return "Google Calendar の開始時刻と終了時刻が不正です。";
+            case "NOT_FOUND":
+                return "一致する予定が見つかりませんでした。";
+            case "AMBIGUOUS_MATCH":
+                return "一致する予定が複数あります。対象を選択してください。";
+            case "USER_CANCELLED":
+                return "Calendar の操作をキャンセルしました。";
             default:
                 return fallback;
         }

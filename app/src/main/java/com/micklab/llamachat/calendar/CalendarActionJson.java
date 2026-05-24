@@ -66,6 +66,17 @@ public class CalendarActionJson {
         );
     }
 
+    public CalendarActionJson withEventId(String resolvedEventId) {
+        return new CalendarActionJson(
+                action,
+                title,
+                start,
+                end,
+                resolvedEventId,
+                additional
+        );
+    }
+
     public static CalendarActionJson none(String rawText, String notes) {
         return new CalendarActionJson(
                 CalendarActionType.NONE,

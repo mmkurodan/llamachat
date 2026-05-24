@@ -241,18 +241,34 @@ public class CalendarRepository {
                 return null;
             }
             if (title != null && !title.trim().isEmpty()) {
+                List<Event> exactMatches = new ArrayList<>();
                 for (Event candidate : candidates) {
                     String summary = candidate.getSummary();
                     if (summary != null && summary.trim().equalsIgnoreCase(title.trim())) {
-                        CalendarDebugLogger.log(appContext,
-                                "resolveEvent exact title match=" + summarizeEvent(candidate));
-                        return candidate;
+                        exactMatches.add(candidate);
                     }
                 }
+                if (exactMatches.size() == 1) {
+                    CalendarDebugLogger.log(appContext,
+                            "resolveEvent exact title match=" + summarizeEvent(exactMatches.get(0)));
+                    return exactMatches.get(0);
+                }
+                if (exactMatches.size() > 1) {
+                    setLastError("AMBIGUOUS_MATCH", "Multiple calendar events matched the requested title.");
+                    CalendarDebugLogger.log(appContext,
+                            "resolveEvent ambiguous exact title matches=" + exactMatches.size());
+                    return null;
+                }
             }
+            if (candidates.size() == 1) {
+                CalendarDebugLogger.log(appContext,
+                        "resolveEvent single candidate=" + summarizeEvent(candidates.get(0)));
+                return candidates.get(0);
+            }
+            setLastError("AMBIGUOUS_MATCH", "Multiple matching calendar events found.");
             CalendarDebugLogger.log(appContext,
-                    "resolveEvent fallback first candidate=" + summarizeEvent(candidates.get(0)));
-            return candidates.get(0);
+                    "resolveEvent ambiguous candidates=" + candidates.size());
+            return null;
         } catch (Exception e) {
             recordError("resolveEvent", e);
             return null;

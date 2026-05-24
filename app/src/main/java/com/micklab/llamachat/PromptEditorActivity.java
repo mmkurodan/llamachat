@@ -21,7 +21,7 @@ public class PromptEditorActivity extends Activity {
     private Button btnPromptSave;
     private final List<ExpertPromptStore.PromptSpec> promptSpecs = new ArrayList<>();
     private String appLanguage = "en";
-    private String currentPromptKey = ExpertPromptStore.KEY_EXPERT_ROUTER;
+    private String currentPromptKey = ExpertPromptStore.KEY_WEB_SEARCH_KEYWORD;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {

@@ -92,6 +92,7 @@ import java.util.Random;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.concurrent.atomic.AtomicReference;
 
 import okhttp3.Call;
 import okhttp3.Callback;
@@ -319,6 +320,20 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         }
     }
 
+    private static class CalendarActionResolution {
+        private final CalendarActionJson action;
+        private final CalendarUiState uiState;
+        private final CalendarResultForChat resultForChat;
+
+        private CalendarActionResolution(CalendarActionJson action,
+                                         CalendarUiState uiState,
+                                         CalendarResultForChat resultForChat) {
+            this.action = action;
+            this.uiState = uiState;
+            this.resultForChat = resultForChat;
+        }
+    }
+
     // --- Avatar ---
     private final Handler avatarHandler = new Handler(Looper.getMainLooper());
     private final Handler autoHandler = new Handler(Looper.getMainLooper());
@@ -495,6 +510,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             "・Web Search: Enable to use the configured search API.\n" +
             "・Expert Model is selected from /api/tags list (default: default).\n" +
             "・Expert Model is used only for calendar model judgment when keyword routing selects Calendar analysis.\n" +
+            "・If multiple expert keywords are present, features run in the order they appear.\n" +
+            "・Calendar updates and deletions search by keyword, then ask you to confirm or choose the target event.\n" +
             "・Brave endpoints use Brave-optimized search handling.\n" +
             "・Debug Mode shows API request/response logs.\n\n" +
             "■ Avatar\n" +
@@ -545,6 +562,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             "・Web Search: 有効にすると検索APIを使います。\n" +
             "・エキスパートモデルは/api/tagsの一覧から選択できます（初期値: default）。\n" +
             "・エキスパートモデルは、キーワード分岐で Calendar 解析が選ばれた場合の Calendar 判定にのみ使用します。\n" +
+            "・複数のエキスパートキーワードが含まれる場合は、登場順に処理します。\n" +
+            "・Calendar の変更/削除はキーワード検索後に対象予定の確認または選択を行います。\n" +
             "・Brave URLの場合はBrave向けに最適化した検索処理を使います。\n" +
             "・Debug Modeで通信ログを表示します。\n\n" +
             "■ アバター\n" +
@@ -3430,9 +3449,15 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
      * キーワードベースで選ばれたエキスパートを実行する。
      */
     private void dispatchChatFlow(String userMsg, ChatFlowController.ChatFlowResult flowResult) {
-        ExpertType expertType = flowResult == null ? ExpertType.NONE : flowResult.getExpertType();
+        List<ChatFlowController.ChatFlowStep> steps =
+                flowResult == null ? Collections.emptyList() : flowResult.getSteps();
+        if (steps.size() > 1) {
+            performOrderedExpertFlow(userMsg, steps);
+            return;
+        }
+        ExpertType expertType = steps.isEmpty() ? ExpertType.NONE : steps.get(0).getExpertType();
         if (expertType == ExpertType.WEB) {
-            performWebSearchFlow(userMsg, flowResult.getWebSearchQuery());
+            performWebSearchFlow(userMsg, steps.get(0).getWebSearchQuery());
             return;
         }
         if (expertType == ExpertType.CALENDAR_CREATE || expertType == ExpertType.CALENDAR_MODEL) {
@@ -3455,20 +3480,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
 
         new Thread(() -> {
             try {
-                CalendarActionJson action = calendarExpertHandler.resolveAction(
-                        userMsg,
-                        expertType,
-                        this::extractCalendarAction
-                );
-                if (action == null || !action.getAction().requiresCalendarOperation()) {
-                    continueStandardChatFlow();
-                    return;
-                }
-                runOnUiThread(() -> setThinkingIndicatorLabel(
-                        t("Calendar action: ", "Calendar判定: ") + action.getAction().name(),
-                        calendarToken
-                ));
-                RoutedCalendarExecution calendarExecution = executeCalendarAction(userMsg, action);
+                RoutedCalendarExecution calendarExecution = runCalendarExpertStep(userMsg, expertType, calendarToken);
                 if (!calendarExecution.executed || calendarExecution.resultForChat == null) {
                     continueStandardChatFlow();
                     return;
@@ -3487,6 +3499,112 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                 continueStandardChatFlow();
             }
         }).start();
+    }
+
+    private void performOrderedExpertFlow(String userMsg, List<ChatFlowController.ChatFlowStep> steps) {
+        if (steps == null || steps.isEmpty()) {
+            sendChat(null);
+            return;
+        }
+        isProcessing = true;
+        updateSendButton();
+        int expertToken = startStreamingSession();
+        setThinkingIndicator(true, ChatSpeaker.BASE, expertToken);
+        setThinkingIndicatorLabel(labelForExpertStep(steps.get(0).getExpertType()), expertToken);
+
+        new Thread(() -> {
+            String searchResultsBlock = null;
+            CalendarUiState calendarUiState = null;
+            CalendarResultForChat calendarResult = null;
+            try {
+                for (ChatFlowController.ChatFlowStep step : steps) {
+                    if (step == null || step.getExpertType() == ExpertType.NONE) {
+                        continue;
+                    }
+                    if (step.getExpertType() == ExpertType.WEB) {
+                        String keywords = step.getWebSearchQuery() == null ? "" : step.getWebSearchQuery().trim();
+                        if (keywords.isEmpty()) {
+                            continue;
+                        }
+                        String keywordText = keywords.length() > 80 ? keywords.substring(0, 80) + "..." : keywords;
+                        runOnUiThread(() -> setThinkingIndicatorLabel(
+                                t("Web searching: ", "Web検索中: ") + keywordText,
+                                expertToken
+                        ));
+                        searchResultsBlock = callWebSearchApi(keywords);
+                        continue;
+                    }
+                    if (step.getExpertType() == ExpertType.CALENDAR_CREATE
+                            || step.getExpertType() == ExpertType.CALENDAR_MODEL) {
+                        runOnUiThread(() -> setThinkingIndicatorLabel(
+                                t("Calendar analyzing", "Calendar解析中"),
+                                expertToken
+                        ));
+                        RoutedCalendarExecution calendarExecution =
+                                runCalendarExpertStep(userMsg, step.getExpertType(), expertToken);
+                        if (calendarExecution.executed && calendarExecution.resultForChat != null) {
+                            calendarUiState = calendarExecution.uiState;
+                            calendarResult = calendarExecution.resultForChat;
+                        }
+                    }
+                }
+                String finalSearchResultsBlock = searchResultsBlock;
+                CalendarUiState finalCalendarUiState = calendarUiState;
+                CalendarResultForChat finalCalendarResult = calendarResult;
+                runOnUiThread(() -> {
+                    if (expertToken != activeStreamingToken) {
+                        return;
+                    }
+                    if (finalCalendarResult != null) {
+                        handleCalendarDebugResult(finalCalendarUiState, finalCalendarResult);
+                        setThinkingIndicatorLabel(t("Calendar explaining", "Calendar説明生成中"), expertToken);
+                        sendCalendarExplanation(userMsg, finalCalendarResult, finalSearchResultsBlock, expertToken);
+                        return;
+                    }
+                    isProcessing = false;
+                    updateSendButton();
+                    if (finalSearchResultsBlock != null && !finalSearchResultsBlock.trim().isEmpty()) {
+                        sendChat(buildSearchAugmentedUserMessage(userMsg, finalSearchResultsBlock), true);
+                    } else {
+                        sendChat(null);
+                    }
+                });
+            } catch (Exception e) {
+                Log.e(TAG, "Ordered expert flow error", e);
+                CalendarDebugLogger.logError(this, "performOrderedExpertFlow error", e);
+                continueStandardChatFlow();
+            }
+        }).start();
+    }
+
+    private String labelForExpertStep(ExpertType expertType) {
+        if (expertType == ExpertType.WEB) {
+            return t("Web searching", "Web検索中");
+        }
+        if (expertType == ExpertType.CALENDAR_CREATE || expertType == ExpertType.CALENDAR_MODEL) {
+            return t("Calendar analyzing", "Calendar解析中");
+        }
+        return t("Thinking", "思考中");
+    }
+
+    private RoutedCalendarExecution runCalendarExpertStep(String userMsg, ExpertType expertType, int token) throws Exception {
+        CalendarActionJson action = calendarExpertHandler.resolveAction(
+                userMsg,
+                expertType,
+                this::extractCalendarAction
+        );
+        if (action == null || !action.getAction().requiresCalendarOperation()) {
+            return new RoutedCalendarExecution(false, null, null);
+        }
+        runOnUiThread(() -> setThinkingIndicatorLabel(
+                t("Calendar action: ", "Calendar判定: ") + action.getAction().name(),
+                token
+        ));
+        CalendarActionResolution resolution = resolveCalendarActionForExecution(userMsg, action);
+        if (resolution.resultForChat != null) {
+            return new RoutedCalendarExecution(true, resolution.uiState, resolution.resultForChat);
+        }
+        return executeCalendarAction(userMsg, resolution.action);
     }
 
     private RoutedCalendarExecution executeCalendarAction(String userMsg, CalendarActionJson action) {
@@ -3539,6 +3657,145 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                     Collections.emptyList()
             ));
         }
+    }
+
+    private CalendarActionResolution resolveCalendarActionForExecution(String userMsg, CalendarActionJson action) {
+        if (action == null) {
+            return new CalendarActionResolution(null, null, null);
+        }
+        CalendarActionType actionType = action.getAction();
+        if (actionType != CalendarActionType.UPDATE && actionType != CalendarActionType.DELETE) {
+            return new CalendarActionResolution(action, null, null);
+        }
+        if (calendarViewModel == null || !calendarViewModel.hasReadAccess()) {
+            return new CalendarActionResolution(action, null, null);
+        }
+        List<Event> candidates = calendarViewModel.searchEventCandidates(action, 10);
+        if (candidates == null || candidates.isEmpty()) {
+            return new CalendarActionResolution(action, null, null);
+        }
+        if (candidates.size() == 1) {
+            Event candidate = candidates.get(0);
+            boolean confirmed = confirmCalendarTarget(actionType, candidate);
+            if (!confirmed) {
+                return new CalendarActionResolution(
+                        action,
+                        null,
+                        buildCalendarSelectionCancelledResult(userMsg, actionType)
+                );
+            }
+            return new CalendarActionResolution(action.withEventId(candidate.getId()), null, null);
+        }
+        Event selected = selectCalendarTarget(actionType, candidates);
+        if (selected == null) {
+            return new CalendarActionResolution(
+                    action,
+                    null,
+                    buildCalendarSelectionCancelledResult(userMsg, actionType)
+            );
+        }
+        return new CalendarActionResolution(action.withEventId(selected.getId()), null, null);
+    }
+
+    private boolean confirmCalendarTarget(CalendarActionType actionType, Event candidate) {
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Boolean> confirmed = new AtomicReference<>(Boolean.FALSE);
+        runOnUiThread(() -> new AlertDialog.Builder(this)
+                .setTitle(calendarTargetDialogTitle(actionType, false))
+                .setMessage(calendarTargetDialogMessage(actionType, candidate))
+                .setPositiveButton(t("Confirm", "確認"), (dialog, which) -> {
+                    confirmed.set(Boolean.TRUE);
+                    latch.countDown();
+                })
+                .setNegativeButton(t("Cancel", "キャンセル"), (dialog, which) -> latch.countDown())
+                .setOnCancelListener(dialog -> latch.countDown())
+                .show());
+        awaitCalendarSelection(latch);
+        return Boolean.TRUE.equals(confirmed.get());
+    }
+
+    private Event selectCalendarTarget(CalendarActionType actionType, List<Event> candidates) {
+        if (candidates == null || candidates.isEmpty()) {
+            return null;
+        }
+        CountDownLatch latch = new CountDownLatch(1);
+        AtomicReference<Event> selected = new AtomicReference<>();
+        String[] labels = new String[candidates.size()];
+        for (int i = 0; i < candidates.size(); i++) {
+            labels[i] = formatCalendarEventLabel(candidates.get(i));
+        }
+        runOnUiThread(() -> new AlertDialog.Builder(this)
+                .setTitle(calendarTargetDialogTitle(actionType, true))
+                .setItems(labels, (dialog, which) -> {
+                    if (which >= 0 && which < candidates.size()) {
+                        selected.set(candidates.get(which));
+                    }
+                    latch.countDown();
+                })
+                .setNegativeButton(t("Cancel", "キャンセル"), (dialog, which) -> latch.countDown())
+                .setOnCancelListener(dialog -> latch.countDown())
+                .show());
+        awaitCalendarSelection(latch);
+        return selected.get();
+    }
+
+    private void awaitCalendarSelection(CountDownLatch latch) {
+        try {
+            latch.await(5, TimeUnit.MINUTES);
+        } catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+        }
+    }
+
+    private String calendarTargetDialogTitle(CalendarActionType actionType, boolean multipleCandidates) {
+        if (multipleCandidates) {
+            return actionType == CalendarActionType.DELETE
+                    ? t("Select event to delete", "削除する予定を選択")
+                    : t("Select event to update", "変更する予定を選択");
+        }
+        return actionType == CalendarActionType.DELETE
+                ? t("Confirm event deletion", "削除する予定を確認")
+                : t("Confirm event update", "変更する予定を確認");
+    }
+
+    private String calendarTargetDialogMessage(CalendarActionType actionType, Event candidate) {
+        String prompt = actionType == CalendarActionType.DELETE
+                ? t("Delete this event?", "この予定を削除しますか？")
+                : t("Update this event?", "この予定を変更しますか？");
+        return prompt + "\n\n" + formatCalendarEventLabel(candidate);
+    }
+
+    private String formatCalendarEventLabel(Event event) {
+        if (event == null) {
+            return t("(No event)", "（予定なし）");
+        }
+        String title = event.getSummary();
+        if (title == null || title.trim().isEmpty()) {
+            title = t("(No title)", "（タイトルなし）");
+        } else {
+            title = title.trim();
+        }
+        String start = "";
+        if (event.getStart() != null) {
+            if (event.getStart().getDateTime() != null) {
+                start = event.getStart().getDateTime().toStringRfc3339();
+            } else if (event.getStart().getDate() != null) {
+                start = event.getStart().getDate().toStringRfc3339();
+            }
+        }
+        return start.isEmpty() ? title : title + "\n" + start;
+    }
+
+    private CalendarResultForChat buildCalendarSelectionCancelledResult(String userMsg, CalendarActionType actionType) {
+        return new CalendarResultForChat(
+                userMsg,
+                actionType == null ? CalendarActionType.NONE.name() : actionType.name(),
+                false,
+                "USER_CANCELLED",
+                null,
+                t("Calendar operation was cancelled.", "Calendar の操作をキャンセルしました。"),
+                Collections.emptyList()
+        );
     }
 
     private void continueStandardChatFlow() {
