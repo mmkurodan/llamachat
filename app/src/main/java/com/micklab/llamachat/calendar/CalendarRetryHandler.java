@@ -2,6 +2,8 @@ package com.micklab.llamachat.calendar;
 
 import android.content.Context;
 
+import com.micklab.llamachat.ExpertType;
+
 import java.util.Collections;
 import java.util.List;
 
@@ -20,15 +22,17 @@ public class CalendarRetryHandler {
         this.judgeModelClient = judgeModelClient;
     }
 
-    public CalendarActionJson resolveAction(String userInput, String nowIso8601) {
+    public CalendarActionJson resolveAction(String userInput, ExpertType expertType, String nowIso8601) {
         List<String> reasons = Collections.emptyList();
         for (int attempt = 0; attempt <= MAX_RETRY_COUNT; attempt++) {
             String prompt = attempt == 0
-                    ? CalendarActionParser.buildJudgePrompt(context, userInput, nowIso8601)
-                    : CalendarActionParser.buildRetryPrompt(context, userInput, nowIso8601, reasons);
+                    ? CalendarActionParser.buildJudgePrompt(context, expertType, userInput, nowIso8601)
+                    : CalendarActionParser.buildRetryPrompt(context, expertType, userInput, nowIso8601, reasons);
             try {
                 CalendarDebugLogger.log(context,
-                        "calendarJudge attempt=" + (attempt + 1) + ", retry=" + (attempt > 0));
+                        "calendarJudge attempt=" + (attempt + 1)
+                                + ", retry=" + (attempt > 0)
+                                + ", expertType=" + (expertType == null ? "null" : expertType.name()));
                 String rawResponse = judgeModelClient.request(prompt);
                 CalendarJsonValidator.ValidationResult validation =
                         CalendarJsonValidator.validateGenerateApiResponse(rawResponse);

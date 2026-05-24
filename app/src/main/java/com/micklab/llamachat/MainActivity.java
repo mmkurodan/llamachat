@@ -3442,6 +3442,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                 isWebSearchExpertAvailable(),
                 calendarExpertModeEnabled
         );
+        appendExpertRoutingDebug(flowResult);
         dispatchChatFlow(userMsg, flowResult);
     }
 
@@ -3460,7 +3461,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             performWebSearchFlow(userMsg, steps.get(0).getWebSearchQuery());
             return;
         }
-        if (expertType == ExpertType.CALENDAR_CREATE || expertType == ExpertType.CALENDAR_MODEL) {
+        if (isCalendarExpertType(expertType)) {
             performCalendarExpertFlow(userMsg, expertType);
             return;
         }
@@ -3476,7 +3477,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         updateSendButton();
         int calendarToken = startStreamingSession();
         setThinkingIndicator(true, ChatSpeaker.BASE, calendarToken);
-        setThinkingIndicatorLabel(t("Calendar analyzing", "Calendar解析中"), calendarToken);
+        setThinkingIndicatorLabel(labelForExpertStep(expertType), calendarToken);
 
         new Thread(() -> {
             try {
@@ -3534,10 +3535,9 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                         searchResultsBlock = callWebSearchApi(keywords);
                         continue;
                     }
-                    if (step.getExpertType() == ExpertType.CALENDAR_CREATE
-                            || step.getExpertType() == ExpertType.CALENDAR_MODEL) {
+                    if (isCalendarExpertType(step.getExpertType())) {
                         runOnUiThread(() -> setThinkingIndicatorLabel(
-                                t("Calendar analyzing", "Calendar解析中"),
+                                labelForExpertStep(step.getExpertType()),
                                 expertToken
                         ));
                         RoutedCalendarExecution calendarExecution =
@@ -3581,13 +3581,24 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (expertType == ExpertType.WEB) {
             return t("Web searching", "Web検索中");
         }
-        if (expertType == ExpertType.CALENDAR_CREATE || expertType == ExpertType.CALENDAR_MODEL) {
-            return t("Calendar analyzing", "Calendar解析中");
+        if (expertType == ExpertType.CALENDAR_CREATE) {
+            return t("Calendar creating", "Calendar作成解析中");
+        }
+        if (expertType == ExpertType.CALENDAR_QUERY) {
+            return t("Calendar searching", "Calendar検索解析中");
+        }
+        if (expertType == ExpertType.CALENDAR_UPDATE) {
+            return t("Calendar updating", "Calendar変更解析中");
+        }
+        if (expertType == ExpertType.CALENDAR_DELETE) {
+            return t("Calendar deleting", "Calendar削除解析中");
         }
         return t("Thinking", "思考中");
     }
 
     private RoutedCalendarExecution runCalendarExpertStep(String userMsg, ExpertType expertType, int token) throws Exception {
+        appendCalendarActionDebug("Calendar expert route",
+                "expertType=" + (expertType == null ? "null" : expertType.name()));
         CalendarActionJson action = calendarExpertHandler.resolveAction(
                 userMsg,
                 expertType,
@@ -3600,6 +3611,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                 t("Calendar action: ", "Calendar判定: ") + action.getAction().name(),
                 token
         ));
+        appendCalendarActionDebug("Calendar action parsed",
+                buildCalendarActionDebugText(expertType, action));
         CalendarActionResolution resolution = resolveCalendarActionForExecution(userMsg, action);
         if (resolution.resultForChat != null) {
             return new RoutedCalendarExecution(true, resolution.uiState, resolution.resultForChat);
@@ -3670,13 +3683,21 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (calendarViewModel == null || !calendarViewModel.hasReadAccess()) {
             return new CalendarActionResolution(action, null, null);
         }
+        appendCalendarActionDebug("Calendar candidate search",
+                buildCalendarCandidateDebugText(action, null));
         List<Event> candidates = calendarViewModel.searchEventCandidates(action, 10);
+        appendCalendarActionDebug("Calendar candidate search result",
+                buildCalendarCandidateDebugText(action, candidates));
         if (candidates == null || candidates.isEmpty()) {
             return new CalendarActionResolution(action, null, null);
         }
         if (candidates.size() == 1) {
             Event candidate = candidates.get(0);
             boolean confirmed = confirmCalendarTarget(actionType, candidate);
+            appendCalendarActionDebug("Calendar candidate confirmation",
+                    "action=" + actionType.name()
+                            + "\nconfirmed=" + confirmed
+                            + "\ncandidate=" + formatCalendarEventLabel(candidate));
             if (!confirmed) {
                 return new CalendarActionResolution(
                         action,
@@ -3687,6 +3708,9 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             return new CalendarActionResolution(action.withEventId(candidate.getId()), null, null);
         }
         Event selected = selectCalendarTarget(actionType, candidates);
+        appendCalendarActionDebug("Calendar candidate selection",
+                "action=" + actionType.name()
+                        + "\nselected=" + (selected == null ? "(none)" : formatCalendarEventLabel(selected)));
         if (selected == null) {
             return new CalendarActionResolution(
                     action,
@@ -3750,18 +3774,18 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private String calendarTargetDialogTitle(CalendarActionType actionType, boolean multipleCandidates) {
         if (multipleCandidates) {
             return actionType == CalendarActionType.DELETE
-                    ? t("Select event to delete", "削除する予定を選択")
-                    : t("Select event to update", "変更する予定を選択");
+                    ? t("Choose event to delete", "削除対象の予定を指示")
+                    : t("Choose event to update", "変更対象の予定を指示");
         }
         return actionType == CalendarActionType.DELETE
-                ? t("Confirm event deletion", "削除する予定を確認")
-                : t("Confirm event update", "変更する予定を確認");
+                ? t("Confirm event deletion", "削除対象の予定を確認")
+                : t("Confirm event update", "変更対象の予定を確認");
     }
 
     private String calendarTargetDialogMessage(CalendarActionType actionType, Event candidate) {
         String prompt = actionType == CalendarActionType.DELETE
-                ? t("Delete this event?", "この予定を削除しますか？")
-                : t("Update this event?", "この予定を変更しますか？");
+                ? t("Use this event as the deletion target?", "この予定を削除対象にしますか？")
+                : t("Use this event as the update target?", "この予定を変更対象にしますか？");
         return prompt + "\n\n" + formatCalendarEventLabel(candidate);
     }
 
@@ -3798,6 +3822,58 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         );
     }
 
+    private boolean isCalendarExpertType(ExpertType expertType) {
+        return expertType == ExpertType.CALENDAR_CREATE
+                || expertType == ExpertType.CALENDAR_QUERY
+                || expertType == ExpertType.CALENDAR_UPDATE
+                || expertType == ExpertType.CALENDAR_DELETE;
+    }
+
+    private void appendExpertRoutingDebug(ChatFlowController.ChatFlowResult flowResult) {
+        if (!debugEnabled || flowResult == null) {
+            return;
+        }
+        appendDebug("Expert Routing", flowResult.getRoutingDebugText());
+    }
+
+    private void appendCalendarActionDebug(String title, String detail) {
+        if (!debugEnabled) {
+            return;
+        }
+        appendDebug(title, detail);
+    }
+
+    private String buildCalendarActionDebugText(ExpertType expertType, CalendarActionJson action) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("expertType=").append(expertType == null ? "null" : expertType.name()).append("\n");
+        if (action == null) {
+            sb.append("action=(null)");
+            return sb.toString();
+        }
+        sb.append("action=").append(action.getAction()).append("\n");
+        sb.append("title=").append(action.getTitle()).append("\n");
+        sb.append("start=").append(action.getStart()).append("\n");
+        sb.append("end=").append(action.getEnd()).append("\n");
+        sb.append("eventId=").append(action.getEventId()).append("\n");
+        sb.append("rawText=").append(action.getAdditional() == null ? "" : action.getAdditional().getRawText());
+        return sb.toString();
+    }
+
+    private String buildCalendarCandidateDebugText(CalendarActionJson action, List<Event> candidates) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("action=").append(action == null || action.getAction() == null ? "NONE" : action.getAction().name()).append("\n");
+        sb.append("title=").append(action == null ? "" : action.getTitle()).append("\n");
+        sb.append("rawText=").append(action == null || action.getAdditional() == null ? "" : action.getAdditional().getRawText());
+        if (candidates == null) {
+            return sb.toString();
+        }
+        sb.append("\ncount=").append(candidates.size());
+        for (int i = 0; i < candidates.size(); i++) {
+            sb.append("\n[").append(i + 1).append("] ").append(formatCalendarEventLabel(candidates.get(i)));
+        }
+        return sb.toString();
+    }
+
     private void continueStandardChatFlow() {
         runOnUiThread(() -> {
             isProcessing = false;
@@ -3806,15 +3882,20 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         });
     }
 
-    private CalendarActionJson extractCalendarAction(String userMsg) {
+    private CalendarActionJson extractCalendarAction(String userMsg, ExpertType expertType) {
         try {
             String modelForCalendar = resolveCalendarJudgeModel();
             String nowIso8601 = OffsetDateTime.now(ZoneId.systemDefault()).toString();
+            String promptKey = ExpertPromptStore.calendarPromptKeyFor(expertType);
+            appendCalendarActionDebug("Calendar prompt selection",
+                    "expertType=" + (expertType == null ? "null" : expertType.name())
+                            + "\npromptKey=" + promptKey
+                            + "\nmodel=" + modelForCalendar);
             CalendarRetryHandler retryHandler = new CalendarRetryHandler(
                     this,
                     prompt -> requestCalendarJudgeResponse(modelForCalendar, prompt)
             );
-            CalendarActionJson parsed = retryHandler.resolveAction(userMsg, nowIso8601);
+            CalendarActionJson parsed = retryHandler.resolveAction(userMsg, expertType, nowIso8601);
             CalendarDebugLogger.log(this,
                     "extractCalendarAction final action=" + parsed.getAction()
                             + ", title=" + parsed.getTitle()

@@ -4,5 +4,7 @@ public enum ExpertType {
     NONE,
     WEB,
     CALENDAR_CREATE,
-    CALENDAR_MODEL
+    CALENDAR_QUERY,
+    CALENDAR_UPDATE,
+    CALENDAR_DELETE
 }

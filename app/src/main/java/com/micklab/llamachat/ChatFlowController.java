@@ -14,9 +14,11 @@ public final class ChatFlowController {
     }
 
     public ChatFlowResult route(String userInput, boolean webAvailable, boolean calendarAvailable) {
-        List<ExpertType> expertTypes = expertSelector.selectAll(userInput, webAvailable, calendarAvailable);
+        ExpertSelector.SelectionResult selectionResult =
+                expertSelector.selectDetailed(userInput, webAvailable, calendarAvailable);
+        List<ExpertType> expertTypes = selectionResult.getOrderedExpertTypes();
         if (expertTypes.isEmpty()) {
-            return new ChatFlowResult(Collections.emptyList());
+            return new ChatFlowResult(Collections.emptyList(), selectionResult.getDebugText());
         }
         List<ChatFlowStep> steps = new ArrayList<>();
         for (ExpertType expertType : expertTypes) {
@@ -25,7 +27,7 @@ public final class ChatFlowController {
                     : null;
             steps.add(new ChatFlowStep(expertType, webSearchQuery));
         }
-        return new ChatFlowResult(steps);
+        return new ChatFlowResult(steps, selectionResult.getDebugText());
     }
 
     public static final class ChatFlowStep {
@@ -48,11 +50,13 @@ public final class ChatFlowController {
 
     public static final class ChatFlowResult {
         private final List<ChatFlowStep> steps;
+        private final String routingDebugText;
 
-        private ChatFlowResult(List<ChatFlowStep> steps) {
+        private ChatFlowResult(List<ChatFlowStep> steps, String routingDebugText) {
             this.steps = steps == null
                     ? Collections.emptyList()
                     : Collections.unmodifiableList(new ArrayList<>(steps));
+            this.routingDebugText = routingDebugText == null ? "" : routingDebugText;
         }
 
         public ExpertType getExpertType() {
@@ -70,6 +74,10 @@ public final class ChatFlowController {
 
         public List<ChatFlowStep> getSteps() {
             return steps;
+        }
+
+        public String getRoutingDebugText() {
+            return routingDebugText;
         }
     }
 }

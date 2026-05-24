@@ -30,6 +30,9 @@ public final class ExpertPromptStore {
     public static final String KEY_WEB_SEARCH_KEYWORD = "webSearchKeywordPrompt";
     public static final String KEY_WEB_SEARCH_SYSTEM = "webSearchSystemPrompt";
     public static final String KEY_CALENDAR_JUDGE = "calendarJudgePrompt";
+    public static final String KEY_CALENDAR_QUERY_JUDGE = "calendarQueryJudgePrompt";
+    public static final String KEY_CALENDAR_UPDATE_JUDGE = "calendarUpdateJudgePrompt";
+    public static final String KEY_CALENDAR_DELETE_JUDGE = "calendarDeleteJudgePrompt";
     public static final String KEY_CALENDAR_RETRY = "calendarRetryPrompt";
     public static final String KEY_CALENDAR_EXPLAIN_SYSTEM = "calendarExplainSystemPrompt";
     public static final String KEY_CALENDAR_EXPLAIN_USER = "calendarExplainUserPrompt";
@@ -80,8 +83,8 @@ public final class ExpertPromptStore {
             ),
             new PromptSpec(
                     KEY_CALENDAR_JUDGE,
-                    "Calendar action judge",
-                    "Calendar操作判定",
+                    "Calendar action judge (legacy)",
+                    "Calendar操作判定（旧）",
                     "Google Calendar 操作判定です。\n"
                             + "【出力】\n"
                             + "- JSON オブジェクト 1 つのみ。前後に何も付けない。\n"
@@ -98,6 +101,76 @@ public final class ExpertPromptStore {
                             + "- タイムゾーン +09:00 は加算しない。付与するだけ\n"
                             + "【JSON 仕様】\n"
                             + "{\"action\":\"NONE|QUERY|CREATE|UPDATE|DELETE\",\"title\":\"string or null\",\"start\":\"ISO8601 string or null\",\"end\":\"ISO8601 string or null\",\"eventId\":\"string or null\",\"additional\":{\"rawText\":\"元のユーザ入力\",\"notes\":\"補足\"}}\n"
+                            + "現在日時:\n"
+                            + "{{now_iso8601}}\n"
+                            + "ユーザ入力:\n"
+                            + "{{user_input}}"
+            ),
+            new PromptSpec(
+                    KEY_CALENDAR_QUERY_JUDGE,
+                    "Calendar query judge",
+                    "Calendar検索判定",
+                    "Google Calendar 検索判定です。\n"
+                            + "【出力】\n"
+                            + "- JSON オブジェクト 1 つのみ。前後に何も付けない。\n"
+                            + "- action は QUERY または NONE のみ。\n"
+                            + "- eventId は必ず null。\n"
+                            + "【title 抽出】\n"
+                            + "- 検索に使う予定名やキーワードを title に入れる。\n"
+                            + "- 「予定」「イベント」「日程」「スケジュール」は title に含めない。\n"
+                            + "- タイトルが取れない場合だけ null にしてよい。\n"
+                            + "【時間】\n"
+                            + "- 期間が指定されている場合は start/end に ISO8601 を入れる。\n"
+                            + "- 期間指定がない場合は start/end を null にしてよい。\n"
+                            + "【JSON 仕様】\n"
+                            + "{\"action\":\"QUERY|NONE\",\"title\":\"string or null\",\"start\":\"ISO8601 string or null\",\"end\":\"ISO8601 string or null\",\"eventId\":null,\"additional\":{\"rawText\":\"元のユーザ入力\",\"notes\":\"補足\"}}\n"
+                            + "現在日時:\n"
+                            + "{{now_iso8601}}\n"
+                            + "ユーザ入力:\n"
+                            + "{{user_input}}"
+            ),
+            new PromptSpec(
+                    KEY_CALENDAR_UPDATE_JUDGE,
+                    "Calendar update judge",
+                    "Calendar変更判定",
+                    "Google Calendar 変更判定です。\n"
+                            + "【出力】\n"
+                            + "- JSON オブジェクト 1 つのみ。前後に何も付けない。\n"
+                            + "- action は UPDATE または NONE のみ。\n"
+                            + "- eventId は必ず null。対象選択はアプリ側で行う。\n"
+                            + "【title 抽出】\n"
+                            + "- 変更対象を検索するための予定名やキーワードを title に入れる。\n"
+                            + "- 「予定」「イベント」「日程」「スケジュール」は title に含めない。\n"
+                            + "- あいまいでも最も自然な検索語を title にする。\n"
+                            + "【時間】\n"
+                            + "- start/end は変更後の日時だけを入れる。\n"
+                            + "- 変更後日時の指定がない項目は null にしてよい。\n"
+                            + "- 「11時から2時間」→ 11:00〜13:00。\n"
+                            + "- DELETE と違い、変更後時刻が分かるなら start/end を入れる。\n"
+                            + "【JSON 仕様】\n"
+                            + "{\"action\":\"UPDATE|NONE\",\"title\":\"string or null\",\"start\":\"ISO8601 string or null\",\"end\":\"ISO8601 string or null\",\"eventId\":null,\"additional\":{\"rawText\":\"元のユーザ入力\",\"notes\":\"補足\"}}\n"
+                            + "現在日時:\n"
+                            + "{{now_iso8601}}\n"
+                            + "ユーザ入力:\n"
+                            + "{{user_input}}"
+            ),
+            new PromptSpec(
+                    KEY_CALENDAR_DELETE_JUDGE,
+                    "Calendar delete judge",
+                    "Calendar削除判定",
+                    "Google Calendar 削除判定です。\n"
+                            + "【出力】\n"
+                            + "- JSON オブジェクト 1 つのみ。前後に何も付けない。\n"
+                            + "- action は DELETE または NONE のみ。\n"
+                            + "- eventId は必ず null。対象選択はアプリ側で行う。\n"
+                            + "【title 抽出】\n"
+                            + "- 削除対象を検索するための予定名やキーワードを title に入れる。\n"
+                            + "- 「予定」「イベント」「日程」「スケジュール」は title に含めない。\n"
+                            + "- あいまいでも最も自然な検索語を title にする。\n"
+                            + "【時間】\n"
+                            + "- DELETE の start/end は必ず null。\n"
+                            + "【JSON 仕様】\n"
+                            + "{\"action\":\"DELETE|NONE\",\"title\":\"string or null\",\"start\":null,\"end\":null,\"eventId\":null,\"additional\":{\"rawText\":\"元のユーザ入力\",\"notes\":\"補足\"}}\n"
                             + "現在日時:\n"
                             + "{{now_iso8601}}\n"
                             + "ユーザ入力:\n"
@@ -139,7 +212,8 @@ public final class ExpertPromptStore {
     public static List<PromptSpec> getPromptSpecs() {
         List<PromptSpec> visibleSpecs = new ArrayList<>();
         for (PromptSpec spec : PROMPT_SPECS) {
-            if (!KEY_EXPERT_ROUTER.equals(spec.getKey())) {
+            if (!KEY_EXPERT_ROUTER.equals(spec.getKey())
+                    && !KEY_CALENDAR_JUDGE.equals(spec.getKey())) {
                 visibleSpecs.add(spec);
             }
         }
@@ -188,17 +262,24 @@ public final class ExpertPromptStore {
         return applyTemplate(getPrompt(context, KEY_WEB_SEARCH_KEYWORD), values);
     }
 
-    public static String buildCalendarJudgePrompt(Context context, String userInput, String nowIso8601) {
+    public static String buildCalendarJudgePrompt(Context context,
+                                                  ExpertType expertType,
+                                                  String userInput,
+                                                  String nowIso8601) {
         Map<String, String> values = new HashMap<>();
         values.put("user_input", safe(userInput));
         values.put("now_iso8601", safe(nowIso8601));
-        return applyTemplate(getPrompt(context, KEY_CALENDAR_JUDGE), values);
+        return applyTemplate(getCalendarJudgePromptTemplate(context, expertType), values);
     }
 
-    public static String buildCalendarRetryPrompt(Context context, String userInput, String nowIso8601, List<String> reasons) {
+    public static String buildCalendarRetryPrompt(Context context,
+                                                  ExpertType expertType,
+                                                  String userInput,
+                                                  String nowIso8601,
+                                                  List<String> reasons) {
         Map<String, String> values = new HashMap<>();
         values.put("reasons", buildReasonBlock(reasons));
-        values.put("calendar_judge_prompt", buildCalendarJudgePrompt(context, userInput, nowIso8601));
+        values.put("calendar_judge_prompt", buildCalendarJudgePrompt(context, expertType, userInput, nowIso8601));
         values.put("user_input", safe(userInput));
         values.put("now_iso8601", safe(nowIso8601));
         return applyTemplate(getPrompt(context, KEY_CALENDAR_RETRY), values);
@@ -291,6 +372,37 @@ public final class ExpertPromptStore {
             sb.append("- ").append(TextUtils.isEmpty(reason) ? "不明な理由" : reason);
         }
         return sb.toString();
+    }
+
+    public static String calendarPromptKeyFor(ExpertType expertType) {
+        if (expertType == ExpertType.CALENDAR_UPDATE) {
+            return KEY_CALENDAR_UPDATE_JUDGE;
+        }
+        if (expertType == ExpertType.CALENDAR_DELETE) {
+            return KEY_CALENDAR_DELETE_JUDGE;
+        }
+        return KEY_CALENDAR_QUERY_JUDGE;
+    }
+
+    private static String getCalendarJudgePromptTemplate(Context context, ExpertType expertType) {
+        String key = calendarPromptKeyFor(expertType);
+        String prompt = getPromptWithLegacyFallback(context, key, KEY_CALENDAR_JUDGE);
+        return prompt.trim().isEmpty() ? getPromptSpec(key).getDefaultValue() : prompt;
+    }
+
+    private static String getPromptWithLegacyFallback(Context context, String key, String legacyKey) {
+        JSONObject json = readJson(context);
+        String saved = json.optString(key, "");
+        if (!TextUtils.isEmpty(saved)) {
+            return saved;
+        }
+        if (!TextUtils.isEmpty(legacyKey)) {
+            String legacySaved = json.optString(legacyKey, "");
+            if (!TextUtils.isEmpty(legacySaved)) {
+                return legacySaved;
+            }
+        }
+        return getPromptSpec(key).getDefaultValue();
     }
 
     private static String buildCalendarResultBlock(CalendarResultForChat resultForChat) {

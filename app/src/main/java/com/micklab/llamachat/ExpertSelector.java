@@ -20,6 +20,10 @@ public final class ExpertSelector {
             "予定して欲しい",
             "予定してほしい"
     };
+    private static final String[] CALENDAR_QUERY_KEYWORDS = new String[]{
+            "予定を検索", "予定を探", "予定を確認", "予定を見せ", "予定を教えて",
+            "予定ある", "カレンダーを確認", "カレンダーを見せ", "スケジュールを確認"
+    };
     private static final String[] CALENDAR_UPDATE_KEYWORDS = new String[]{
             "予定を変える", "変更する", "ずらす", "移動する", "時間を変える"
     };
@@ -45,126 +49,225 @@ public final class ExpertSelector {
     }
 
     public List<ExpertType> selectAll(String userInput, boolean webAvailable, boolean calendarAvailable) {
+        return selectDetailed(userInput, webAvailable, calendarAvailable).getOrderedExpertTypes();
+    }
+
+    public SelectionResult selectDetailed(String userInput, boolean webAvailable, boolean calendarAvailable) {
         String normalized = normalize(userInput);
         if (normalized.isEmpty()) {
-            return Collections.emptyList();
+            return new SelectionResult(Collections.emptyList(), buildEmptyDebugText(userInput, normalized));
         }
 
         List<MatchedExpert> matches = new ArrayList<>();
+        List<String> traceLines = new ArrayList<>();
         if (calendarAvailable) {
-            MatchedExpert calendarMatch = findCalendarMatch(normalized);
-            if (calendarMatch != null) {
-                matches.add(calendarMatch);
+            CalendarSelection calendarSelection = findCalendarSelection(normalized);
+            traceLines.addAll(calendarSelection.getTraceLines());
+            if (calendarSelection.getMatchedExpert() != null) {
+                matches.add(calendarSelection.getMatchedExpert());
             }
+        } else {
+            traceLines.add("calendar disabled");
         }
         if (webAvailable) {
-            int webPosition = firstKeywordPosition(normalized, WEB_KEYWORDS);
-            if (webPosition >= 0) {
-                matches.add(new MatchedExpert(ExpertType.WEB, webPosition));
+            KeywordMatch webMatch = firstWebKeywordMatch(normalized);
+            if (webMatch != null) {
+                matches.add(new MatchedExpert(
+                        ExpertType.WEB,
+                        webMatch.position,
+                        "web keyword",
+                        webMatch.keyword
+                ));
+                traceLines.add("web -> pos=" + webMatch.position + ", keyword=\"" + webMatch.keyword + "\"");
+            } else {
+                traceLines.add("web -> no match");
             }
+        } else {
+            traceLines.add("web disabled");
         }
         if (matches.isEmpty()) {
-            return Collections.emptyList();
+            return new SelectionResult(Collections.emptyList(), buildDebugText(userInput, normalized, traceLines, Collections.emptyList()));
         }
 
         matches.sort(Comparator.comparingInt(match -> match.position));
         List<ExpertType> ordered = new ArrayList<>();
+        List<String> orderedDetails = new ArrayList<>();
         for (MatchedExpert match : matches) {
             if (!ordered.contains(match.expertType)) {
                 ordered.add(match.expertType);
+                orderedDetails.add(match.expertType.name()
+                        + " @ " + match.position
+                        + " [" + match.reason + ": " + match.keyword + "]");
             }
         }
-        return ordered;
+        return new SelectionResult(ordered, buildDebugText(userInput, normalized, traceLines, orderedDetails));
     }
 
-    private boolean isCalendarCreateIntent(String normalized) {
-        return containsAny(normalized, CALENDAR_CREATE_KEYWORDS);
-    }
+    private CalendarSelection findCalendarSelection(String normalized) {
+        List<String> traceLines = new ArrayList<>();
+        KeywordMatch createKeyword = firstKeywordMatch(normalized, CALENDAR_CREATE_KEYWORDS);
+        KeywordMatch updateKeyword = firstKeywordMatch(normalized, CALENDAR_UPDATE_KEYWORDS);
+        KeywordMatch deleteKeyword = firstKeywordMatch(normalized, CALENDAR_DELETE_KEYWORDS);
+        KeywordMatch queryKeyword = firstKeywordMatch(normalized, CALENDAR_QUERY_KEYWORDS);
+        KeywordMatch contextKeyword = firstKeywordMatch(normalized, CALENDAR_CONTEXT_KEYWORDS);
+        KeywordMatch updateVerb = firstCalendarVerbMatch(normalized, CALENDAR_UPDATE_VERBS);
+        KeywordMatch deleteVerb = firstCalendarVerbMatch(normalized, CALENDAR_DELETE_VERBS);
 
-    private boolean isCalendarModelIntent(String normalized) {
-        if (containsAny(normalized, CALENDAR_CONTEXT_KEYWORDS)) {
-            return true;
+        traceLines.add(formatCalendarTraceLine("calendar create", createKeyword));
+        traceLines.add(formatCalendarTraceLine("calendar query", queryKeyword));
+        traceLines.add(formatCalendarTraceLine("calendar update", updateKeyword != null ? updateKeyword : updateVerb));
+        traceLines.add(formatCalendarTraceLine("calendar delete", deleteKeyword != null ? deleteKeyword : deleteVerb));
+        traceLines.add(formatCalendarTraceLine("calendar context", contextKeyword));
+
+        List<MatchedExpert> candidates = new ArrayList<>();
+        addCalendarCandidate(candidates, ExpertType.CALENDAR_CREATE, createKeyword, contextKeyword, "create keyword");
+        addCalendarCandidate(candidates, ExpertType.CALENDAR_UPDATE,
+                updateKeyword != null ? updateKeyword : updateVerb,
+                contextKeyword,
+                updateKeyword != null ? "update keyword" : "update verb+context");
+        addCalendarCandidate(candidates, ExpertType.CALENDAR_DELETE,
+                deleteKeyword != null ? deleteKeyword : deleteVerb,
+                contextKeyword,
+                deleteKeyword != null ? "delete keyword" : "delete verb+context");
+        if (queryKeyword != null) {
+            candidates.add(new MatchedExpert(
+                    ExpertType.CALENDAR_QUERY,
+                    queryKeyword.position,
+                    "query keyword",
+                    queryKeyword.keyword
+            ));
+        } else if (createKeyword == null && updateKeyword == null && deleteKeyword == null
+                && updateVerb == null && deleteVerb == null && contextKeyword != null) {
+            candidates.add(new MatchedExpert(
+                    ExpertType.CALENDAR_QUERY,
+                    contextKeyword.position,
+                    "calendar context fallback",
+                    contextKeyword.keyword
+            ));
         }
-        return containsAny(normalized, CALENDAR_UPDATE_KEYWORDS)
-                || containsAny(normalized, CALENDAR_DELETE_KEYWORDS)
-                || containsCalendarVerb(normalized, CALENDAR_UPDATE_VERBS)
-                || containsCalendarVerb(normalized, CALENDAR_DELETE_VERBS);
+
+        if (candidates.isEmpty()) {
+            traceLines.add("calendar selected -> none");
+            return new CalendarSelection(null, traceLines);
+        }
+
+        candidates.sort(Comparator.comparingInt(match -> match.position));
+        MatchedExpert selected = candidates.get(0);
+        traceLines.add("calendar selected -> " + selected.expertType.name()
+                + " @ " + selected.position
+                + " [" + selected.reason + ": " + selected.keyword + "]");
+        return new CalendarSelection(selected, traceLines);
     }
 
-    private boolean containsCalendarVerb(String normalized, String[] verbs) {
-        return containsAny(normalized, verbs) && containsAny(normalized, CALENDAR_CONTEXT_KEYWORDS);
+    private KeywordMatch firstWebKeywordMatch(String normalized) {
+        KeywordMatch best = null;
+        for (String keyword : WEB_KEYWORDS) {
+            String normalizedKeyword = normalize(keyword);
+            int searchFrom = 0;
+            while (searchFrom >= 0 && searchFrom < normalized.length()) {
+                int index = normalized.indexOf(normalizedKeyword, searchFrom);
+                if (index < 0) {
+                    break;
+                }
+                if (!isCalendarScopedWebKeyword(normalized, keyword, index)) {
+                    if (best == null || index < best.position) {
+                        best = new KeywordMatch(keyword, index);
+                    }
+                    break;
+                }
+                searchFrom = index + normalizedKeyword.length();
+            }
+        }
+        return best;
     }
 
-    private MatchedExpert findCalendarMatch(String normalized) {
-        int createPosition = firstCalendarCreatePosition(normalized);
-        int explicitModelPosition = firstExplicitCalendarModelPosition(normalized);
-        int queryPosition = firstKeywordPosition(normalized, CALENDAR_CONTEXT_KEYWORDS);
-        if (createPosition < 0 && explicitModelPosition < 0 && queryPosition < 0) {
+    private void addCalendarCandidate(List<MatchedExpert> candidates,
+                                      ExpertType expertType,
+                                      KeywordMatch primaryMatch,
+                                      KeywordMatch contextMatch,
+                                      String reason) {
+        if (primaryMatch == null) {
+            return;
+        }
+        int position = contextMatch == null
+                ? primaryMatch.position
+                : Math.min(primaryMatch.position, contextMatch.position);
+        candidates.add(new MatchedExpert(expertType, position, reason, primaryMatch.keyword));
+    }
+
+    private KeywordMatch firstCalendarVerbMatch(String normalized, String[] verbs) {
+        KeywordMatch verbMatch = firstKeywordMatch(normalized, verbs);
+        KeywordMatch contextMatch = firstKeywordMatch(normalized, CALENDAR_CONTEXT_KEYWORDS);
+        if (verbMatch == null || contextMatch == null) {
             return null;
         }
-        if (explicitModelPosition >= 0 && (createPosition < 0 || explicitModelPosition < createPosition)) {
-            return new MatchedExpert(ExpertType.CALENDAR_MODEL, explicitModelPosition);
-        }
-        if (createPosition >= 0) {
-            return new MatchedExpert(ExpertType.CALENDAR_CREATE, createPosition);
-        }
-        return new MatchedExpert(ExpertType.CALENDAR_MODEL, queryPosition);
+        int position = Math.min(verbMatch.position, contextMatch.position);
+        return new KeywordMatch(verbMatch.keyword, position);
     }
 
-    private int firstCalendarCreatePosition(String normalized) {
-        if (!isCalendarCreateIntent(normalized)) {
-            return -1;
-        }
-        int createKeywordPosition = firstKeywordPosition(normalized, CALENDAR_CREATE_KEYWORDS);
-        int contextPosition = firstKeywordPosition(normalized, CALENDAR_CONTEXT_KEYWORDS);
-        return minPositive(createKeywordPosition, contextPosition);
-    }
-
-    private int firstExplicitCalendarModelPosition(String normalized) {
-        int best = firstKeywordPosition(normalized, CALENDAR_UPDATE_KEYWORDS);
-        best = minPositive(best, firstKeywordPosition(normalized, CALENDAR_DELETE_KEYWORDS));
-        best = minPositive(best, firstCalendarVerbPosition(normalized, CALENDAR_UPDATE_VERBS));
-        best = minPositive(best, firstCalendarVerbPosition(normalized, CALENDAR_DELETE_VERBS));
-        return best;
-    }
-
-    private int firstCalendarVerbPosition(String normalized, String[] verbs) {
-        int verbPosition = firstKeywordPosition(normalized, verbs);
-        int contextPosition = firstKeywordPosition(normalized, CALENDAR_CONTEXT_KEYWORDS);
-        if (verbPosition < 0 || contextPosition < 0) {
-            return -1;
-        }
-        return Math.min(verbPosition, contextPosition);
-    }
-
-    private int firstKeywordPosition(String normalized, String[] keywords) {
-        int best = -1;
+    private KeywordMatch firstKeywordMatch(String normalized, String[] keywords) {
+        KeywordMatch best = null;
         for (String keyword : keywords) {
-            int index = normalized.indexOf(normalize(keyword));
-            if (index >= 0 && (best < 0 || index < best)) {
-                best = index;
+            String normalizedKeyword = normalize(keyword);
+            int index = normalized.indexOf(normalizedKeyword);
+            if (index >= 0 && (best == null || index < best.position)) {
+                best = new KeywordMatch(keyword, index);
             }
         }
         return best;
     }
 
-    private int minPositive(int current, int candidate) {
-        if (current < 0) {
-            return candidate;
+    private boolean isCalendarScopedWebKeyword(String normalized, String keyword, int keywordPosition) {
+        if (!"検索".equals(keyword) && !"調べて".equals(keyword)) {
+            return false;
         }
-        if (candidate < 0) {
-            return current;
+        KeywordMatch contextKeyword = firstKeywordMatch(normalized, CALENDAR_CONTEXT_KEYWORDS);
+        if (contextKeyword == null) {
+            return false;
         }
-        return Math.min(current, candidate);
+        int distance = keywordPosition - contextKeyword.position;
+        return distance >= 0 && distance <= 6;
     }
 
-    private boolean containsAny(String normalized, String[] keywords) {
-        for (String keyword : keywords) {
-            if (normalized.contains(normalize(keyword))) {
-                return true;
+    private String formatCalendarTraceLine(String label, KeywordMatch match) {
+        if (match == null) {
+            return label + " -> no match";
+        }
+        return label + " -> pos=" + match.position + ", keyword=\"" + match.keyword + "\"";
+    }
+
+    private String buildEmptyDebugText(String userInput, String normalized) {
+        List<String> traceLines = Collections.singletonList("normalized input is empty");
+        return buildDebugText(userInput, normalized, traceLines, Collections.emptyList());
+    }
+
+    private String buildDebugText(String userInput,
+                                  String normalized,
+                                  List<String> traceLines,
+                                  List<String> orderedDetails) {
+        StringBuilder sb = new StringBuilder();
+        sb.append("input: ").append(userInput == null ? "" : userInput).append("\n");
+        sb.append("normalized: ").append(normalized).append("\n");
+        sb.append("matches:\n");
+        if (traceLines == null || traceLines.isEmpty()) {
+            sb.append("- (none)\n");
+        } else {
+            for (String traceLine : traceLines) {
+                sb.append("- ").append(traceLine).append("\n");
             }
         }
-        return false;
+        sb.append("ordered steps:\n");
+        if (orderedDetails == null || orderedDetails.isEmpty()) {
+            sb.append("- (none)");
+        } else {
+            for (String detail : orderedDetails) {
+                sb.append("- ").append(detail).append("\n");
+            }
+            if (sb.charAt(sb.length() - 1) == '\n') {
+                sb.setLength(sb.length() - 1);
+            }
+        }
+        return sb.toString();
     }
 
     private String normalize(String value) {
@@ -177,13 +280,65 @@ public final class ExpertSelector {
                 .replaceAll("\\s+", "");
     }
 
+    public static final class SelectionResult {
+        private final List<ExpertType> orderedExpertTypes;
+        private final String debugText;
+
+        private SelectionResult(List<ExpertType> orderedExpertTypes, String debugText) {
+            this.orderedExpertTypes = orderedExpertTypes == null
+                    ? Collections.emptyList()
+                    : Collections.unmodifiableList(new ArrayList<>(orderedExpertTypes));
+            this.debugText = debugText == null ? "" : debugText;
+        }
+
+        public List<ExpertType> getOrderedExpertTypes() {
+            return orderedExpertTypes;
+        }
+
+        public String getDebugText() {
+            return debugText;
+        }
+    }
+
+    private static final class CalendarSelection {
+        private final MatchedExpert matchedExpert;
+        private final List<String> traceLines;
+
+        private CalendarSelection(MatchedExpert matchedExpert, List<String> traceLines) {
+            this.matchedExpert = matchedExpert;
+            this.traceLines = traceLines == null ? Collections.emptyList() : traceLines;
+        }
+
+        private MatchedExpert getMatchedExpert() {
+            return matchedExpert;
+        }
+
+        private List<String> getTraceLines() {
+            return traceLines;
+        }
+    }
+
+    private static final class KeywordMatch {
+        private final String keyword;
+        private final int position;
+
+        private KeywordMatch(String keyword, int position) {
+            this.keyword = keyword;
+            this.position = position;
+        }
+    }
+
     private static final class MatchedExpert {
         private final ExpertType expertType;
         private final int position;
+        private final String reason;
+        private final String keyword;
 
-        private MatchedExpert(ExpertType expertType, int position) {
+        private MatchedExpert(ExpertType expertType, int position, String reason, String keyword) {
             this.expertType = expertType;
             this.position = position;
+            this.reason = reason;
+            this.keyword = keyword;
         }
     }
 }

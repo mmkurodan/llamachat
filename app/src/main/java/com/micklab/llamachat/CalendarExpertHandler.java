@@ -29,7 +29,7 @@ public final class CalendarExpertHandler {
     );
 
     public interface CalendarModelResolver {
-        CalendarActionJson resolve(String userInput) throws Exception;
+        CalendarActionJson resolve(String userInput, ExpertType expertType) throws Exception;
     }
 
     public CalendarActionJson resolveAction(String userInput,
@@ -38,8 +38,11 @@ public final class CalendarExpertHandler {
         if (expertType == ExpertType.CALENDAR_CREATE) {
             return buildDirectCreateAction(userInput);
         }
-        if (expertType == ExpertType.CALENDAR_MODEL && modelResolver != null) {
-            return modelResolver.resolve(userInput);
+        if ((expertType == ExpertType.CALENDAR_QUERY
+                || expertType == ExpertType.CALENDAR_UPDATE
+                || expertType == ExpertType.CALENDAR_DELETE)
+                && modelResolver != null) {
+            return modelResolver.resolve(userInput, expertType);
         }
         return CalendarActionJson.none(userInput, "calendar expert not selected");
     }
