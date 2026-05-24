@@ -89,6 +89,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
+import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicInteger;
 
@@ -178,6 +179,9 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private static final int CHAT_SCROLL_SETTLE_MS = 72;
     private static final int CHAT_SCROLL_MIN_INTERVAL_MS = 96;
     private static final int THINKING_ANIMATION_INTERVAL_MS = 360;
+    private static final int MIN_RETAINED_HISTORY_MESSAGES = 24;
+    private static final int MIN_VISIBLE_MESSAGE_ROWS = 80;
+    private static final int MAX_OVERLAY_SYNC_IMPORT_LINES = 120;
     private static final String[] REASONING_OPEN_TAGS = new String[]{
             "<think>", "<analysis>", "<|thought|>"
     };
@@ -300,6 +304,18 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         private ReasoningFilterResult(String visibleText, boolean reasoningActive) {
             this.visibleText = visibleText;
             this.reasoningActive = reasoningActive;
+        }
+    }
+
+    private static class RoutedCalendarExecution {
+        private final boolean executed;
+        private final CalendarUiState uiState;
+        private final CalendarResultForChat resultForChat;
+
+        private RoutedCalendarExecution(boolean executed, CalendarUiState uiState, CalendarResultForChat resultForChat) {
+            this.executed = executed;
+            this.uiState = uiState;
+            this.resultForChat = resultForChat;
         }
     }
 
@@ -901,6 +917,12 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                 btnSettings.setContentDescription("Save settings");
             }
         });
+        if (tvSettingsTitle != null) {
+            tvSettingsTitle.setOnLongClickListener(v -> {
+                launchPromptEditor();
+                return true;
+            });
+        }
         if (btnFloatOverlay != null) {
             btnFloatOverlay.setOnClickListener(v -> enterFloatingOverlayMode());
         }
@@ -1094,6 +1116,12 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                 t("Rights", "権利情報"),
                 "ja".equals(appLanguage) ? RIGHTS_TEXT_JA : RIGHTS_TEXT_EN));
         updateOverlayEntryUi();
+    }
+
+    private void launchPromptEditor() {
+        Intent intent = new Intent(this, PromptEditorActivity.class);
+        intent.putExtra("appLanguage", appLanguage);
+        startActivity(intent);
     }
 
     private void focusMainLayerAfterSettings() {
@@ -3173,12 +3201,9 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         File file = new File(getFilesDir(), OVERLAY_SYNC_LOG_FILE);
         if (!file.exists()) return;
         boolean imported = false;
-        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
-            String line;
-            while ((line = reader.readLine()) != null) {
-                String trimmed = line.trim();
-                if (trimmed.isEmpty()) continue;
-                JSONObject item = new JSONObject(trimmed);
+        try {
+            for (String line : readRecentLogLines(file, MAX_OVERLAY_SYNC_IMPORT_LINES)) {
+                JSONObject item = new JSONObject(line);
                 String role = item.optString("role", "").trim();
                 String content = item.optString("content", "").trim();
                 if (content.isEmpty()) continue;
@@ -3204,6 +3229,24 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             requestChatLayoutUpdate();
             maybeScrollToBottom(true);
         }
+    }
+
+    private List<String> readRecentLogLines(File file, int maxLines) throws IOException {
+        List<String> lines = new ArrayList<>();
+        try (BufferedReader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), StandardCharsets.UTF_8))) {
+            String line;
+            while ((line = reader.readLine()) != null) {
+                String trimmed = line.trim();
+                if (trimmed.isEmpty()) {
+                    continue;
+                }
+                lines.add(trimmed);
+                if (lines.size() > maxLines) {
+                    lines.remove(0);
+                }
+            }
+        }
+        return lines;
     }
 
     private void reinitSystemPrompts() {
@@ -3269,9 +3312,21 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             msg.put("content", content);
             synchronized (historyLock) {
                 history.add(msg);
+                trimHistoryLocked(history);
             }
         } catch (Exception e) {
             Log.e(TAG, "addToHistory error", e);
+        }
+    }
+
+    private void trimHistoryLocked(List<JSONObject> history) {
+        if (history == null || history.isEmpty()) {
+            return;
+        }
+        int keepStart = "system".equals(history.get(0).optString("role")) ? 1 : 0;
+        int maxMessages = Math.max(MIN_RETAINED_HISTORY_MESSAGES, historyLimit * 4);
+        while (history.size() - keepStart > maxMessages) {
+            history.remove(keepStart);
         }
     }
 
@@ -3357,13 +3412,218 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         appendUserMessage(userMsg);
         addToHistory(conversationHistory, "user", userMsg);
 
-        if (calendarExpertModeEnabled) {
-            performCalendarExpertFlow(userMsg);
-        } else if (webSearchEnabled && !webSearchApiKey.isEmpty()) {
-            performWebSearchFlow(userMsg);
+        List<String> enabledExpertFeatures = resolveEnabledExpertFeatures();
+        if (!enabledExpertFeatures.isEmpty()) {
+            performExpertRoutingFlow(userMsg, enabledExpertFeatures);
         } else {
             sendChat(null);
         }
+    }
+
+    private List<String> resolveEnabledExpertFeatures() {
+        List<String> enabled = new ArrayList<>();
+        if (calendarExpertModeEnabled) {
+            enabled.add(ExpertPromptStore.FEATURE_CALENDAR);
+        }
+        if (webSearchEnabled && !webSearchApiKey.isEmpty()) {
+            enabled.add(ExpertPromptStore.FEATURE_WEB_SEARCH);
+        }
+        return enabled;
+    }
+
+    private void performExpertRoutingFlow(String userMsg, List<String> enabledFeatures) {
+        isProcessing = true;
+        updateSendButton();
+        int routingToken = startStreamingSession();
+        setThinkingIndicator(true, ChatSpeaker.BASE, routingToken);
+        setThinkingIndicatorLabel(t("Expert routing", "エキスパート判定中"), routingToken);
+
+        new Thread(() -> {
+            ExpertPromptStore.ExpertRouteDecision decision = requestExpertRouteDecision(userMsg, enabledFeatures);
+            runOnUiThread(() -> {
+                if (routingToken != activeStreamingToken) {
+                    return;
+                }
+                setThinkingIndicator(false, ChatSpeaker.BASE, routingToken);
+                setStreamingResponse(false, null);
+                isProcessing = false;
+                updateSendButton();
+                dispatchExpertRouteDecision(userMsg, decision);
+            });
+        }).start();
+    }
+
+    private ExpertPromptStore.ExpertRouteDecision requestExpertRouteDecision(String userMsg, List<String> enabledFeatures) {
+        try {
+            String model = selectedModel == null ? "" : selectedModel.trim();
+            if (model.isEmpty() || !modelList.contains(model)) {
+                model = "default";
+            }
+            JSONObject body = new JSONObject();
+            body.put("model", model);
+            body.put("prompt", ExpertPromptStore.buildExpertRouterPrompt(this, enabledFeatures, userMsg));
+            body.put("stream", false);
+
+            RequestBody requestBody = RequestBody.create(body.toString(), JSON_MEDIA);
+            Request request = new Request.Builder()
+                    .url(ollamaBaseUrl + "/api/generate")
+                    .post(requestBody)
+                    .build();
+            if (debugEnabled) {
+                appendDebug("/api/generate Expert Router Request", buildRequestDebugText(request, body.toString()));
+            }
+
+            Response response = client.newCall(request).execute();
+            String respBody = response.body() != null ? response.body().string() : "";
+            if (debugEnabled) {
+                appendDebug("/api/generate Expert Router Response", buildResponseDebugText(response, respBody));
+            }
+            if (response.isSuccessful() && respBody.contains("required_functions")) {
+                return ExpertPromptStore.parseExpertRouteDecision(respBody, enabledFeatures);
+            }
+        } catch (Exception e) {
+            Log.w(TAG, "requestExpertRouteDecision failed", e);
+        }
+        return ExpertPromptStore.createRouteDecision(enabledFeatures, "fallback");
+    }
+
+    private void dispatchExpertRouteDecision(String userMsg, ExpertPromptStore.ExpertRouteDecision decision) {
+        List<String> orderedFeatures = decision == null
+                ? Collections.emptyList()
+                : decision.getOrderedFunctionIds();
+        if (orderedFeatures.isEmpty()) {
+            sendChat(null);
+            return;
+        }
+        performRoutedExpertFlow(userMsg, orderedFeatures);
+    }
+
+    private void performRoutedExpertFlow(String userMsg, List<String> orderedFeatures) {
+        isProcessing = true;
+        updateSendButton();
+        int token = startStreamingSession();
+        setThinkingIndicator(true, ChatSpeaker.BASE, token);
+        setThinkingIndicatorLabel(t("Expert processing", "エキスパート処理中"), token);
+
+        new Thread(() -> {
+            String searchResults = null;
+            String augmentedMessage = null;
+            RoutedCalendarExecution calendarExecution = new RoutedCalendarExecution(false, null, null);
+
+            for (String feature : orderedFeatures) {
+                if (ExpertPromptStore.FEATURE_WEB_SEARCH.equals(feature) && (searchResults == null || searchResults.trim().isEmpty())) {
+                    runOnUiThread(() -> setThinkingIndicatorLabel(labelForExpertFeature(feature), token));
+                    try {
+                        String keywords = extractSearchKeywords(userMsg);
+                        if (keywords != null && !keywords.trim().isEmpty()) {
+                            String keywordText = keywords.length() > 80 ? keywords.substring(0, 80) + "..." : keywords;
+                            runOnUiThread(() -> setThinkingIndicatorLabel(
+                                    t("Web searching: ", "Web検索中: ") + keywordText,
+                                    token
+                            ));
+                            searchResults = callWebSearchApi(keywords);
+                            if (searchResults != null && !searchResults.trim().isEmpty()) {
+                                augmentedMessage = buildSearchAugmentedUserMessage(userMsg, searchResults);
+                            }
+                        }
+                    } catch (Exception e) {
+                        Log.w(TAG, "performRoutedExpertFlow web search failed", e);
+                    }
+                } else if (ExpertPromptStore.FEATURE_CALENDAR.equals(feature) && !calendarExecution.executed) {
+                    runOnUiThread(() -> setThinkingIndicatorLabel(labelForExpertFeature(feature), token));
+                    calendarExecution = executeCalendarActionForRoute(userMsg);
+                }
+            }
+
+            final String finalSearchResults = searchResults;
+            final String finalAugmentedMessage = augmentedMessage;
+            final RoutedCalendarExecution finalCalendarExecution = calendarExecution;
+            runOnUiThread(() -> {
+                if (token != activeStreamingToken) {
+                    return;
+                }
+                if (finalCalendarExecution.uiState != null || finalCalendarExecution.resultForChat != null) {
+                    handleCalendarDebugResult(finalCalendarExecution.uiState, finalCalendarExecution.resultForChat);
+                }
+                if (finalCalendarExecution.executed && finalCalendarExecution.resultForChat != null) {
+                    setThinkingIndicatorLabel(t("Calendar explaining", "Calendar説明生成中"), token);
+                    sendCalendarExplanation(userMsg, finalCalendarExecution.resultForChat, finalSearchResults, token);
+                    return;
+                }
+                setThinkingIndicator(false, ChatSpeaker.BASE, token);
+                setStreamingResponse(false, null);
+                isProcessing = false;
+                updateSendButton();
+                if (finalAugmentedMessage != null) {
+                    sendChat(finalAugmentedMessage, true);
+                } else {
+                    sendChat(null);
+                }
+            });
+        }).start();
+    }
+
+    private RoutedCalendarExecution executeCalendarActionForRoute(String userMsg) {
+        try {
+            CalendarActionJson action = extractCalendarAction(userMsg);
+            if (action == null || !action.getAction().requiresCalendarOperation()) {
+                return new RoutedCalendarExecution(false, null, null);
+            }
+            if (calendarViewModel == null) {
+                return new RoutedCalendarExecution(true, null, new CalendarResultForChat(
+                        userMsg,
+                        action.getAction().name(),
+                        false,
+                        "CALENDAR_UNAVAILABLE",
+                        "CalendarViewModel is unavailable.",
+                        t("Calendar support is unavailable.", "Calendar 機能を利用できません。"),
+                        Collections.emptyList()
+                ));
+            }
+
+            CountDownLatch latch = new CountDownLatch(1);
+            final CalendarUiState[] uiStateHolder = new CalendarUiState[1];
+            final CalendarResultForChat[] resultHolder = new CalendarResultForChat[1];
+            calendarViewModel.handleCalendarAction(action, (uiState, resultForChat) -> {
+                uiStateHolder[0] = uiState;
+                resultHolder[0] = resultForChat;
+                latch.countDown();
+            });
+
+            if (!latch.await(60, TimeUnit.SECONDS)) {
+                return new RoutedCalendarExecution(true, null, new CalendarResultForChat(
+                        userMsg,
+                        action.getAction().name(),
+                        false,
+                        "TIMEOUT",
+                        "Calendar operation timed out.",
+                        t("Calendar processing timed out.", "Calendar 処理がタイムアウトしました。"),
+                        Collections.emptyList()
+                ));
+            }
+            return new RoutedCalendarExecution(true, uiStateHolder[0], resultHolder[0]);
+        } catch (Exception e) {
+            Log.e(TAG, "executeCalendarActionForRoute failed", e);
+            return new RoutedCalendarExecution(true, null, new CalendarResultForChat(
+                    userMsg,
+                    CalendarActionType.NONE.name(),
+                    false,
+                    "CALENDAR_ERROR",
+                    e.getMessage(),
+                    t("Calendar processing failed.", "Calendar 処理に失敗しました。"),
+                    Collections.emptyList()
+            ));
+        }
+    }
+
+    private String labelForExpertFeature(String featureId) {
+        if (ExpertPromptStore.FEATURE_WEB_SEARCH.equals(featureId)) {
+            return t("Web searching", "Web検索中");
+        }
+        if (ExpertPromptStore.FEATURE_CALENDAR.equals(featureId)) {
+            return t("Calendar analyzing", "Calendar解析中");
+        }
+        return t("Expert processing", "エキスパート処理中");
     }
 
     /**
@@ -3474,6 +3734,13 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     }
 
     private void sendCalendarExplanation(String userMsg, CalendarResultForChat resultForChat, int token) {
+        sendCalendarExplanation(userMsg, resultForChat, null, token);
+    }
+
+    private void sendCalendarExplanation(String userMsg,
+                                         CalendarResultForChat resultForChat,
+                                         String searchResultsBlock,
+                                         int token) {
         if (resultForChat == null) {
             appendCalendarFallbackAssistantMessage(null, token);
             return;
@@ -3482,12 +3749,12 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             JSONArray messages = new JSONArray();
             JSONObject systemMessage = new JSONObject();
             systemMessage.put("role", "system");
-            systemMessage.put("content", CalendarPromptFactory.buildExplainSystemPrompt());
+            systemMessage.put("content", CalendarPromptFactory.buildExplainSystemPrompt(this));
             messages.put(systemMessage);
 
             JSONObject userMessage = new JSONObject();
             userMessage.put("role", "user");
-            userMessage.put("content", CalendarPromptFactory.buildExplainUserPrompt(userMsg, resultForChat));
+            userMessage.put("content", CalendarPromptFactory.buildExplainUserPrompt(this, userMsg, resultForChat, searchResultsBlock));
             messages.put(userMessage);
 
             String modelForCalendarChat = resolveCalendarChatModel();
@@ -3635,17 +3902,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             String modelForWebSearch = webSearchModel != null ? webSearchModel.trim() : "";
             if (modelForWebSearch.isEmpty()) modelForWebSearch = "default";
             if (!modelList.contains(modelForWebSearch)) modelForWebSearch = "default";
-            String prompt = "あなたの役割は「ユーザーの質問がインターネット検索を必要とするか判定し、必要なら検索キーワードを抽出する」ことです。\n\n"
-                    + "出力は必ず次のどちらか一つだけにしてください：\n\n"
-                    + "1. 検索が必要な場合：\nSEARCH: <検索キーワード>\n\n"
-                    + "2. 検索が不要な場合：\nNONE\n\n"
-                    + "制約：\n"
-                    + "- 説明文や理由を書かない\n"
-                    + "- 箇条書きや追加情報を含めない\n"
-                    + "- キーワードは短く、検索エンジンで使える語句のみ\n"
-                    + "- 複数キーワードが必要な場合はスペース区切りで1行にまとめる\n"
-                    + "- 出力形式を絶対に変えない\n\n"
-                    + "ユーザーの質問：\n「" + userMsg + "」";
+            String prompt = ExpertPromptStore.buildWebSearchKeywordPrompt(this, userMsg);
 
             JSONObject body = new JSONObject();
             body.put("model", modelForWebSearch);
@@ -3991,10 +4248,12 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                     JSONObject first = history.get(0);
                     if ("system".equals(first.optString("role"))) {
                         String systemContent = first.optString("content", "");
+                        String searchSystemPrompt = ExpertPromptStore.getSearchSystemPrompt(this);
                         if (speaker == ChatSpeaker.BASE
                                 && webSearchEnabled
-                                && !systemContent.contains(SEARCH_SYSTEM_PROMPT)) {
-                            systemContent = systemContent + "\n" + SEARCH_SYSTEM_PROMPT;
+                                && !searchSystemPrompt.isEmpty()
+                                && !systemContent.contains(searchSystemPrompt)) {
+                            systemContent = systemContent + "\n" + searchSystemPrompt;
                         }
                         JSONObject sys = new JSONObject();
                         sys.put("role", "system");
@@ -4565,7 +4824,18 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
 
         row.addView(bubble);
         messageContainer.addView(row);
+        trimVisibleMessageRows();
         return bubble;
+    }
+
+    private void trimVisibleMessageRows() {
+        if (messageContainer == null) {
+            return;
+        }
+        int maxRows = Math.max(MIN_VISIBLE_MESSAGE_ROWS, historyLimit * 6);
+        while (messageContainer.getChildCount() > maxRows) {
+            messageContainer.removeViewAt(0);
+        }
     }
 
     private MarkdownRenderer getMarkdownRenderer() {

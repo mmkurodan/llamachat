@@ -24,8 +24,8 @@ public class CalendarRetryHandler {
         List<String> reasons = Collections.emptyList();
         for (int attempt = 0; attempt <= MAX_RETRY_COUNT; attempt++) {
             String prompt = attempt == 0
-                    ? CalendarActionParser.buildJudgePrompt(userInput, nowIso8601)
-                    : CalendarActionParser.buildRetryPrompt(userInput, nowIso8601, reasons);
+                    ? CalendarActionParser.buildJudgePrompt(context, userInput, nowIso8601)
+                    : CalendarActionParser.buildRetryPrompt(context, userInput, nowIso8601, reasons);
             try {
                 CalendarDebugLogger.log(context,
                         "calendarJudge attempt=" + (attempt + 1) + ", retry=" + (attempt > 0));

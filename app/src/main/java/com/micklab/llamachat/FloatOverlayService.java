@@ -55,6 +55,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
@@ -106,6 +107,9 @@ public class FloatOverlayService extends Service {
     private static final int OVERLAY_SCROLL_MIN_INTERVAL_MS = 96;
     private static final float FLOAT_AVATAR_HEIGHT_RATIO = 0.33f;
     private static final int FLOAT_BUBBLE_MARGIN_DP = 12;
+    private static final int MIN_RETAINED_HISTORY_MESSAGES = 24;
+    private static final int MAX_SYNC_LOG_LINES = 80;
+    private static final int MAX_NOTIFICATION_TEXT_LENGTH = 240;
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -840,10 +844,51 @@ public class FloatOverlayService extends Service {
         currentResponseBubble = null;
         updateSendButton();
         if (webSearchEnabled && !webSearchApiKey.isEmpty()) {
-            performWebSearchFlow(userMessage, requestToken);
+            performExpertRoutingFlow(userMessage, requestToken);
         } else {
             sendChat(null, false, requestToken);
         }
+    }
+
+    private void performExpertRoutingFlow(String userMessage, int requestToken) {
+        updateThinkingLabel(t("Expert routing", "エキスパート判定中"), requestToken);
+        new Thread(() -> {
+            ExpertPromptStore.ExpertRouteDecision decision = requestExpertRouteDecision(userMessage);
+            boolean needsWebSearch = decision != null && decision.requires(ExpertPromptStore.FEATURE_WEB_SEARCH);
+            mainHandler.post(() -> {
+                if (requestToken != activeResponseToken) {
+                    return;
+                }
+                if (needsWebSearch) {
+                    performWebSearchFlow(userMessage, requestToken);
+                } else {
+                    sendChat(null, false, requestToken);
+                }
+            });
+        }).start();
+    }
+
+    private ExpertPromptStore.ExpertRouteDecision requestExpertRouteDecision(String userMessage) {
+        List<String> enabledFeatures = Collections.singletonList(ExpertPromptStore.FEATURE_WEB_SEARCH);
+        try {
+            JSONObject body = new JSONObject();
+            body.put("model", selectedModel);
+            body.put("prompt", ExpertPromptStore.buildExpertRouterPrompt(this, enabledFeatures, userMessage));
+            body.put("stream", false);
+
+            Request request = new Request.Builder()
+                    .url(ollamaBaseUrl + "/api/generate")
+                    .post(RequestBody.create(body.toString(), JSON_MEDIA))
+                    .build();
+            Response response = client.newCall(request).execute();
+            String respBody = response.body() != null ? response.body().string() : "";
+            if (response.isSuccessful() && respBody.contains("required_functions")) {
+                return ExpertPromptStore.parseExpertRouteDecision(respBody, enabledFeatures);
+            }
+        } catch (Exception e) {
+            DebugLogger.log(this, "requestExpertRouteDecision error: " + e.getMessage());
+        }
+        return ExpertPromptStore.createRouteDecision(enabledFeatures, "fallback");
     }
 
     private void cancelCurrentRequest() {
@@ -871,8 +916,9 @@ public class FloatOverlayService extends Service {
                     JSONObject first = conversationHistory.get(0);
                     if ("system".equals(first.optString("role"))) {
                         String systemContent = first.optString("content", "");
-                        if (webSearchEnabled && !systemContent.contains(SEARCH_SYSTEM_PROMPT)) {
-                            systemContent = systemContent + "\n" + SEARCH_SYSTEM_PROMPT;
+                        String searchSystemPrompt = ExpertPromptStore.getSearchSystemPrompt(this);
+                        if (webSearchEnabled && !searchSystemPrompt.isEmpty() && !systemContent.contains(searchSystemPrompt)) {
+                            systemContent = systemContent + "\n" + searchSystemPrompt;
                         }
                         JSONObject sys = new JSONObject();
                         sys.put("role", "system");
@@ -948,17 +994,7 @@ public class FloatOverlayService extends Service {
         try {
             String modelForWebSearch = webSearchModel == null ? "" : webSearchModel.trim();
             if (modelForWebSearch.isEmpty()) modelForWebSearch = "default";
-            String prompt = "あなたの役割は「ユーザーの質問がインターネット検索を必要とするか判定し、必要なら検索キーワードを抽出する」ことです。\n\n"
-                    + "出力は必ず次のどちらか一つだけにしてください：\n\n"
-                    + "1. 検索が必要な場合：\nSEARCH: <検索キーワード>\n\n"
-                    + "2. 検索が不要な場合：\nNONE\n\n"
-                    + "制約：\n"
-                    + "- 説明文や理由を書かない\n"
-                    + "- 箇条書きや追加情報を含めない\n"
-                    + "- キーワードは短く、検索エンジンで使える語句のみ\n"
-                    + "- 複数キーワードが必要な場合はスペース区切りで1行にまとめる\n"
-                    + "- 出力形式を絶対に変えない\n\n"
-                    + "ユーザーの質問：\n「" + userMsg + "」";
+            String prompt = ExpertPromptStore.buildWebSearchKeywordPrompt(this, userMsg);
             JSONObject body = new JSONObject();
             body.put("model", modelForWebSearch);
             body.put("prompt", prompt);
@@ -1362,7 +1398,7 @@ public class FloatOverlayService extends Service {
                 adjustMessageAreaHeight();
                 scrollMessagesToBottom();
             }
-            latestNotificationResponse = text;
+            latestNotificationResponse = compactNotificationText(text);
             ensureForegroundNotification();
         });
     }
@@ -1413,13 +1449,13 @@ public class FloatOverlayService extends Service {
         renderPlainMessageBubble(currentResponseBubble, baseName, body.toString());
         adjustMessageAreaHeight();
         scrollMessagesToBottom();
-        latestNotificationResponse = body.toString();
+        latestNotificationResponse = compactNotificationText(body.toString());
         ensureForegroundNotification();
     }
 
     private void updateNotificationResponse(String responseText) {
         mainHandler.post(() -> {
-            latestNotificationResponse = responseText;
+            latestNotificationResponse = compactNotificationText(responseText);
             ensureForegroundNotification();
         });
     }
@@ -1516,6 +1552,7 @@ public class FloatOverlayService extends Service {
 
         row.addView(bubble);
         messageContainer.addView(row);
+        trimVisibleOverlayRows();
         adjustMessageAreaHeight();
         scrollMessagesToBottom();
         return bubble;
@@ -1584,6 +1621,7 @@ public class FloatOverlayService extends Service {
                 fos.write((item.toString() + "\n").getBytes(StandardCharsets.UTF_8));
                 fos.flush();
             }
+            trimOverlaySyncLog();
             Intent syncIntent = new Intent(ACTION_OVERLAY_SYNC_UPDATED);
             syncIntent.setPackage(getPackageName());
             sendBroadcast(syncIntent);
@@ -1611,8 +1649,68 @@ public class FloatOverlayService extends Service {
             msg.put("role", role);
             msg.put("content", content);
             conversationHistory.add(msg);
+            trimConversationHistoryLocked();
         } catch (Exception ignored) {
         }
+    }
+
+    private void trimConversationHistoryLocked() {
+        int keepStart = !conversationHistory.isEmpty()
+                && "system".equals(conversationHistory.get(0).optString("role"))
+                ? 1 : 0;
+        int maxMessages = Math.max(MIN_RETAINED_HISTORY_MESSAGES, historyLimit * 4);
+        while (conversationHistory.size() - keepStart > maxMessages) {
+            conversationHistory.remove(keepStart);
+        }
+    }
+
+    private void trimVisibleOverlayRows() {
+        if (messageContainer == null) {
+            return;
+        }
+        int maxRows = Math.max(24, historyLimit * 4);
+        while (messageContainer.getChildCount() > maxRows) {
+            messageContainer.removeViewAt(0);
+        }
+    }
+
+    private void trimOverlaySyncLog() {
+        try {
+            List<String> retained = new ArrayList<>();
+            try (FileInputStream fis = openFileInput(OVERLAY_SYNC_LOG_FILE);
+                 BufferedReader reader = new BufferedReader(new InputStreamReader(fis, StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    String trimmed = line.trim();
+                    if (trimmed.isEmpty()) {
+                        continue;
+                    }
+                    retained.add(trimmed);
+                    if (retained.size() > MAX_SYNC_LOG_LINES) {
+                        retained.remove(0);
+                    }
+                }
+            }
+            try (FileOutputStream fos = openFileOutput(OVERLAY_SYNC_LOG_FILE, MODE_PRIVATE)) {
+                for (String line : retained) {
+                    fos.write((line + "\n").getBytes(StandardCharsets.UTF_8));
+                }
+                fos.flush();
+            }
+        } catch (Exception e) {
+            DebugLogger.log(this, "trimOverlaySyncLog failed: " + e.getMessage());
+        }
+    }
+
+    private String compactNotificationText(String text) {
+        if (TextUtils.isEmpty(text)) {
+            return "";
+        }
+        String normalized = text.replace('\n', ' ').trim();
+        if (normalized.length() <= MAX_NOTIFICATION_TEXT_LENGTH) {
+            return normalized;
+        }
+        return normalized.substring(0, MAX_NOTIFICATION_TEXT_LENGTH - 3) + "...";
     }
 
     private String buildSystemPromptWithName(String basePrompt, String name) {
