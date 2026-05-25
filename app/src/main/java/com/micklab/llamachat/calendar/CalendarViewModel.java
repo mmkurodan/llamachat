@@ -23,6 +23,9 @@ public class CalendarViewModel {
     private static final Pattern ABSOLUTE_HOUR_DURATION_PATTERN = Pattern.compile(
             "(?:(本日|今日)(?:の)?\\s*)?(午前|午後)?\\s*(\\d{1,2})時(?:\\s*(\\d{1,2})分)?\\s*(?:から|より)\\s*(\\d{1,2})時間"
     );
+    private static final Pattern SEARCH_DATE_PHRASE_PATTERN = Pattern.compile(
+            "(今日|本日|明日|あした|明後日|あさって|今週|来週|今月|来月)(?:の)?"
+    );
 
     public interface Listener {
         void onCalendarResult(CalendarUiState uiState, CalendarResultForChat resultForChat);
@@ -210,7 +213,7 @@ public class CalendarViewModel {
             start = now.toString();
             end = now.plusDays(7).toString();
         }
-        List<Event> events = repository.queryEvents(action.getTitle(), start, end, 10);
+        List<Event> events = repository.queryEvents(normalizeSearchKeyword(action.getTitle()), start, end, 10);
         String errorType = repository.getLastErrorType();
         return new CalendarUiState(false, events, null, null, false, errorType, repository.getLastErrorDetail());
     }
@@ -506,6 +509,15 @@ public class CalendarViewModel {
                 return targetQuery;
             }
         }
-        return blankToNull(action.getTitle());
+        return normalizeSearchKeyword(action.getTitle());
+    }
+
+    static String normalizeSearchKeyword(String value) {
+        if (value == null) {
+            return null;
+        }
+        String normalized = SEARCH_DATE_PHRASE_PATTERN.matcher(value).replaceAll(" ");
+        normalized = normalized.replaceAll("\\s+", " ").trim();
+        return normalized.isEmpty() ? null : normalized;
     }
 }
