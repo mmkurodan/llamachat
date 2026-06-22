@@ -16,9 +16,17 @@ public final class ChatFlowController {
     public ChatFlowResult route(String userInput, boolean webAvailable, boolean calendarAvailable) {
         ExpertSelector.SelectionResult selectionResult =
                 expertSelector.selectDetailed(userInput, webAvailable, calendarAvailable);
-        List<ExpertType> expertTypes = selectionResult.getOrderedExpertTypes();
-        if (expertTypes.isEmpty()) {
-            return new ChatFlowResult(Collections.emptyList(), selectionResult.getDebugText());
+        return buildResult(userInput, selectionResult.getOrderedExpertTypes(), selectionResult.getDebugText());
+    }
+
+    /**
+     * 与えられたエキスパート種別の並びから {@link ChatFlowResult} を組み立てる。
+     * キーワード経路が空のときに意味的フォールバック（{@link SemanticExpertClassifier}）の結果を
+     * 同じステップ構造（Web 検索クエリ生成を含む）に載せ替えるために使う。
+     */
+    public ChatFlowResult buildResult(String userInput, List<ExpertType> expertTypes, String debugText) {
+        if (expertTypes == null || expertTypes.isEmpty()) {
+            return new ChatFlowResult(Collections.emptyList(), debugText);
         }
         List<ChatFlowStep> steps = new ArrayList<>();
         for (ExpertType expertType : expertTypes) {
@@ -27,7 +35,7 @@ public final class ChatFlowController {
                     : null;
             steps.add(new ChatFlowStep(expertType, webSearchQuery));
         }
-        return new ChatFlowResult(steps, selectionResult.getDebugText());
+        return new ChatFlowResult(steps, debugText);
     }
 
     public static final class ChatFlowStep {

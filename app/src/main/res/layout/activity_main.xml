@@ -848,6 +848,34 @@
                      <Spinner android:id="@+id/etWebSearchModel"
                          android:layout_width="match_parent" android:layout_height="wrap_content"/>
 
+                     <TextView
+                         android:id="@+id/tvLabelEmbeddingModel"
+                         android:layout_width="wrap_content" android:layout_height="wrap_content"
+                         android:text="Embedding Model" android:layout_marginTop="4dp"/>
+                     <Spinner android:id="@+id/spinnerEmbeddingModel"
+                         android:layout_width="match_parent" android:layout_height="wrap_content"/>
+
+                     <Switch
+                         android:id="@+id/switchSemanticRouting"
+                         android:layout_width="match_parent"
+                         android:layout_height="wrap_content"
+                         android:layout_marginTop="8dp"
+                         android:text="Semantic Routing" />
+
+                     <TextView
+                         android:id="@+id/tvLabelStructuredOutput"
+                         android:layout_width="wrap_content" android:layout_height="wrap_content"
+                         android:text="Structured Output" android:layout_marginTop="8dp"/>
+                     <Spinner android:id="@+id/spinnerStructuredOutput"
+                         android:layout_width="match_parent" android:layout_height="wrap_content"/>
+
+                     <Switch
+                         android:id="@+id/switchJsonMode"
+                         android:layout_width="match_parent"
+                         android:layout_height="wrap_content"
+                         android:layout_marginTop="8dp"
+                         android:text="JSON Mode" />
+
                      <Switch
                          android:id="@+id/switchCalendarExpertMode"
                          android:layout_width="match_parent"

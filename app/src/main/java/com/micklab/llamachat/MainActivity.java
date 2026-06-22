@@ -71,6 +71,7 @@ import com.micklab.llamachat.calendar.CalendarUiState;
 import com.micklab.llamachat.calendar.CalendarViewModel;
 
 import org.json.JSONArray;
+import org.json.JSONException;
 import org.json.JSONObject;
 
 import java.io.BufferedReader;
@@ -130,6 +131,11 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private static final String SEARCH_SYSTEM_PROMPT =
             "You are a search-augmented assistant. When the user provides SEARCH_RESULTS, you must read them and base your answer strictly on that information.";
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
+    // Ollama 推論オプション（無回答対策）。num_ctx を明示してプロンプト切り詰めによる空応答を防ぐ。
+    // 値は端末性能に合わせて調整可。
+    private static final int CHAT_NUM_CTX = 8192;       // 入力（system＋履歴＋検索結果）が収まる十分なコンテキスト
+    private static final int CHAT_NUM_PREDICT = 2048;   // 暴走（未閉じ推論など）防止の生成上限。通常応答には十分
+    private static final String CHAT_KEEP_ALIVE = "30m"; // モデル再ロードの churn 抑制
     private static final int REQ_FIRST_LAUNCH_PERMS = 1000;
     private static final int REQ_RECORD_AUDIO = 1001;
     private static final int REQ_CALENDAR_READ_ACCESS = 1002;
@@ -208,7 +214,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private View mainLayer;
     private View chatDragArea;
     private View chatDragHandle;
-    private Spinner spinnerLanguage, spinnerModel, spinnerChatterModel, spinnerWebSearchModel;
+    private Spinner spinnerLanguage, spinnerModel, spinnerChatterModel, spinnerWebSearchModel, spinnerEmbeddingModel, spinnerStructuredOutput;
     private RadioGroup groupMode, groupFloatDisplay, tabGroup;
     private RadioButton radioModeNormal, radioModeChatter, radioFloatAvatar, radioFloatIcon, tabBase, tabChatter;
     private LinearLayout baseSettingsGroup, chatterSettingsGroup;
@@ -216,13 +222,13 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private TextView tvSettingsTitle, tvSectionGeneral, tvSectionChat, tvSectionExpert, tvSectionInfo;
     private TextView tvLabelLanguage, tvLabelConfigProfile, tvLabelOllamaUrl, tvLabelUserName, tvOllamaStatus;
     private TextView tvLabelMode, tvLabelFloatDisplay, tvFloatModeUnavailable, tvLabelHistoryLimit, tvLabelChatterInterval;
-    private TextView tvLabelWebSearchUrl, tvLabelWebSearchApiKey, tvLabelWebSearchModel;
+    private TextView tvLabelWebSearchUrl, tvLabelWebSearchApiKey, tvLabelWebSearchModel, tvLabelEmbeddingModel, tvLabelStructuredOutput;
     private TextView tvBaseSettingsTitle, tvBaseNameLabel, tvBaseModelLabel;
     private TextView tvBaseSpeechLangLabel, tvBaseSpeechRateLabel, tvBaseSpeechPitchLabel, tvBaseSystemPromptLabel, tvBaseAvatarTitle;
     private TextView tvChatterSettingsTitle, tvChatterNameLabel, tvChatterModelLabel;
     private TextView tvChatterSpeechLangLabel, tvChatterSpeechRateLabel, tvChatterSpeechPitchLabel, tvChatterSystemPromptLabel, tvChatterAvatarTitle;
     private View sectionGeneralHeader, sectionChatHeader, sectionExpertHeader;
-    private Switch switchStreaming, switchTts, switchVoiceInput, switchAutoVoiceInput, switchWebSearch, switchCalendarExpertMode, switchDebug;
+    private Switch switchStreaming, switchTts, switchVoiceInput, switchAutoVoiceInput, switchWebSearch, switchCalendarExpertMode, switchDebug, switchSemanticRouting, switchJsonMode;
     private EditText etOllamaUrl, etSpeechLang, etSpeechRate, etSpeechPitch, etSystemPrompt;
     private EditText etChatterSpeechLang, etChatterSpeechRate, etChatterSpeechPitch, etChatterSystemPrompt;
     private EditText etBaseName, etChatterName;
@@ -245,10 +251,14 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private boolean autoVoiceInputEnabled = false;
     private boolean webSearchEnabled = false;
     private boolean calendarExpertModeEnabled = false;
+    private boolean semanticRoutingEnabled = false;
+    private boolean jsonModeEnabled = false;
     private boolean debugEnabled = false;
     private String webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
     private String webSearchApiKey = "";
     private String expertModel = "default";
+    private String embeddingModel = "default";
+    private String structuredOutputMode = "OFF"; // OFF / SCHEMA / GBNF（StructuredOutput.Mode）
     private String speechLang = DEFAULT_SPEECH_LANG_JA;
     private float speechRate = 1.0f;
     private float speechPitch = 1.0f;
@@ -407,6 +417,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private ArrayAdapter<String> modelAdapter;
     private ArrayAdapter<String> chatterModelAdapter;
     private ArrayAdapter<String> expertModelAdapter;
+    private ArrayAdapter<String> embeddingModelAdapter;
     private CalendarSignInHelper calendarSignInHelper;
     private CalendarViewModel calendarViewModel;
     private final ExpertSelector expertSelector = new ExpertSelector();
@@ -414,6 +425,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private final WebSearchExpertHandler webSearchExpertHandler = new WebSearchExpertHandler();
     private final ChatFlowController chatFlowController =
             new ChatFlowController(expertSelector, webSearchExpertHandler);
+    private final SemanticExpertClassifier semanticExpertClassifier = new SemanticExpertClassifier();
     private boolean pendingCalendarDebugQueryAfterSignIn = false;
     private boolean pendingCalendarDebugCreateAfterSignIn = false;
     private final ActivityResultLauncher<Intent> calendarSignInLauncher =
@@ -828,9 +840,13 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         etAutoChatterSeconds = findViewById(R.id.etAutoChatterSeconds);
         switchWebSearch = findViewById(R.id.switchWebSearch);
         switchDebug = findViewById(R.id.switchDebug);
+        switchSemanticRouting = findViewById(R.id.switchSemanticRouting);
+        switchJsonMode = findViewById(R.id.switchJsonMode);
         etWebSearchUrl = findViewById(R.id.etWebSearchUrl);
         etWebSearchApiKey = findViewById(R.id.etWebSearchApiKey);
         spinnerWebSearchModel = findViewById(R.id.etWebSearchModel);
+        spinnerEmbeddingModel = findViewById(R.id.spinnerEmbeddingModel);
+        spinnerStructuredOutput = findViewById(R.id.spinnerStructuredOutput);
         sectionGeneralHeader = findViewById(R.id.sectionGeneralHeader);
         sectionChatHeader = findViewById(R.id.sectionChatHeader);
         sectionExpertHeader = findViewById(R.id.sectionExpertHeader);
@@ -855,6 +871,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         tvLabelWebSearchUrl = findViewById(R.id.tvLabelWebSearchUrl);
         tvLabelWebSearchApiKey = findViewById(R.id.tvLabelWebSearchApiKey);
         tvLabelWebSearchModel = findViewById(R.id.tvLabelWebSearchModel);
+        tvLabelEmbeddingModel = findViewById(R.id.tvLabelEmbeddingModel);
+        tvLabelStructuredOutput = findViewById(R.id.tvLabelStructuredOutput);
         tvBaseSettingsTitle = findViewById(R.id.tvBaseSettingsTitle);
         tvBaseNameLabel = findViewById(R.id.tvBaseNameLabel);
         tvBaseModelLabel = findViewById(R.id.tvBaseModelLabel);
@@ -923,6 +941,15 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         expertModelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
         expertModelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerWebSearchModel.setAdapter(expertModelAdapter);
+        embeddingModelAdapter = new ArrayAdapter<>(this, android.R.layout.simple_spinner_item, modelList);
+        embeddingModelAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerEmbeddingModel.setAdapter(embeddingModelAdapter);
+        // 構造化出力モード（並びは StructuredOutput.Mode の ordinal: 0=OFF, 1=SCHEMA, 2=GBNF）
+        ArrayAdapter<String> structuredAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item,
+                new String[]{"OFF", "JSON Schema (Ollama)", "GBNF (llama.cpp)"});
+        structuredAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerStructuredOutput.setAdapter(structuredAdapter);
         updateOllamaStatusTile(ollamaApiAvailable);
         updateCalendarSignInUi();
     }
@@ -1376,6 +1403,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (tvLabelWebSearchUrl != null) tvLabelWebSearchUrl.setText(t("Web Search API URL", "Web検索 API URL"));
         if (tvLabelWebSearchApiKey != null) tvLabelWebSearchApiKey.setText(t("Web Search API Key", "Web検索 APIキー"));
         if (tvLabelWebSearchModel != null) tvLabelWebSearchModel.setText(t("Expert Model", "エキスパートモデル"));
+        if (tvLabelEmbeddingModel != null) tvLabelEmbeddingModel.setText(t("Embedding Model", "埋め込みモデル"));
+        if (tvLabelStructuredOutput != null) tvLabelStructuredOutput.setText(t("Structured Output", "構造化出力"));
         if (tvBaseSettingsTitle != null) tvBaseSettingsTitle.setText(t("Base Settings", "Baseの設定"));
         if (tvBaseNameLabel != null) tvBaseNameLabel.setText(t("Name", "名前"));
         if (tvBaseModelLabel != null) tvBaseModelLabel.setText(t("Model", "モデル"));
@@ -1411,6 +1440,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (switchAutoVoiceInput != null) switchAutoVoiceInput.setText(t("Auto Voice Input (after response)", "自動音声入力（応答後）"));
         if (switchWebSearch != null) switchWebSearch.setText(t("Web Search", "Web検索"));
         if (switchCalendarExpertMode != null) switchCalendarExpertMode.setText(t("Calendar Expert Mode", "Calendar Expert Mode"));
+        if (switchSemanticRouting != null) switchSemanticRouting.setText(t("Semantic Routing", "意味ルーティング"));
+        if (switchJsonMode != null) switchJsonMode.setText(t("JSON Mode", "JSONモード"));
         if (switchDebug != null) switchDebug.setText(t("Debug Mode", "デバッグモード"));
         if (radioModeNormal != null) radioModeNormal.setText(t("Normal", "ノーマル"));
         if (radioModeChatter != null) radioModeChatter.setText(t("Chatter", "おしゃべり"));
@@ -2540,6 +2571,10 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         s.put("webSearchUrl", webSearchUrl);
         s.put("webSearchApiKey", webSearchApiKey);
         s.put("expertModel", expertModel);
+        s.put("embeddingModel", embeddingModel);
+        s.put("semanticRoutingEnabled", semanticRoutingEnabled);
+        s.put("structuredOutputMode", structuredOutputMode);
+        s.put("jsonModeEnabled", jsonModeEnabled);
         s.put("suppressQuickStartPopup", suppressQuickStartPopup);
         s.put("avatarC0FileInfo", getAvatarFileInfo(avatarC0File));
         s.put("avatarC1FileInfo", getAvatarFileInfo(avatarC1File));
@@ -2582,6 +2617,11 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         webSearchUrl = s.optString("webSearchUrl", webSearchUrl);
         webSearchApiKey = s.optString("webSearchApiKey", webSearchApiKey);
         expertModel = s.optString("expertModel", s.optString("webSearchModel", expertModel));
+        embeddingModel = s.optString("embeddingModel", embeddingModel);
+        semanticRoutingEnabled = s.optBoolean("semanticRoutingEnabled", semanticRoutingEnabled);
+        structuredOutputMode = StructuredOutput.Mode.fromString(
+                s.optString("structuredOutputMode", structuredOutputMode)).name();
+        jsonModeEnabled = s.optBoolean("jsonModeEnabled", jsonModeEnabled);
         suppressQuickStartPopup = s.optBoolean("suppressQuickStartPopup", suppressQuickStartPopup);
         if (speechLang.trim().isEmpty()) speechLang = defaultSpeechLangForCurrentLanguage();
         if (chatterSpeechLang.trim().isEmpty()) chatterSpeechLang = defaultSpeechLangForCurrentLanguage();
@@ -2589,6 +2629,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (chatterName.trim().isEmpty()) chatterName = defaultChatterNameForCurrentLanguage();
 
         if (expertModel.trim().isEmpty()) expertModel = "default";
+        if (embeddingModel.trim().isEmpty()) embeddingModel = "default";
         if (historyLimit < 0) historyLimit = 0;
         if (autoChatterSeconds < 0) autoChatterSeconds = 0;
         floatDisplayMode = normalizeFloatDisplayMode(floatDisplayMode);
@@ -2884,6 +2925,14 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (autoChatterSeconds < 0) autoChatterSeconds = 0;
         webSearchEnabled = switchWebSearch.isChecked();
         calendarExpertModeEnabled = switchCalendarExpertMode != null && switchCalendarExpertMode.isChecked();
+        semanticRoutingEnabled = switchSemanticRouting != null && switchSemanticRouting.isChecked();
+        jsonModeEnabled = switchJsonMode != null && switchJsonMode.isChecked();
+        if (spinnerStructuredOutput != null) {
+            int pos = spinnerStructuredOutput.getSelectedItemPosition();
+            StructuredOutput.Mode[] modes = StructuredOutput.Mode.values();
+            structuredOutputMode = (pos >= 0 && pos < modes.length
+                    ? modes[pos] : StructuredOutput.Mode.OFF).name();
+        }
         debugEnabled = switchDebug.isChecked();
         webSearchUrl = etWebSearchUrl.getText().toString().trim();
         if (webSearchUrl.isEmpty()) webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
@@ -2891,6 +2940,9 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         expertModel = spinnerWebSearchModel.getSelectedItem() != null
                 ? spinnerWebSearchModel.getSelectedItem().toString().trim() : "";
         if (expertModel.isEmpty()) expertModel = "default";
+        embeddingModel = spinnerEmbeddingModel.getSelectedItem() != null
+                ? spinnerEmbeddingModel.getSelectedItem().toString().trim() : "";
+        if (embeddingModel.isEmpty()) embeddingModel = "default";
         floatDisplayMode = radioFloatIcon != null && radioFloatIcon.isChecked()
                 ? FLOAT_DISPLAY_MODE_ICON
                 : FLOAT_DISPLAY_MODE_AVATAR;
@@ -2936,6 +2988,15 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (switchCalendarExpertMode != null) {
             switchCalendarExpertMode.setChecked(calendarExpertModeEnabled);
         }
+        if (switchSemanticRouting != null) {
+            switchSemanticRouting.setChecked(semanticRoutingEnabled);
+        }
+        if (switchJsonMode != null) {
+            switchJsonMode.setChecked(jsonModeEnabled);
+        }
+        if (spinnerStructuredOutput != null) {
+            spinnerStructuredOutput.setSelection(structuredMode().ordinal());
+        }
         switchDebug.setChecked(debugEnabled);
         etWebSearchUrl.setText(webSearchUrl);
         etWebSearchApiKey.setText(webSearchApiKey);
@@ -2954,6 +3015,12 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             spinnerWebSearchModel.setSelection(expertIdx);
         } else {
             spinnerWebSearchModel.setSelection(0);
+        }
+        int embeddingIdx = modelList.indexOf(embeddingModel);
+        if (embeddingIdx >= 0) {
+            spinnerEmbeddingModel.setSelection(embeddingIdx);
+        } else {
+            spinnerEmbeddingModel.setSelection(0);
         }
         updateChatterModeUi();
         if (spinnerLanguage != null) {
@@ -3399,6 +3466,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                             modelAdapter.notifyDataSetChanged();
                             chatterModelAdapter.notifyDataSetChanged();
                             expertModelAdapter.notifyDataSetChanged();
+                            embeddingModelAdapter.notifyDataSetChanged();
                             int idx = modelList.indexOf(selectedModel);
                             if (idx >= 0) spinnerModel.setSelection(idx);
                             int chatterIdx = modelList.indexOf(chatterModel);
@@ -3409,6 +3477,13 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                             } else {
                                 expertModel = "default";
                                 spinnerWebSearchModel.setSelection(0);
+                            }
+                            int embeddingIdx = modelList.indexOf(embeddingModel);
+                            if (embeddingIdx >= 0) {
+                                spinnerEmbeddingModel.setSelection(embeddingIdx);
+                            } else {
+                                embeddingModel = "default";
+                                spinnerEmbeddingModel.setSelection(0);
                             }
                         });
                     } catch (Exception e) {
@@ -3442,13 +3517,76 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         etInput.setText("");
         appendUserMessage(userMsg);
         addToHistory(conversationHistory, "user", userMsg);
+        boolean webAvailable = isWebSearchExpertAvailable();
         ChatFlowController.ChatFlowResult flowResult = chatFlowController.route(
                 userMsg,
-                isWebSearchExpertAvailable(),
+                webAvailable,
                 calendarExpertModeEnabled
         );
+        // キーワードで決まらなかったときだけ、埋め込みによる意味的フォールバックを試す。
+        if (flowResult.getSteps().isEmpty() && shouldUseSemanticRouting(webAvailable)) {
+            routeSemanticallyThenDispatch(userMsg, webAvailable, calendarExpertModeEnabled, flowResult);
+            return;
+        }
         appendExpertRoutingDebug(flowResult);
         dispatchChatFlow(userMsg, flowResult);
+    }
+
+    private boolean shouldUseSemanticRouting(boolean webAvailable) {
+        return semanticRoutingEnabled && (webAvailable || calendarExpertModeEnabled);
+    }
+
+    private String resolveEmbeddingModelName() {
+        String m = embeddingModel == null ? "" : embeddingModel.trim();
+        return (m.isEmpty() || "default".equals(m)) ? EmbeddingClient.DEFAULT_MODEL : m;
+    }
+
+    private StructuredOutput.Mode structuredMode() {
+        return StructuredOutput.Mode.fromString(structuredOutputMode);
+    }
+
+    /**
+     * キーワード経路が空のとき、ユーザ入力を埋め込みで意味分類し、該当エキスパートがあればそれに、
+     * 無ければ通常チャットにディスパッチする。埋め込み呼び出しはネットワークなのでバックグラウンドで実行する。
+     */
+    private void routeSemanticallyThenDispatch(String userMsg,
+                                               boolean webAvailable,
+                                               boolean calendarAvailable,
+                                               ChatFlowController.ChatFlowResult keywordResult) {
+        isProcessing = true;
+        updateSendButton();
+        final String embModel = resolveEmbeddingModelName();
+        new Thread(() -> {
+            SemanticExpertClassifier.Result result;
+            try {
+                EmbeddingClient embedder = new EmbeddingClient(client, ollamaBaseUrl, embModel);
+                result = semanticExpertClassifier.classify(
+                        userMsg, embedder::embed, webAvailable, calendarAvailable, embModel);
+            } catch (Exception e) {
+                Log.w(TAG, "semantic routing error", e);
+                result = null;
+            }
+            final SemanticExpertClassifier.Result finalResult = result;
+            runOnUiThread(() -> {
+                isProcessing = false;
+                ChatFlowController.ChatFlowResult dispatchResult;
+                if (finalResult != null && finalResult.expertType != ExpertType.NONE) {
+                    String debugText = keywordResult.getRoutingDebugText()
+                            + "\n--- semantic fallback ---\n" + finalResult.debugText;
+                    dispatchResult = chatFlowController.buildResult(
+                            userMsg,
+                            Collections.singletonList(finalResult.expertType),
+                            debugText);
+                } else {
+                    dispatchResult = keywordResult;
+                    if (finalResult != null && debugEnabled) {
+                        appendDebug("Semantic Routing", finalResult.debugText);
+                    }
+                }
+                appendExpertRoutingDebug(dispatchResult);
+                dispatchChatFlow(userMsg, dispatchResult);
+            });
+        }).start();
     }
 
     /**
@@ -3922,6 +4060,9 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         body.put("model", modelForCalendar);
         body.put("prompt", prompt);
         body.put("stream", false);
+        applyOllamaOptions(body);
+        // カレンダー判定は strict JSON。構造化出力 ON なら schema/grammar で固定し、リトライを減らす。
+        StructuredOutput.applyCalendar(body, structuredMode());
 
         RequestBody requestBody = RequestBody.create(body.toString(), JSON_MEDIA);
         Request request = new Request.Builder()
@@ -3975,6 +4116,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             body.put("model", modelForCalendarChat);
             body.put("messages", messages);
             body.put("stream", streamingEnabled);
+            applyOllamaOptions(body);
 
             String requestJson = body.toString();
             RequestBody requestBody = RequestBody.create(requestJson, JSON_MEDIA);
@@ -4461,6 +4603,11 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             body.put("model", speaker == ChatSpeaker.BASE ? selectedModel : chatterModel);
             body.put("messages", messages);
             body.put("stream", streamingEnabled);
+            applyOllamaOptions(body);
+            // 汎用 JSON モード ON のときだけ通常チャットも構造化出力で制約する。
+            if (jsonModeEnabled) {
+                StructuredOutput.applyGenericJson(body, structuredMode());
+            }
 
             String requestJson = body.toString();
             RequestBody requestBody = RequestBody.create(requestJson, JSON_MEDIA);
@@ -4611,7 +4758,14 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                     if (!text.trim().isEmpty()) {
                         addToHistory(getHistoryForSpeaker(speaker), "assistant", text);
                     } else {
-                        appendAssistantMessage(speaker, "(No response)");
+                        // 可視テキストが空でも生の出力があれば（推論のみ／未閉じタグ）中身を見せる。
+                        String recovered = recoverVisibleText(rawResponse.toString());
+                        if (!recovered.trim().isEmpty()) {
+                            appendAssistantMessage(speaker, recovered);
+                            addToHistory(getHistoryForSpeaker(speaker), "assistant", recovered);
+                        } else {
+                            appendAssistantMessage(speaker, "(No response)");
+                        }
                     }
                     completed = true;
                 } catch (Exception e) {
@@ -4671,12 +4825,17 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                 String content = "";
                 try {
                     JSONObject json = new JSONObject(body);
+                    String rawContent = "";
                     if (json.has("message")) {
-                        content = json.getJSONObject("message").optString("content", "");
+                        rawContent = json.getJSONObject("message").optString("content", "");
                     }
-                    content = stripReasoningSegments(content);
+                    content = stripReasoningSegments(rawContent);
 
                     switchActiveSpeaker(speaker);
+                    if (content.trim().isEmpty()) {
+                        // 可視テキストが空でも生の出力があれば（推論のみ／未閉じタグ）中身を見せる。
+                        content = recoverVisibleText(rawContent);
+                    }
                     if (!content.trim().isEmpty()) {
                         appendAssistantMessage(speaker, content);
                         addToHistory(getHistoryForSpeaker(speaker), "assistant", content);
@@ -4710,6 +4869,40 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     }
 
     // ========== UI Helpers ==========
+
+    /**
+     * Ollama リクエストに推論オプションを付与する（無回答対策）。
+     * num_ctx 未指定だとサーバ既定の小さなコンテキストで入力が切り詰められ、
+     * チャットテンプレート末尾が壊れて即終端＝空応答になりやすい。
+     */
+    private void applyOllamaOptions(JSONObject body) throws JSONException {
+        JSONObject options = new JSONObject();
+        options.put("num_ctx", CHAT_NUM_CTX);
+        options.put("num_predict", CHAT_NUM_PREDICT);
+        body.put("options", options);
+        body.put("keep_alive", CHAT_KEEP_ALIVE);
+    }
+
+    /**
+     * 可視テキストが空になったときの復旧。まず通常のフィルタ結果を使い、それでも空なら
+     * 推論タグだけ外して中身を残す。モデルが推論しか出さなかった／タグを閉じ忘れた場合に
+     * 「(No response)」より中身を見せ、無回答に見える事象を減らす。
+     */
+    private String recoverVisibleText(String raw) {
+        if (raw == null) {
+            return "";
+        }
+        String filtered = filterReasoningSegments(raw).visibleText;
+        if (!filtered.trim().isEmpty()) {
+            return filtered;
+        }
+        return raw
+                .replaceAll("</?think>", "")
+                .replaceAll("</?analysis>", "")
+                .replaceAll("<\\|thought\\|>", "")
+                .replaceAll("<\\|endthought\\|>", "")
+                .trim();
+    }
 
     private String stripReasoningSegments(String text) {
         return filterReasoningSegments(text).visibleText;
