@@ -4086,7 +4086,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                             + "\nmodel=" + modelForCalendar);
             CalendarRetryHandler retryHandler = new CalendarRetryHandler(
                     this,
-                    prompt -> requestCalendarJudgeResponse(modelForCalendar, prompt)
+                    prompt -> requestCalendarJudgeResponse(modelForCalendar, prompt, expertType)
             );
             CalendarActionJson parsed = retryHandler.resolveAction(userMsg, expertType, nowIso8601);
             CalendarDebugLogger.log(this,
@@ -4103,14 +4103,15 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         }
     }
 
-    private String requestCalendarJudgeResponse(String modelForCalendar, String prompt) throws Exception {
+    private String requestCalendarJudgeResponse(String modelForCalendar, String prompt,
+                                                 ExpertType expertType) throws Exception {
         JSONObject body = new JSONObject();
         body.put("model", modelForCalendar);
         body.put("prompt", prompt);
         body.put("stream", false);
         applyOllamaOptions(body);
-        // カレンダー判定は strict JSON。構造化出力 ON なら schema/grammar で固定し、リトライを減らす。
-        StructuredOutput.applyCalendar(body, structuredMode());
+        // UPDATE/DELETE は targetQuery 必須スキーマ、CREATE/QUERY はオプション。
+        StructuredOutput.applyCalendar(body, structuredMode(), expertType);
 
         RequestBody requestBody = RequestBody.create(body.toString(), JSON_MEDIA);
         Request request = new Request.Builder()
