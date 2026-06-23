@@ -30,6 +30,7 @@ public final class ExpertPromptStore {
     public static final String KEY_WEB_SEARCH_KEYWORD = "webSearchKeywordPrompt";
     public static final String KEY_WEB_SEARCH_SYSTEM = "webSearchSystemPrompt";
     public static final String KEY_CALENDAR_JUDGE = "calendarJudgePrompt";
+    public static final String KEY_CALENDAR_CREATE_JUDGE = "calendarCreateJudgePrompt";
     public static final String KEY_CALENDAR_QUERY_JUDGE = "calendarQueryJudgePrompt";
     public static final String KEY_CALENDAR_UPDATE_JUDGE = "calendarUpdateJudgePrompt";
     public static final String KEY_CALENDAR_DELETE_JUDGE = "calendarDeleteJudgePrompt";
@@ -102,6 +103,33 @@ public final class ExpertPromptStore {
                             + "- タイムゾーン +09:00 は加算しない。付与するだけ\n"
                             + "【JSON 仕様】\n"
                             + "{\"action\":\"NONE|QUERY|CREATE|UPDATE|DELETE\",\"title\":\"string or null\",\"start\":\"ISO8601 string or null\",\"end\":\"ISO8601 string or null\",\"eventId\":\"string or null\",\"additional\":{\"rawText\":\"元のユーザ入力\",\"notes\":\"補足\"}}\n"
+                            + "現在日時:\n"
+                            + "{{now_iso8601}}\n"
+                            + "ユーザ入力:\n"
+                            + "{{user_input}}"
+            ),
+            new PromptSpec(
+                    KEY_CALENDAR_CREATE_JUDGE,
+                    "Calendar create judge",
+                    "Calendar登録判定",
+                    "Google Calendar 登録判定です。\n"
+                            + "【出力】\n"
+                            + "- JSON オブジェクト 1 つのみ。前後に何も付けない。\n"
+                            + "- action は CREATE または NONE のみ。\n"
+                            + "- eventId は必ず null。\n"
+                            + "【title】\n"
+                            + "- 登録する予定のタイトルを title に入れる。\n"
+                            + "- 「◯◯の予定」「◯◯という予定」→ title = 「◯◯」（「予定」等は取り除く）。\n"
+                            + "- 「今日」「本日」「明日」「明後日」「今週」「来週」「今月」「来月」などの日付表現は title に含めず start/end に反映する。\n"
+                            + "- タイトルが取れない場合は null にしてよいが、可能な限り抽出する。\n"
+                            + "【時間】\n"
+                            + "- 「11時から2時間」→ 11:00〜13:00（絶対時間で計算する）。\n"
+                            + "- 「今から2時間」だけ現在日時からの相対計算。\n"
+                            + "- 時刻が明示されていない場合は start/end を null にしてよい。\n"
+                            + "- タイムゾーン +09:00 は加算しない。付与するだけ。\n"
+                            + "- ISO8601 形式: 2026-06-23T10:00:00+09:00\n"
+                            + "【JSON 仕様】\n"
+                            + "{\"action\":\"CREATE|NONE\",\"title\":\"string or null\",\"start\":\"ISO8601 string or null\",\"end\":\"ISO8601 string or null\",\"eventId\":null,\"additional\":{\"rawText\":\"元のユーザ入力\",\"notes\":\"補足\"}}\n"
                             + "現在日時:\n"
                             + "{{now_iso8601}}\n"
                             + "ユーザ入力:\n"
@@ -382,6 +410,9 @@ public final class ExpertPromptStore {
     }
 
     public static String calendarPromptKeyFor(ExpertType expertType) {
+        if (expertType == ExpertType.CALENDAR_CREATE) {
+            return KEY_CALENDAR_CREATE_JUDGE;
+        }
         if (expertType == ExpertType.CALENDAR_UPDATE) {
             return KEY_CALENDAR_UPDATE_JUDGE;
         }

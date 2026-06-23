@@ -214,7 +214,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private View mainLayer;
     private View chatDragArea;
     private View chatDragHandle;
-    private Spinner spinnerLanguage, spinnerModel, spinnerChatterModel, spinnerWebSearchModel, spinnerEmbeddingModel, spinnerStructuredOutput;
+    private Spinner spinnerLanguage, spinnerModel, spinnerChatterModel, spinnerWebSearchModel, spinnerEmbeddingModel, spinnerStructuredOutput, spinnerRoutingMode;
     private RadioGroup groupMode, groupFloatDisplay, tabGroup;
     private RadioButton radioModeNormal, radioModeChatter, radioFloatAvatar, radioFloatIcon, tabBase, tabChatter;
     private LinearLayout baseSettingsGroup, chatterSettingsGroup;
@@ -222,13 +222,13 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private TextView tvSettingsTitle, tvSectionGeneral, tvSectionChat, tvSectionExpert, tvSectionInfo;
     private TextView tvLabelLanguage, tvLabelConfigProfile, tvLabelOllamaUrl, tvLabelUserName, tvOllamaStatus;
     private TextView tvLabelMode, tvLabelFloatDisplay, tvFloatModeUnavailable, tvLabelHistoryLimit, tvLabelChatterInterval;
-    private TextView tvLabelWebSearchUrl, tvLabelWebSearchApiKey, tvLabelWebSearchModel, tvLabelEmbeddingModel, tvLabelStructuredOutput;
+    private TextView tvLabelWebSearchUrl, tvLabelWebSearchApiKey, tvLabelWebSearchModel, tvLabelEmbeddingModel, tvLabelStructuredOutput, tvLabelRoutingMode;
     private TextView tvBaseSettingsTitle, tvBaseNameLabel, tvBaseModelLabel;
     private TextView tvBaseSpeechLangLabel, tvBaseSpeechRateLabel, tvBaseSpeechPitchLabel, tvBaseSystemPromptLabel, tvBaseAvatarTitle;
     private TextView tvChatterSettingsTitle, tvChatterNameLabel, tvChatterModelLabel;
     private TextView tvChatterSpeechLangLabel, tvChatterSpeechRateLabel, tvChatterSpeechPitchLabel, tvChatterSystemPromptLabel, tvChatterAvatarTitle;
     private View sectionGeneralHeader, sectionChatHeader, sectionExpertHeader;
-    private Switch switchStreaming, switchTts, switchVoiceInput, switchAutoVoiceInput, switchWebSearch, switchCalendarExpertMode, switchDebug, switchSemanticRouting, switchJsonMode;
+    private Switch switchStreaming, switchTts, switchVoiceInput, switchAutoVoiceInput, switchWebSearch, switchCalendarExpertMode, switchDebug, switchJsonMode;
     private EditText etOllamaUrl, etSpeechLang, etSpeechRate, etSpeechPitch, etSystemPrompt;
     private EditText etChatterSpeechLang, etChatterSpeechRate, etChatterSpeechPitch, etChatterSystemPrompt;
     private EditText etBaseName, etChatterName;
@@ -251,7 +251,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private boolean autoVoiceInputEnabled = false;
     private boolean webSearchEnabled = false;
     private boolean calendarExpertModeEnabled = false;
-    private boolean semanticRoutingEnabled = false;
+    // Routing mode: KEYWORD_ONLY / KEYWORD_THEN_SEMANTIC / SEMANTIC_ONLY
+    private String routingMode = "KEYWORD_ONLY";
     private boolean jsonModeEnabled = false;
     private boolean debugEnabled = false;
     private String webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
@@ -840,7 +841,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         etAutoChatterSeconds = findViewById(R.id.etAutoChatterSeconds);
         switchWebSearch = findViewById(R.id.switchWebSearch);
         switchDebug = findViewById(R.id.switchDebug);
-        switchSemanticRouting = findViewById(R.id.switchSemanticRouting);
+        spinnerRoutingMode = findViewById(R.id.spinnerRoutingMode);
         switchJsonMode = findViewById(R.id.switchJsonMode);
         etWebSearchUrl = findViewById(R.id.etWebSearchUrl);
         etWebSearchApiKey = findViewById(R.id.etWebSearchApiKey);
@@ -873,6 +874,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         tvLabelWebSearchModel = findViewById(R.id.tvLabelWebSearchModel);
         tvLabelEmbeddingModel = findViewById(R.id.tvLabelEmbeddingModel);
         tvLabelStructuredOutput = findViewById(R.id.tvLabelStructuredOutput);
+        tvLabelRoutingMode = findViewById(R.id.tvLabelRoutingMode);
         tvBaseSettingsTitle = findViewById(R.id.tvBaseSettingsTitle);
         tvBaseNameLabel = findViewById(R.id.tvBaseNameLabel);
         tvBaseModelLabel = findViewById(R.id.tvBaseModelLabel);
@@ -950,6 +952,15 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                 new String[]{"OFF", "JSON Schema (Ollama)", "GBNF (llama.cpp)"});
         structuredAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         spinnerStructuredOutput.setAdapter(structuredAdapter);
+        // ルーティングモード（順序は ROUTING_MODE_LABELS と対応）
+        ArrayAdapter<String> routingAdapter = new ArrayAdapter<>(this,
+                android.R.layout.simple_spinner_item,
+                new String[]{
+                        t("Keyword only", "キーワードのみ"),
+                        t("Keyword → Semantic", "キーワード→埋込み"),
+                        t("Semantic only", "埋込みのみ")});
+        routingAdapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        spinnerRoutingMode.setAdapter(routingAdapter);
         updateOllamaStatusTile(ollamaApiAvailable);
         updateCalendarSignInUi();
     }
@@ -1440,7 +1451,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (switchAutoVoiceInput != null) switchAutoVoiceInput.setText(t("Auto Voice Input (after response)", "自動音声入力（応答後）"));
         if (switchWebSearch != null) switchWebSearch.setText(t("Web Search", "Web検索"));
         if (switchCalendarExpertMode != null) switchCalendarExpertMode.setText(t("Calendar Expert Mode", "Calendar Expert Mode"));
-        if (switchSemanticRouting != null) switchSemanticRouting.setText(t("Semantic Routing", "意味ルーティング"));
+        if (tvLabelRoutingMode != null) tvLabelRoutingMode.setText(t("Expert Routing", "エキスパートルーティング"));
         if (switchJsonMode != null) switchJsonMode.setText(t("JSON Mode", "JSONモード"));
         if (switchDebug != null) switchDebug.setText(t("Debug Mode", "デバッグモード"));
         if (radioModeNormal != null) radioModeNormal.setText(t("Normal", "ノーマル"));
@@ -2572,7 +2583,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         s.put("webSearchApiKey", webSearchApiKey);
         s.put("expertModel", expertModel);
         s.put("embeddingModel", embeddingModel);
-        s.put("semanticRoutingEnabled", semanticRoutingEnabled);
+        s.put("routingMode", routingMode);
         s.put("structuredOutputMode", structuredOutputMode);
         s.put("jsonModeEnabled", jsonModeEnabled);
         s.put("suppressQuickStartPopup", suppressQuickStartPopup);
@@ -2618,7 +2629,10 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         webSearchApiKey = s.optString("webSearchApiKey", webSearchApiKey);
         expertModel = s.optString("expertModel", s.optString("webSearchModel", expertModel));
         embeddingModel = s.optString("embeddingModel", embeddingModel);
-        semanticRoutingEnabled = s.optBoolean("semanticRoutingEnabled", semanticRoutingEnabled);
+        routingMode = normalizeRoutingMode(s.optString("routingMode",
+                // 旧設定（semanticRoutingEnabled=true）からの移行
+                s.optBoolean("semanticRoutingEnabled", false)
+                        ? "KEYWORD_THEN_SEMANTIC" : routingMode));
         structuredOutputMode = StructuredOutput.Mode.fromString(
                 s.optString("structuredOutputMode", structuredOutputMode)).name();
         jsonModeEnabled = s.optBoolean("jsonModeEnabled", jsonModeEnabled);
@@ -2925,7 +2939,10 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (autoChatterSeconds < 0) autoChatterSeconds = 0;
         webSearchEnabled = switchWebSearch.isChecked();
         calendarExpertModeEnabled = switchCalendarExpertMode != null && switchCalendarExpertMode.isChecked();
-        semanticRoutingEnabled = switchSemanticRouting != null && switchSemanticRouting.isChecked();
+        if (spinnerRoutingMode != null) {
+            int pos = spinnerRoutingMode.getSelectedItemPosition();
+            routingMode = normalizeRoutingMode(routingModeFromSpinnerPos(pos));
+        }
         jsonModeEnabled = switchJsonMode != null && switchJsonMode.isChecked();
         if (spinnerStructuredOutput != null) {
             int pos = spinnerStructuredOutput.getSelectedItemPosition();
@@ -2988,8 +3005,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (switchCalendarExpertMode != null) {
             switchCalendarExpertMode.setChecked(calendarExpertModeEnabled);
         }
-        if (switchSemanticRouting != null) {
-            switchSemanticRouting.setChecked(semanticRoutingEnabled);
+        if (spinnerRoutingMode != null) {
+            spinnerRoutingMode.setSelection(spinnerPosFromRoutingMode(routingMode));
         }
         if (switchJsonMode != null) {
             switchJsonMode.setChecked(jsonModeEnabled);
@@ -3518,12 +3535,19 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         appendUserMessage(userMsg);
         addToHistory(conversationHistory, "user", userMsg);
         boolean webAvailable = isWebSearchExpertAvailable();
+        // SEMANTIC_ONLY: skip keyword matching entirely and go straight to embedding routing.
+        if ("SEMANTIC_ONLY".equals(routingMode) && shouldUseSemanticRouting(webAvailable)) {
+            ChatFlowController.ChatFlowResult empty = chatFlowController.buildResult(userMsg,
+                    Collections.emptyList(), "routing mode: SEMANTIC_ONLY");
+            routeSemanticallyThenDispatch(userMsg, webAvailable, calendarExpertModeEnabled, empty);
+            return;
+        }
         ChatFlowController.ChatFlowResult flowResult = chatFlowController.route(
                 userMsg,
                 webAvailable,
                 calendarExpertModeEnabled
         );
-        // キーワードで決まらなかったときだけ、埋め込みによる意味的フォールバックを試す。
+        // KEYWORD_THEN_SEMANTIC: fall back to embedding when keyword found nothing.
         if (flowResult.getSteps().isEmpty() && shouldUseSemanticRouting(webAvailable)) {
             routeSemanticallyThenDispatch(userMsg, webAvailable, calendarExpertModeEnabled, flowResult);
             return;
@@ -3532,8 +3556,32 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         dispatchChatFlow(userMsg, flowResult);
     }
 
+    // Returns true when semantic routing should run for this dispatch.
+    // SEMANTIC_ONLY: always (keyword result is ignored).
+    // KEYWORD_THEN_SEMANTIC: only when keyword produced no expert.
     private boolean shouldUseSemanticRouting(boolean webAvailable) {
-        return semanticRoutingEnabled && (webAvailable || calendarExpertModeEnabled);
+        boolean expertFeaturesEnabled = webAvailable || calendarExpertModeEnabled;
+        return expertFeaturesEnabled
+                && ("SEMANTIC_ONLY".equals(routingMode) || "KEYWORD_THEN_SEMANTIC".equals(routingMode));
+    }
+
+    private static String normalizeRoutingMode(String s) {
+        if ("SEMANTIC_ONLY".equals(s) || "KEYWORD_THEN_SEMANTIC".equals(s)) {
+            return s;
+        }
+        return "KEYWORD_ONLY";
+    }
+
+    private static String routingModeFromSpinnerPos(int pos) {
+        if (pos == 1) return "KEYWORD_THEN_SEMANTIC";
+        if (pos == 2) return "SEMANTIC_ONLY";
+        return "KEYWORD_ONLY";
+    }
+
+    private static int spinnerPosFromRoutingMode(String mode) {
+        if ("KEYWORD_THEN_SEMANTIC".equals(mode)) return 1;
+        if ("SEMANTIC_ONLY".equals(mode)) return 2;
+        return 0;
     }
 
     private String resolveEmbeddingModelName() {

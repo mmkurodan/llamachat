@@ -83,7 +83,8 @@ public final class StructuredOutput {
         JSONObject additional = new JSONObject();
         additional.put("type", "object");
         additional.put("properties", addProps);
-        additional.put("required", new JSONArray().put("rawText").put("targetQuery").put("notes"));
+        // targetQuery is optional (only UPDATE/DELETE use it; CREATE/QUERY do not).
+        additional.put("required", new JSONArray().put("rawText").put("notes"));
         props.put("additional", additional);
 
         JSONObject schema = new JSONObject();
@@ -123,9 +124,15 @@ public final class StructuredOutput {
                 .append(key("eventId")).append(" ws strnull ws ").append(lit(",")).append(" ws ")
                 .append(key("additional")).append(" ws additional ws ")
                 .append(lit("}")).append("\n");
-        g.append("additional ::= ").append(lit("{")).append(" ws ")
+        // targetQuery is optional: two branches (with / without) so GBNF remains unambiguous.
+        g.append("additional ::= additional-with-tq | additional-no-tq\n");
+        g.append("additional-with-tq ::= ").append(lit("{")).append(" ws ")
                 .append(key("rawText")).append(" ws string ws ").append(lit(",")).append(" ws ")
                 .append(key("targetQuery")).append(" ws strnull ws ").append(lit(",")).append(" ws ")
+                .append(key("notes")).append(" ws string ws ")
+                .append(lit("}")).append("\n");
+        g.append("additional-no-tq ::= ").append(lit("{")).append(" ws ")
+                .append(key("rawText")).append(" ws string ws ").append(lit(",")).append(" ws ")
                 .append(key("notes")).append(" ws string ws ")
                 .append(lit("}")).append("\n");
         g.append("action ::= ")
