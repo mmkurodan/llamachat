@@ -1137,7 +1137,13 @@ public class FloatOverlayService extends Service {
                 ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                 String best = (matches != null && !matches.isEmpty()) ? matches.get(0).trim() : "";
                 if (!best.isEmpty()) {
-                    submitUserMessage(best);
+                    // 音声認識結果をパネルに確実に表示するため、バブルパネルが非表示なら開く。
+                    // その後 mainHandler.post でUIスレッドのキューに積み、View操作を安全に行う。
+                    if (bubblePanel != null && bubblePanel.getVisibility() != View.VISIBLE) {
+                        showBubble(true);
+                    }
+                    final String recognized = best;
+                    mainHandler.post(() -> submitUserMessage(recognized));
                 }
             }
             @Override public void onPartialResults(Bundle partialResults) {}

@@ -99,13 +99,23 @@ public class CalendarRepository {
                 setLastError("AUTH_ERROR", "Calendar write service could not be created.");
                 return null;
             }
-            // start/end は必須。null の場合はモデルが時刻を計算できなかったためエラー返し。
-            if (startIso == null || startIso.trim().isEmpty()
-                    || endIso == null || endIso.trim().isEmpty()) {
+            // start は必須。end が未指定なら start+1時間をデフォルトにする。
+            if (startIso == null || startIso.trim().isEmpty()) {
                 setLastError("INVALID_INPUT",
-                        "start と end は必須です。時刻を指定して再度お試しください。");
-                CalendarDebugLogger.log(appContext, "createEvent missing start/end");
+                        "開始時刻が指定されていません。時刻を指定して再度お試しください。");
+                CalendarDebugLogger.log(appContext, "createEvent missing start");
                 return null;
+            }
+            if (endIso == null || endIso.trim().isEmpty()) {
+                try {
+                    OffsetDateTime startDt = parseOffsetDateTimeValue(startIso.trim());
+                    endIso = startDt.plusHours(1).format(RFC3339_SECONDS_FORMATTER);
+                    CalendarDebugLogger.log(appContext,
+                            "createEvent: end not specified, defaulting to start+1h: " + endIso);
+                } catch (Exception e) {
+                    setLastError("INVALID_INPUT", "end の自動計算に失敗しました: " + e.getMessage());
+                    return null;
+                }
             }
             if (!isValidTimeRange(startIso, endIso)) {
                 setLastError("INVALID_TIME_RANGE",
@@ -161,7 +171,28 @@ public class CalendarRepository {
                 event.setDescription(notes.trim());
             }
             if (startIso != null && !startIso.trim().isEmpty()) {
-                event.setStart(buildEventDateTime(startIso.trim()));
+                // start を変更するとき end が未指定なら元の所要時間を保持する。
+                // 元イベントの start/end から duration を算出し、新 start に加算する。
+                if (endIso == null || endIso.trim().isEmpty()) {
+                    long originalDurationMs = extractEventDurationMs(event);
+                    event.setStart(buildEventDateTime(startIso.trim()));
+                    if (originalDurationMs > 0) {
+                        try {
+                            OffsetDateTime newStart = parseOffsetDateTimeValue(startIso.trim());
+                            long newEndMs = newStart.toInstant().toEpochMilli() + originalDurationMs;
+                            String newEndIso = new DateTime(newEndMs).toStringRfc3339();
+                            event.setEnd(buildEventDateTime(newEndIso));
+                            CalendarDebugLogger.log(appContext,
+                                    "updateEvent: end not specified, computed from original duration "
+                                            + originalDurationMs + "ms → " + newEndIso);
+                        } catch (Exception e) {
+                            CalendarDebugLogger.logError(appContext,
+                                    "updateEvent: failed to compute new end from duration", e);
+                        }
+                    }
+                } else {
+                    event.setStart(buildEventDateTime(startIso.trim()));
+                }
             }
             if (endIso != null && !endIso.trim().isEmpty()) {
                 event.setEnd(buildEventDateTime(endIso.trim()));
@@ -349,6 +380,36 @@ public class CalendarRepository {
             setLastError("INVALID_TIME_RANGE", e.getMessage());
             CalendarDebugLogger.logError(appContext, "isValidTimeRange parse failed", e);
             return false;
+        }
+    }
+
+    /**
+     * イベントの所要時間（ms）を返す。start/end が取得できない場合は 0。
+     * datetime 形式・date 形式のどちらも対応する。
+     */
+    private long extractEventDurationMs(Event event) {
+        if (event == null) return 0;
+        try {
+            long startMs = 0;
+            long endMs = 0;
+            if (event.getStart() != null) {
+                if (event.getStart().getDateTime() != null) {
+                    startMs = event.getStart().getDateTime().getValue();
+                } else if (event.getStart().getDate() != null) {
+                    startMs = event.getStart().getDate().getValue();
+                }
+            }
+            if (event.getEnd() != null) {
+                if (event.getEnd().getDateTime() != null) {
+                    endMs = event.getEnd().getDateTime().getValue();
+                } else if (event.getEnd().getDate() != null) {
+                    endMs = event.getEnd().getDate().getValue();
+                }
+            }
+            long duration = endMs - startMs;
+            return duration > 0 ? duration : 0;
+        } catch (Exception e) {
+            return 0;
         }
     }
 
