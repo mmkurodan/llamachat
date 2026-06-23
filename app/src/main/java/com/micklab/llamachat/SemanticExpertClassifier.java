@@ -50,8 +50,15 @@ public final class SemanticExpertClassifier {
     private final Map<ExpertType, float[][]> cache = new LinkedHashMap<>();
     private String cachedKey = null;
 
+    /**
+     * デフォルト値。
+     * - threshold: best スコアがこれ以上であること（生成系モデルは全体が高値なので低めに設定）。
+     * - margin: best と second の差の「best に対する比率（相対マージン）」。
+     *   絶対値（0.04 等）はスコアが密集する生成系モデルで常に失敗するため相対値を使う。
+     *   1.5% = 0.015: 「今日の予定」vs「削除」で 2.2% の差なら通過、同点付近は NONE。
+     */
     public SemanticExpertClassifier() {
-        this(0.62f, 0.04f);
+        this(0.60f, 0.015f);
     }
 
     public SemanticExpertClassifier(float threshold, float margin) {
@@ -100,15 +107,21 @@ public final class SemanticExpertClassifier {
                 }
             }
 
+            // 相対マージン: (best - second) / best >= margin
+            // 絶対マージンは生成系モデル（スコアが 0.93〜0.99 に密集）で常に失敗するため、
+            // best スコアに対する比率で判定する。
+            float relMargin = (bestScore > 0f) ? (bestScore - secondScore) / bestScore : 0f;
             boolean accepted = best != ExpertType.NONE
                     && bestScore >= threshold
-                    && (bestScore - secondScore) >= margin;
+                    && relMargin >= margin;
             ExpertType decided = accepted ? best : ExpertType.NONE;
 
-            String debug = "semantic routing (threshold=" + fmt(threshold) + ", margin=" + fmt(margin) + ")\n"
+            String debug = "semantic routing (threshold=" + fmt(threshold)
+                    + ", rel_margin=" + fmt(margin) + ")\n"
                     + String.join("\n", trace) + "\n"
                     + "best=" + best.name() + " score=" + fmt(bestScore)
                     + ", second=" + second.name() + " score=" + fmt(secondScore)
+                    + ", rel_margin=" + fmt(relMargin)
                     + " -> " + (accepted ? decided.name() : "NONE (below threshold or ambiguous)");
             return new Result(decided, bestScore, debug);
         } catch (Exception ex) {

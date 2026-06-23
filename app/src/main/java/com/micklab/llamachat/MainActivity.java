@@ -234,6 +234,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private EditText etBaseName, etChatterName;
     private EditText etHistoryLimit, etAutoChatterSeconds;
     private EditText etWebSearchUrl, etWebSearchApiKey, etProfileName, etUserName;
+    private EditText etSemanticThreshold, etSemanticRelMargin;
     private ImageView ivAvatarBackground;
     private ImageView ivAvatar;
     private FrameLayout counterpartMiniContainer;
@@ -253,6 +254,9 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private boolean calendarExpertModeEnabled = false;
     // Routing mode: KEYWORD_ONLY / KEYWORD_THEN_SEMANTIC / SEMANTIC_ONLY
     private String routingMode = "KEYWORD_ONLY";
+    // Semantic routing parameters (relative margin: (best-second)/best)
+    private float semanticThreshold = 0.60f;
+    private float semanticRelMargin  = 0.015f;
     private boolean jsonModeEnabled = false;
     private boolean debugEnabled = false;
     private String webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
@@ -426,7 +430,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private final WebSearchExpertHandler webSearchExpertHandler = new WebSearchExpertHandler();
     private final ChatFlowController chatFlowController =
             new ChatFlowController(expertSelector, webSearchExpertHandler);
-    private final SemanticExpertClassifier semanticExpertClassifier = new SemanticExpertClassifier();
+    private SemanticExpertClassifier semanticExpertClassifier = new SemanticExpertClassifier();
     private boolean pendingCalendarDebugQueryAfterSignIn = false;
     private boolean pendingCalendarDebugCreateAfterSignIn = false;
     private final ActivityResultLauncher<Intent> calendarSignInLauncher =
@@ -842,6 +846,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         switchWebSearch = findViewById(R.id.switchWebSearch);
         switchDebug = findViewById(R.id.switchDebug);
         spinnerRoutingMode = findViewById(R.id.spinnerRoutingMode);
+        etSemanticThreshold = findViewById(R.id.etSemanticThreshold);
+        etSemanticRelMargin  = findViewById(R.id.etSemanticRelMargin);
         switchJsonMode = findViewById(R.id.switchJsonMode);
         etWebSearchUrl = findViewById(R.id.etWebSearchUrl);
         etWebSearchApiKey = findViewById(R.id.etWebSearchApiKey);
@@ -2584,6 +2590,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         s.put("expertModel", expertModel);
         s.put("embeddingModel", embeddingModel);
         s.put("routingMode", routingMode);
+        s.put("semanticThreshold", semanticThreshold);
+        s.put("semanticRelMargin", semanticRelMargin);
         s.put("structuredOutputMode", structuredOutputMode);
         s.put("jsonModeEnabled", jsonModeEnabled);
         s.put("suppressQuickStartPopup", suppressQuickStartPopup);
@@ -2629,6 +2637,9 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         webSearchApiKey = s.optString("webSearchApiKey", webSearchApiKey);
         expertModel = s.optString("expertModel", s.optString("webSearchModel", expertModel));
         embeddingModel = s.optString("embeddingModel", embeddingModel);
+        semanticThreshold = (float) s.optDouble("semanticThreshold", semanticThreshold);
+        semanticRelMargin  = (float) s.optDouble("semanticRelMargin",  semanticRelMargin);
+        rebuildSemanticClassifier();
         routingMode = normalizeRoutingMode(s.optString("routingMode",
                 // 旧設定（semanticRoutingEnabled=true）からの移行
                 s.optBoolean("semanticRoutingEnabled", false)
@@ -2943,6 +2954,15 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             int pos = spinnerRoutingMode.getSelectedItemPosition();
             routingMode = normalizeRoutingMode(routingModeFromSpinnerPos(pos));
         }
+        if (etSemanticThreshold != null) {
+            try { semanticThreshold = Float.parseFloat(etSemanticThreshold.getText().toString()); }
+            catch (NumberFormatException ignored) {}
+        }
+        if (etSemanticRelMargin != null) {
+            try { semanticRelMargin = Float.parseFloat(etSemanticRelMargin.getText().toString()); }
+            catch (NumberFormatException ignored) {}
+        }
+        rebuildSemanticClassifier();
         jsonModeEnabled = switchJsonMode != null && switchJsonMode.isChecked();
         if (spinnerStructuredOutput != null) {
             int pos = spinnerStructuredOutput.getSelectedItemPosition();
@@ -3008,6 +3028,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (spinnerRoutingMode != null) {
             spinnerRoutingMode.setSelection(spinnerPosFromRoutingMode(routingMode));
         }
+        if (etSemanticThreshold != null) etSemanticThreshold.setText(String.valueOf(semanticThreshold));
+        if (etSemanticRelMargin  != null) etSemanticRelMargin.setText(String.valueOf(semanticRelMargin));
         if (switchJsonMode != null) {
             switchJsonMode.setChecked(jsonModeEnabled);
         }
@@ -3587,6 +3609,10 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private String resolveEmbeddingModelName() {
         String m = embeddingModel == null ? "" : embeddingModel.trim();
         return (m.isEmpty() || "default".equals(m)) ? EmbeddingClient.DEFAULT_MODEL : m;
+    }
+
+    private void rebuildSemanticClassifier() {
+        semanticExpertClassifier = new SemanticExpertClassifier(semanticThreshold, semanticRelMargin);
     }
 
     private StructuredOutput.Mode structuredMode() {

@@ -862,6 +862,24 @@
                      <Spinner android:id="@+id/spinnerRoutingMode"
                          android:layout_width="match_parent" android:layout_height="wrap_content"/>
 
+                     <LinearLayout android:layout_width="match_parent"
+                         android:layout_height="wrap_content"
+                         android:orientation="horizontal"
+                         android:layout_marginTop="4dp">
+                         <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                             android:layout_weight="1" android:text="Threshold"/>
+                         <EditText android:id="@+id/etSemanticThreshold"
+                             android:layout_width="80dp" android:layout_height="wrap_content"
+                             android:inputType="numberDecimal" android:singleLine="true"
+                             android:text="0.6"/>
+                         <TextView android:layout_width="0dp" android:layout_height="wrap_content"
+                             android:layout_weight="1" android:text="Margin %" android:layout_marginStart="8dp"/>
+                         <EditText android:id="@+id/etSemanticRelMargin"
+                             android:layout_width="80dp" android:layout_height="wrap_content"
+                             android:inputType="numberDecimal" android:singleLine="true"
+                             android:text="0.015"/>
+                     </LinearLayout>
+
                      <TextView
                          android:id="@+id/tvLabelStructuredOutput"
                          android:layout_width="wrap_content" android:layout_height="wrap_content"
