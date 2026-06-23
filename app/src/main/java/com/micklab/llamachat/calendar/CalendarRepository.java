@@ -99,6 +99,14 @@ public class CalendarRepository {
                 setLastError("AUTH_ERROR", "Calendar write service could not be created.");
                 return null;
             }
+            // start/end は必須。null の場合はモデルが時刻を計算できなかったためエラー返し。
+            if (startIso == null || startIso.trim().isEmpty()
+                    || endIso == null || endIso.trim().isEmpty()) {
+                setLastError("INVALID_INPUT",
+                        "start と end は必須です。時刻を指定して再度お試しください。");
+                CalendarDebugLogger.log(appContext, "createEvent missing start/end");
+                return null;
+            }
             if (!isValidTimeRange(startIso, endIso)) {
                 setLastError("INVALID_TIME_RANGE",
                         "Calendar event end time must be after the start time.");
@@ -158,6 +166,9 @@ public class CalendarRepository {
             if (endIso != null && !endIso.trim().isEmpty()) {
                 event.setEnd(buildEventDateTime(endIso.trim()));
             }
+            // 既存イベントが全日イベント（date 形式）の場合、start/end が getDateTime()=null になる。
+            // datetime 形式の start/end が設定されていれば datetime に揃え直す。
+            event = normalizeDateTimeFormat(event);
             if (!isValidTimeRange(
                     event.getStart() != null && event.getStart().getDateTime() != null
                             ? event.getStart().getDateTime().toStringRfc3339() : null,
@@ -339,6 +350,53 @@ public class CalendarRepository {
             CalendarDebugLogger.logError(appContext, "isValidTimeRange parse failed", e);
             return false;
         }
+    }
+
+    /**
+     * 全日イベント（date 形式）と datetime 形式が混在すると Google Calendar API がエラーを返す。
+     * start が datetime 形式なのに end が date 形式（元が全日イベント）のとき、
+     * end を「start + 元の期間（または 1 時間）」の datetime に変換する。逆も同様。
+     */
+    private Event normalizeDateTimeFormat(Event event) {
+        if (event == null) return null;
+        EventDateTime s = event.getStart();
+        EventDateTime e = event.getEnd();
+        boolean startIsDatetime = s != null && s.getDateTime() != null;
+        boolean endIsDatetime   = e != null && e.getDateTime() != null;
+        boolean startIsDate     = s != null && s.getDate() != null;
+        boolean endIsDate       = e != null && e.getDate() != null;
+        // start が datetime、end が date（全日形式）→ end を start + 元期間に変換
+        if (startIsDatetime && endIsDate) {
+            try {
+                long startMs = s.getDateTime().getValue();
+                long endMs   = e.getDate().getValue();   // 全日イベントは 00:00:00 UTC の epoch ms
+                long durationMs = endMs - startMs;
+                if (durationMs <= 0) durationMs = 60L * 60 * 1000; // 元期間が不正なら1時間
+                long newEndMs = startMs + durationMs;
+                event.setEnd(new EventDateTime()
+                        .setDateTime(new DateTime(newEndMs))
+                        .setTimeZone(s.getTimeZone()));
+                CalendarDebugLogger.log(appContext,
+                        "normalizeDateTimeFormat: end converted from date to datetime");
+            } catch (Exception ex) {
+                CalendarDebugLogger.logError(appContext, "normalizeDateTimeFormat end conv failed", ex);
+            }
+        }
+        // end が datetime、start が date → start を end - 1 時間に変換（稀なケース）
+        if (endIsDatetime && startIsDate) {
+            try {
+                long endMs   = e.getDateTime().getValue();
+                long newStartMs = endMs - 60L * 60 * 1000;
+                event.setStart(new EventDateTime()
+                        .setDateTime(new DateTime(newStartMs))
+                        .setTimeZone(e.getTimeZone()));
+                CalendarDebugLogger.log(appContext,
+                        "normalizeDateTimeFormat: start converted from date to datetime");
+            } catch (Exception ex) {
+                CalendarDebugLogger.logError(appContext, "normalizeDateTimeFormat start conv failed", ex);
+            }
+        }
+        return event;
     }
 
     private EventDateTime buildEventDateTime(String isoValue) {
