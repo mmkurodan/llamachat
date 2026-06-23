@@ -166,6 +166,12 @@ public class CalendarActionJson {
         return trimmed;
     }
 
+    // 冒頭の「日時＋から」パターン。モデルが日時を title に含めた場合の安全網として除去する。
+    // 例: 「本日の11時から作戦会議」→「作戦会議」
+    private static final java.util.regex.Pattern LEADING_DATETIME_PREFIX = java.util.regex.Pattern.compile(
+            "^(?:(?:本日|今日|明日|明後日|来週|今週|今月|来月)(?:の)?)?\\s*"
+            + "(?:(?:午前|午後)?\\s*\\d{1,2}時(?:\\s*\\d{1,2}分)?\\s*(?:から|より)\\s*)?");
+
     private static String normalizeTitle(String rawTitle) {
         if (rawTitle == null) {
             return null;
@@ -176,6 +182,8 @@ public class CalendarActionJson {
         }
         title = stripWrappingQuotes(title);
         title = title.replaceAll("\\s+", " ").trim();
+        // 冒頭の「本日の11時から」などの日時プレフィックスを除去（モデルが混入した場合の保険）。
+        title = LEADING_DATETIME_PREFIX.matcher(title).replaceFirst("").trim();
         title = title.replaceFirst("(?:という)?(?:予定|イベント|日程|スケジュール)\\s*$", "").trim();
         title = title.replaceFirst("の(?:予定|イベント|日程|スケジュール)\\s*$", "").trim();
         title = title.replaceFirst("を(?:予定|イベント|日程|スケジュール)\\s*$", "").trim();

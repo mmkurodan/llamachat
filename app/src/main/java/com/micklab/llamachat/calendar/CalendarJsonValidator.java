@@ -63,6 +63,15 @@ public final class CalendarJsonValidator {
             reasons.add("DELETE なのに start/end が null ではありません");
         }
 
+        // CREATE で rawText に「〇時から〇時間」パターンがあるのに start が null なら再判定。
+        // モデルが時刻を計算できなかった場合にリトライを促す。
+        if (actionType == CalendarActionType.CREATE
+                && start == null
+                && rawText != null
+                && ABSOLUTE_HOUR_DURATION_PATTERN.matcher(rawText).find()) {
+            reasons.add("時刻が指定されているのに start が null です。start/end を ISO8601 で計算してください。");
+        }
+
         validateTimeRange(start, end, reasons);
         validateAbsoluteTimeRule(rawText, start, end, reasons);
         validateIsoTimezoneRule(rawText, start, reasons);
