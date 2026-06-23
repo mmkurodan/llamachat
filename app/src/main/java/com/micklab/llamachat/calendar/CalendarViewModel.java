@@ -506,7 +506,8 @@ public class CalendarViewModel {
         if (action.getAdditional() != null) {
             String targetQuery = blankToNull(action.getAdditional().getTargetQuery());
             if (targetQuery != null) {
-                return targetQuery;
+                // title と同様に日付表現（本日の・明日の等）を除去してから使う。
+                return normalizeSearchKeyword(targetQuery);
             }
         }
         return normalizeSearchKeyword(action.getTitle());
