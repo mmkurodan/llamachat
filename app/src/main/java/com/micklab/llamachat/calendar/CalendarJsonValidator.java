@@ -20,6 +20,10 @@ public final class CalendarJsonValidator {
     private static final Pattern ABSOLUTE_HOUR_DURATION_PATTERN = Pattern.compile(
             "(?:(本日|今日)(?:の)?\\s*)?(午前|午後)?\\s*(\\d{1,2})時(?:\\s*(\\d{1,2})分)?\\s*(?:から|より)\\s*(\\d{1,2})時間"
     );
+    // 「N時から」「N時に」「午後N時」など duration なしの時刻表現（「N時間」は除外）
+    private static final Pattern TIME_OF_DAY_PATTERN = Pattern.compile(
+            "(?:午前|午後)?\\s*\\d{1,2}時(?!\\s*間)(?:\\s*\\d{1,2}分)?(?:\\s*(?:から|より|に|ごろ|頃|〜))?"
+    );
     private static final Pattern ISO_IN_TEXT_PATTERN = Pattern.compile(
             "(\\d{4}-\\d{2}-\\d{2})T(\\d{2}):(\\d{2})(?::(\\d{2}))?((?:Z)|(?:[+-]\\d{2}:\\d{2}))"
     );
@@ -63,13 +67,13 @@ public final class CalendarJsonValidator {
             reasons.add("DELETE なのに start/end が null ではありません");
         }
 
-        // CREATE で rawText に「〇時から〇時間」パターンがあるのに start が null なら再判定。
-        // モデルが時刻を計算できなかった場合にリトライを促す。
+        // CREATE で rawText に時刻表現があるのに start が null なら再判定。
         if (actionType == CalendarActionType.CREATE
                 && start == null
                 && rawText != null
-                && ABSOLUTE_HOUR_DURATION_PATTERN.matcher(rawText).find()) {
-            reasons.add("時刻が指定されているのに start が null です。start/end を ISO8601 で計算してください。");
+                && (ABSOLUTE_HOUR_DURATION_PATTERN.matcher(rawText).find()
+                    || TIME_OF_DAY_PATTERN.matcher(rawText).find())) {
+            reasons.add("時刻が指定されているのに start が null です。start を ISO8601 で出力してください（end が不明なら null でよい）。");
         }
 
         validateTimeRange(start, end, reasons);
