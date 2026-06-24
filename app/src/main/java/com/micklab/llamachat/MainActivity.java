@@ -252,6 +252,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private boolean autoVoiceInputEnabled = false;
     private boolean webSearchEnabled = false;
     private boolean calendarExpertModeEnabled = false;
+    private String pendingFloatCalendarMsg = null;
     // Routing mode: KEYWORD_ONLY / KEYWORD_THEN_SEMANTIC / SEMANTIC_ONLY
     private String routingMode = "KEYWORD_ONLY";
     // Semantic routing parameters (relative margin: (best-second)/best)
@@ -5469,6 +5470,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     protected void onResume() {
         super.onResume();
         registerOverlaySyncReceiver();
+        consumeFloatCalendarIntent();
         if (consumeDisableFloatOverlayIntent() || isFloatOverlayActive) {
             disableFloatingOverlay();
         }
@@ -5491,12 +5493,32 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         importOverlaySyncLog();
         updateOverlayEntryUi();
         updateCalendarSignInUi();
+        if (pendingFloatCalendarMsg != null) {
+            String msg = pendingFloatCalendarMsg;
+            pendingFloatCalendarMsg = null;
+            runOnUiThread(() -> submitUserMessage(msg));
+        }
     }
 
     @Override
     protected void onNewIntent(Intent intent) {
         super.onNewIntent(intent);
         setIntent(intent);
+        String floatCalendarMsg = intent.getStringExtra(FloatOverlayService.EXTRA_FLOAT_CALENDAR_USER_MSG);
+        if (floatCalendarMsg != null && !floatCalendarMsg.trim().isEmpty()) {
+            intent.removeExtra(FloatOverlayService.EXTRA_FLOAT_CALENDAR_USER_MSG);
+            pendingFloatCalendarMsg = floatCalendarMsg.trim();
+        }
+    }
+
+    private void consumeFloatCalendarIntent() {
+        Intent intent = getIntent();
+        if (intent == null) return;
+        String msg = intent.getStringExtra(FloatOverlayService.EXTRA_FLOAT_CALENDAR_USER_MSG);
+        if (msg != null && !msg.trim().isEmpty()) {
+            intent.removeExtra(FloatOverlayService.EXTRA_FLOAT_CALENDAR_USER_MSG);
+            pendingFloatCalendarMsg = msg.trim();
+        }
     }
 
     private boolean consumeDisableFloatOverlayIntent() {

@@ -1,5 +1,16 @@
 package com.micklab.llamachat;
 
+import com.micklab.llamachat.calendar.CalendarActionJson;
+import com.micklab.llamachat.calendar.CalendarPromptFactory;
+import com.micklab.llamachat.calendar.CalendarRepository;
+import com.micklab.llamachat.calendar.CalendarResultForChat;
+import com.micklab.llamachat.calendar.CalendarRetryHandler;
+import com.micklab.llamachat.calendar.CalendarUiState;
+import com.micklab.llamachat.calendar.CalendarViewModel;
+import java.time.OffsetDateTime;
+import java.time.ZoneId;
+import java.util.concurrent.CountDownLatch;
+
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -78,6 +89,7 @@ public class FloatOverlayService extends Service {
     public static final String ACTION_SHOW_OVERLAY = "com.micklab.llamachat.action.SHOW_OVERLAY";
     public static final String ACTION_HIDE_OVERLAY = "com.micklab.llamachat.action.HIDE_OVERLAY";
     public static final String ACTION_OVERLAY_SYNC_UPDATED = "com.micklab.llamachat.action.OVERLAY_SYNC_UPDATED";
+    public static final String EXTRA_FLOAT_CALENDAR_USER_MSG = "float_calendar_user_msg";
     private static final String ACTION_NOTIFICATION_REPLY = "com.micklab.llamachat.action.NOTIFICATION_REPLY";
     private static final String KEY_NOTIFICATION_REPLY = "notification_reply_text";
 
@@ -111,6 +123,12 @@ public class FloatOverlayService extends Service {
     private static final int MAX_SYNC_LOG_LINES = 80;
     private static final int MAX_NOTIFICATION_TEXT_LENGTH = 240;
     private static final MediaType JSON_MEDIA = MediaType.get("application/json; charset=utf-8");
+    private static final int CHAT_NUM_CTX = 8192;
+    private static final int CHAT_NUM_PREDICT = 2048;
+    private static final String CHAT_KEEP_ALIVE = "30m";
+    // 発話後の無音検知タイムアウト（Google Speech のみ有効。他エンジンは無視する場合あり）
+    private static final int VOICE_SILENCE_COMPLETE_MS = 3000;
+    private static final int VOICE_SILENCE_POSSIBLY_COMPLETE_MS = 2000;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Object historyLock = new Object();
@@ -169,6 +187,10 @@ public class FloatOverlayService extends Service {
     private boolean voiceInputEnabled = true;
     private boolean autoVoiceInputEnabled = false;
     private boolean webSearchEnabled = false;
+    private boolean calendarExpertModeEnabled = false;
+    private String structuredOutputMode = "OFF";
+    private CalendarViewModel calendarViewModel;
+    private final CalendarExpertHandler calendarExpertHandler = new CalendarExpertHandler();
     private boolean isProcessing = false;
     private boolean isListening = false;
     private boolean isStreamingResponse = false;
@@ -246,6 +268,7 @@ public class FloatOverlayService extends Service {
             DebugLogger.log(this, "Loading settings");
             loadSettings();
             DebugLogger.log(this, "Settings loaded. floatDisplayMode=" + floatDisplayMode);
+            calendarViewModel = new CalendarViewModel(new CalendarRepository(this));
             
             DebugLogger.log(this, "Loading avatar bitmaps");
             loadAvatarBitmaps();
@@ -851,10 +874,17 @@ public class FloatOverlayService extends Service {
         ChatFlowController.ChatFlowResult flowResult = chatFlowController.route(
                 userMessage,
                 isWebSearchExpertAvailable(),
-                false
+                calendarExpertModeEnabled
         );
         if (flowResult.getExpertType() == ExpertType.WEB) {
             performWebSearchFlow(userMessage, flowResult.getWebSearchQuery(), requestToken);
+        } else if (isCalendarExpertType(flowResult.getExpertType())) {
+            ExpertType calType = flowResult.getExpertType();
+            if (calType == ExpertType.CALENDAR_UPDATE || calType == ExpertType.CALENDAR_DELETE) {
+                launchMainActivityForCalendarConfirm(userMessage, requestToken);
+            } else {
+                performCalendarExpertFlow(userMessage, calType, requestToken);
+            }
         } else {
             sendChat(null, false, requestToken);
         }
@@ -862,6 +892,133 @@ public class FloatOverlayService extends Service {
 
     private boolean isWebSearchExpertAvailable() {
         return webSearchEnabled && !webSearchApiKey.isEmpty();
+    }
+
+    private void launchMainActivityForCalendarConfirm(String userMsg, int requestToken) {
+        finishResponse(t("Opening app for calendar confirmation.", "カレンダーの確認のためアプリを開きます。"), requestToken);
+        Intent intent = createMainActivityIntent();
+        intent.putExtra(EXTRA_FLOAT_CALENDAR_USER_MSG, userMsg);
+        startActivity(intent);
+    }
+
+    private boolean isCalendarExpertType(ExpertType expertType) {
+        return expertType == ExpertType.CALENDAR_CREATE
+                || expertType == ExpertType.CALENDAR_QUERY
+                || expertType == ExpertType.CALENDAR_UPDATE
+                || expertType == ExpertType.CALENDAR_DELETE;
+    }
+
+    private void performCalendarExpertFlow(String userMsg, ExpertType expertType, int requestToken) {
+        new Thread(() -> {
+            try {
+                CalendarActionJson action = extractCalendarAction(userMsg, expertType);
+                if (action == null || !action.getAction().requiresCalendarOperation()) {
+                    mainHandler.post(() -> sendChat(null, false, requestToken));
+                    return;
+                }
+                CountDownLatch latch = new CountDownLatch(1);
+                final CalendarUiState[] uiHolder = new CalendarUiState[1];
+                final CalendarResultForChat[] resultHolder = new CalendarResultForChat[1];
+                calendarViewModel.handleCalendarAction(action, (uiState, resultForChat) -> {
+                    uiHolder[0] = uiState;
+                    resultHolder[0] = resultForChat;
+                    latch.countDown();
+                });
+                if (!latch.await(60, TimeUnit.SECONDS)) {
+                    mainHandler.post(() -> finishResponse(
+                            t("Calendar processing timed out.", "Calendar 処理がタイムアウトしました。"),
+                            requestToken));
+                    return;
+                }
+                CalendarResultForChat result = resultHolder[0];
+                if (result == null) {
+                    mainHandler.post(() -> sendChat(null, false, requestToken));
+                    return;
+                }
+                mainHandler.post(() -> {
+                    if (requestToken != activeResponseToken) return;
+                    startThinkingIndicator(t("Calendar explaining", "Calendar説明生成中"), requestToken);
+                    sendCalendarExplanation(userMsg, result, requestToken);
+                });
+            } catch (Exception e) {
+                mainHandler.post(() -> finishResponse(
+                        t("Calendar processing failed.", "Calendar 処理に失敗しました。"),
+                        requestToken));
+            }
+        }).start();
+    }
+
+    private CalendarActionJson extractCalendarAction(String userMsg, ExpertType expertType) {
+        try {
+            String model = resolveExpertModel();
+            String nowIso8601 = OffsetDateTime.now(ZoneId.systemDefault()).toString();
+            CalendarRetryHandler retryHandler = new CalendarRetryHandler(
+                    this,
+                    prompt -> requestCalendarJudgeResponse(model, prompt, expertType)
+            );
+            return retryHandler.resolveAction(userMsg, expertType, nowIso8601);
+        } catch (Exception e) {
+            return CalendarActionJson.none(userMsg, e.getMessage());
+        }
+    }
+
+    private String requestCalendarJudgeResponse(String model, String prompt,
+                                                 ExpertType expertType) throws Exception {
+        JSONObject body = new JSONObject();
+        body.put("model", model);
+        body.put("prompt", prompt);
+        body.put("stream", false);
+        applyOllamaOptions(body);
+        StructuredOutput.applyCalendar(body, StructuredOutput.Mode.fromString(structuredOutputMode), expertType);
+        RequestBody requestBody = RequestBody.create(body.toString(), JSON_MEDIA);
+        Request request = new Request.Builder()
+                .url(ollamaBaseUrl + "/api/generate")
+                .post(requestBody)
+                .build();
+        Response response = client.newCall(request).execute();
+        String respBody = response.body() != null ? response.body().string() : "";
+        if (!response.isSuccessful()) {
+            throw new IllegalStateException("Calendar judge HTTP error: " + response.code());
+        }
+        return respBody;
+    }
+
+    private void sendCalendarExplanation(String userMsg, CalendarResultForChat resultForChat, int requestToken) {
+        try {
+            JSONArray messages = new JSONArray();
+            JSONObject systemMessage = new JSONObject();
+            systemMessage.put("role", "system");
+            systemMessage.put("content", CalendarPromptFactory.buildExplainSystemPrompt(this));
+            messages.put(systemMessage);
+            JSONObject userMessage = new JSONObject();
+            userMessage.put("role", "user");
+            userMessage.put("content", CalendarPromptFactory.buildExplainUserPrompt(this, userMsg, resultForChat, null));
+            messages.put(userMessage);
+            JSONObject body = new JSONObject();
+            body.put("model", resolveExpertModel());
+            body.put("messages", messages);
+            body.put("stream", streamingEnabled);
+            applyOllamaOptions(body);
+            Request request = new Request.Builder()
+                    .url(ollamaBaseUrl + "/api/chat")
+                    .post(RequestBody.create(body.toString(), JSON_MEDIA))
+                    .build();
+            if (streamingEnabled) {
+                sendStreaming(request, requestToken);
+            } else {
+                sendNonStreaming(request, requestToken);
+            }
+        } catch (Exception e) {
+            finishResponse(t("Calendar processing failed.", "Calendar 処理に失敗しました。"), requestToken);
+        }
+    }
+
+    private void applyOllamaOptions(JSONObject body) throws org.json.JSONException {
+        JSONObject options = new JSONObject();
+        options.put("num_ctx", CHAT_NUM_CTX);
+        options.put("num_predict", CHAT_NUM_PREDICT);
+        body.put("options", options);
+        body.put("keep_alive", CHAT_KEEP_ALIVE);
     }
 
     private void cancelCurrentRequest() {
@@ -1096,6 +1253,8 @@ public class FloatOverlayService extends Service {
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang);
         intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
         intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, preferOffline);
+        intent.putExtra("android.speech.extras.SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS", VOICE_SILENCE_COMPLETE_MS);
+        intent.putExtra("android.speech.extras.SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS", VOICE_SILENCE_POSSIBLY_COMPLETE_MS);
         return intent;
     }
 
@@ -1110,11 +1269,11 @@ public class FloatOverlayService extends Service {
             Toast.makeText(this, t("Microphone permission is required", "マイク権限が必要です"), Toast.LENGTH_SHORT).show();
             return;
         }
-        if (speechRecognizer == null) {
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
-        } else {
-            speechRecognizer.cancel();
+        if (speechRecognizer != null) {
+            speechRecognizer.destroy();
+            speechRecognizer = null;
         }
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
         isListening = true;
         updateSendButton();
         speechRecognizer.setRecognitionListener(new RecognitionListener() {
@@ -1155,7 +1314,8 @@ public class FloatOverlayService extends Service {
     private void stopVoiceRecognition() {
         isListening = false;
         if (speechRecognizer != null) {
-            speechRecognizer.cancel();
+            speechRecognizer.destroy();
+            speechRecognizer = null;
         }
         updateSendButton();
     }
@@ -1748,6 +1908,9 @@ public class FloatOverlayService extends Service {
         webSearchUrl = settings.optString("webSearchUrl", webSearchUrl);
         webSearchApiKey = settings.optString("webSearchApiKey", webSearchApiKey);
         expertModel = settings.optString("expertModel", settings.optString("webSearchModel", expertModel));
+        calendarExpertModeEnabled = settings.optBoolean("calendarExpertModeEnabled", calendarExpertModeEnabled);
+        structuredOutputMode = StructuredOutput.Mode.fromString(
+                settings.optString("structuredOutputMode", structuredOutputMode)).name();
         systemPromptText = settings.optString("systemPrompt", systemPromptText);
         baseName = settings.optString("baseName", baseName);
         userName = settings.optString("userName", userName);
