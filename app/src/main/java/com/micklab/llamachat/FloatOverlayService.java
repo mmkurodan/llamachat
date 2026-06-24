@@ -1314,8 +1314,9 @@ public class FloatOverlayService extends Service {
     private void stopVoiceRecognition() {
         isListening = false;
         if (speechRecognizer != null) {
-            speechRecognizer.destroy();
-            speechRecognizer = null;
+            // cancel() はコールバック内からでも安全。destroy() はコールバック内から呼ぶと不安定になる。
+            // 次の startVoiceRecognition() で destroy() → 再生成する。
+            speechRecognizer.cancel();
         }
         updateSendButton();
     }
