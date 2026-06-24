@@ -219,9 +219,10 @@ public class CalendarViewModel {
     }
 
     private CalendarUiState handleCreate(CalendarActionJson action) {
-        if (isBlank(action.getTitle()) || isBlank(action.getStart()) || isBlank(action.getEnd())) {
+        // end の null は CalendarRepository が start+1時間でデフォルト補完するため、ここでは弾かない。
+        if (isBlank(action.getTitle()) || isBlank(action.getStart())) {
             return new CalendarUiState(false, Collections.emptyList(), null, null, false,
-                    "INVALID_INPUT", "title, start, and end are required.");
+                    "INVALID_INPUT", "title と start は必須です。");
         }
         Event event = repository.createEvent(
                 action.getTitle(),
