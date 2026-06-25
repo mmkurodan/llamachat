@@ -1256,33 +1256,49 @@ public class FloatOverlayService extends Service {
     }
 
     private void startVoiceRecognition(boolean preferOffline) {
-        if (!voiceInputEnabled || isProcessing || isListening) return;
+        DebugLogger.log(this, "startVoiceRecognition: voiceInputEnabled=" + voiceInputEnabled
+                + " isProcessing=" + isProcessing + " isListening=" + isListening
+                + " sessionToken=" + voiceSessionToken);
+        if (!voiceInputEnabled || isProcessing || isListening) {
+            DebugLogger.log(this, "startVoiceRecognition: blocked");
+            return;
+        }
         if (!SpeechRecognizer.isRecognitionAvailable(this)) {
+            DebugLogger.log(this, "startVoiceRecognition: recognition unavailable");
             Toast.makeText(this, t("Voice recognition unavailable", "音声認識が利用できません"), Toast.LENGTH_SHORT).show();
             return;
         }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
                 && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+            DebugLogger.log(this, "startVoiceRecognition: RECORD_AUDIO permission missing");
             Toast.makeText(this, t("Microphone permission is required", "マイク権限が必要です"), Toast.LENGTH_SHORT).show();
             return;
         }
         if (speechRecognizer == null) {
             speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+            DebugLogger.log(this, "startVoiceRecognition: new recognizer created");
+        } else {
+            DebugLogger.log(this, "startVoiceRecognition: reusing existing recognizer");
         }
-        // onResults/onError 後は認識器が idle 状態のため cancel() 不要。
-        // cancel() を呼ぶと stale な onError が新リスナーに届き次セッションを即終了させる。
         final int sessionToken = ++voiceSessionToken;
         isListening = true;
         updateSendButton();
+        DebugLogger.log(this, "startVoiceRecognition: started session=" + sessionToken);
         speechRecognizer.setRecognitionListener(new RecognitionListener() {
-            @Override public void onReadyForSpeech(Bundle params) {}
+            @Override public void onReadyForSpeech(Bundle params) {
+                DebugLogger.log(FloatOverlayService.this, "voice onReadyForSpeech session=" + sessionToken);
+            }
             @Override public void onBeginningOfSpeech() {}
             @Override public void onRmsChanged(float rmsdB) {}
             @Override public void onBufferReceived(byte[] buffer) {}
-            @Override public void onEndOfSpeech() {}
+            @Override public void onEndOfSpeech() {
+                DebugLogger.log(FloatOverlayService.this, "voice onEndOfSpeech session=" + sessionToken);
+            }
             @Override
             public void onError(int error) {
-                stopVoiceRecognition();  // 常にリセット（stale でも isListening を戻す）
+                DebugLogger.log(FloatOverlayService.this, "voice onError error=" + error
+                        + " session=" + sessionToken + " current=" + voiceSessionToken);
+                stopVoiceRecognition();
                 if (sessionToken != voiceSessionToken) return;
                 if (error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT
                         && error != SpeechRecognizer.ERROR_NO_MATCH) {
@@ -1291,15 +1307,21 @@ public class FloatOverlayService extends Service {
             }
             @Override
             public void onResults(Bundle results) {
-                stopVoiceRecognition();  // 常にリセット（stale でも isListening を戻す）
-                if (sessionToken != voiceSessionToken) return;
+                DebugLogger.log(FloatOverlayService.this, "voice onResults session=" + sessionToken
+                        + " current=" + voiceSessionToken);
+                stopVoiceRecognition();
+                if (sessionToken != voiceSessionToken) {
+                    DebugLogger.log(FloatOverlayService.this, "voice onResults: stale session, dropping");
+                    return;
+                }
                 ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                 String best = (matches != null && !matches.isEmpty()) ? matches.get(0).trim() : "";
+                DebugLogger.log(FloatOverlayService.this, "voice onResults: best=\"" + best + "\"");
                 if (best.isEmpty()) return;
                 if (bubblePanel != null && bubblePanel.getVisibility() != View.VISIBLE) {
                     showBubble(true);
                 }
-                submitUserMessage(best);  // mainActivity と同様に直接呼び出し（post 遅延を排除）
+                submitUserMessage(best);
             }
             @Override public void onPartialResults(Bundle partialResults) {}
             @Override public void onEvent(int eventType, Bundle params) {}
