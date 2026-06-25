@@ -24,9 +24,23 @@ public final class CalendarExpertHandler {
     private static final Pattern RELATIVE_DURATION_PATTERN = Pattern.compile(
             "今から\\s*(\\d{1,2})時間(半)?"
     );
+    // 「YYYY年M月D日[午前|午後]N時[M分][から|に]」絶対日付＋時刻（相対日付パターンより先に評価）
+    private static final Pattern ABSOLUTE_DATE_DURATION_PATTERN = Pattern.compile(
+            "(\\d{4})年(\\d{1,2})月(\\d{1,2})日(?:の)?\\s*(午前|午後)?\\s*(\\d{1,2})時(?:\\s*(\\d{1,2})分)?\\s*(?:から|より)\\s*(\\d{1,2})時間(半)?"
+    );
+    private static final Pattern ABSOLUTE_DATE_RANGE_PATTERN = Pattern.compile(
+            "(\\d{4})年(\\d{1,2})月(\\d{1,2})日(?:の)?\\s*(午前|午後)?\\s*(\\d{1,2})時(?:\\s*(\\d{1,2})分)?\\s*(?:から|より|〜|~|-|ー)\\s*(午前|午後)?\\s*(\\d{1,2})時(?:\\s*(\\d{1,2})分)?"
+    );
+    private static final Pattern ABSOLUTE_DATE_TIME_ONLY_PATTERN = Pattern.compile(
+            "(\\d{4})年(\\d{1,2})月(\\d{1,2})日(?:の)?\\s*(午前|午後)?\\s*(\\d{1,2})時(?!\\s*間)(?:\\s*(\\d{1,2})分)?\\s*(?:から|に|ごろ|頃)?"
+    );
     // 「N時から」「N時に」など終了時刻・時間指定なしの時刻表現（「N時間」は除外）
     private static final Pattern TIME_ONLY_PATTERN = Pattern.compile(
             "(?:(今日|本日|明日|あした|明後日|あさって)(?:の)?\\s*)?(午前|午後)?\\s*(\\d{1,2})時(?!\\s*間)(?:\\s*(\\d{1,2})分)?\\s*(?:から|に|ごろ|頃)?"
+    );
+    // タイトルから除去する絶対日付表現
+    private static final Pattern ABSOLUTE_DATE_STRIP_PATTERN = Pattern.compile(
+            "\\d{4}年\\d{1,2}月\\d{1,2}日(?:の)?"
     );
     private static final Pattern TITLE_BEFORE_SCHEDULE_PATTERN = Pattern.compile(
             "(.+?)(?:の)?(?:予定|イベント|日程|スケジュール)"
@@ -64,9 +78,52 @@ public final class CalendarExpertHandler {
         );
     }
 
+    private LocalDate resolveAbsoluteDate(String year, String month, String day) {
+        try {
+            return LocalDate.of(Integer.parseInt(year), Integer.parseInt(month), Integer.parseInt(day));
+        } catch (Exception e) {
+            return LocalDate.now(ZoneId.systemDefault());
+        }
+    }
+
     private TimeRange parseTimeRange(String userInput) {
         String source = userInput == null ? "" : userInput;
         OffsetDateTime now = OffsetDateTime.now(ZoneId.systemDefault()).withSecond(0).withNano(0);
+
+        // 絶対日付パターンを相対日付パターンより先に評価
+        Matcher absDurMatcher = ABSOLUTE_DATE_DURATION_PATTERN.matcher(source);
+        if (absDurMatcher.find()) {
+            LocalDate date = resolveAbsoluteDate(absDurMatcher.group(1), absDurMatcher.group(2), absDurMatcher.group(3));
+            OffsetDateTime start = OffsetDateTime.of(date,
+                    LocalTime.of(resolveHour(absDurMatcher.group(4), absDurMatcher.group(5)),
+                            parseMinute(absDurMatcher.group(6))), now.getOffset());
+            int durationMinutes = Integer.parseInt(absDurMatcher.group(7)) * 60
+                    + (absDurMatcher.group(8) == null ? 0 : 30);
+            return new TimeRange(absDurMatcher.group(0), start, start.plusMinutes(durationMinutes));
+        }
+
+        Matcher absRangeMatcher = ABSOLUTE_DATE_RANGE_PATTERN.matcher(source);
+        if (absRangeMatcher.find()) {
+            LocalDate date = resolveAbsoluteDate(absRangeMatcher.group(1), absRangeMatcher.group(2), absRangeMatcher.group(3));
+            OffsetDateTime start = OffsetDateTime.of(date,
+                    LocalTime.of(resolveHour(absRangeMatcher.group(4), absRangeMatcher.group(5)),
+                            parseMinute(absRangeMatcher.group(6))), now.getOffset());
+            String endMeridiem = absRangeMatcher.group(7) == null ? absRangeMatcher.group(4) : absRangeMatcher.group(7);
+            OffsetDateTime end = OffsetDateTime.of(date,
+                    LocalTime.of(resolveHour(endMeridiem, absRangeMatcher.group(8)),
+                            parseMinute(absRangeMatcher.group(9))), now.getOffset());
+            if (!end.isAfter(start)) end = end.plusDays(1);
+            return new TimeRange(absRangeMatcher.group(0), start, end);
+        }
+
+        Matcher absTimeMatcher = ABSOLUTE_DATE_TIME_ONLY_PATTERN.matcher(source);
+        if (absTimeMatcher.find()) {
+            LocalDate date = resolveAbsoluteDate(absTimeMatcher.group(1), absTimeMatcher.group(2), absTimeMatcher.group(3));
+            OffsetDateTime start = OffsetDateTime.of(date,
+                    LocalTime.of(resolveHour(absTimeMatcher.group(4), absTimeMatcher.group(5)),
+                            parseMinute(absTimeMatcher.group(6))), now.getOffset());
+            return new TimeRange(absTimeMatcher.group(0), start, start.plusHours(1));
+        }
 
         Matcher durationMatcher = DATE_DURATION_PATTERN.matcher(source);
         if (durationMatcher.find()) {
@@ -178,6 +235,7 @@ public final class CalendarExpertHandler {
             }
         }
 
+        working = ABSOLUTE_DATE_STRIP_PATTERN.matcher(working).replaceAll(" ");
         working = working
                 .replaceAll("(今日|本日|明日|あした|明後日|あさって)", " ")
                 .replaceAll("今から\\s*\\d{1,2}時間半?", " ")
