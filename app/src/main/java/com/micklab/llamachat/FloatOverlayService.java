@@ -1299,6 +1299,23 @@ public class FloatOverlayService extends Service {
             public void onError(int error) {
                 DebugLogger.log(FloatOverlayService.this, "voice onError error=" + error
                         + " session=" + sessionToken + " current=" + voiceSessionToken);
+                // ERROR_RECOGNIZER_BUSY(11): 前セッションのサービス解放待ち → 再生成して再試行
+                if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
+                        && sessionToken == voiceSessionToken) {
+                    DebugLogger.log(FloatOverlayService.this, "voice RECOGNIZER_BUSY: retry after 700ms session=" + sessionToken);
+                    mainHandler.postDelayed(() -> {
+                        if (sessionToken != voiceSessionToken) return;
+                        if (speechRecognizer != null) {
+                            speechRecognizer.destroy();
+                            speechRecognizer = null;
+                        }
+                        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(FloatOverlayService.this);
+                        speechRecognizer.setRecognitionListener(this);
+                        speechRecognizer.startListening(buildRecognizerIntent(preferOffline));
+                        DebugLogger.log(FloatOverlayService.this, "voice RECOGNIZER_BUSY: retried session=" + sessionToken);
+                    }, 700);
+                    return;
+                }
                 stopVoiceRecognition();
                 if (sessionToken != voiceSessionToken) return;
                 if (error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT
