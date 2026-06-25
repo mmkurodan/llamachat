@@ -190,6 +190,7 @@ public class FloatOverlayService extends Service {
     private final CalendarExpertHandler calendarExpertHandler = new CalendarExpertHandler();
     private boolean isProcessing = false;
     private boolean isListening = false;
+    private int voiceSessionToken = 0;
     private boolean isStreamingResponse = false;
     private int messageMaxHeightPx = 0;
     private int avatarPosX = 0;
@@ -312,7 +313,7 @@ public class FloatOverlayService extends Service {
             currentCall.cancel();
             currentCall = null;
         }
-        stopVoiceRecognition();
+        cancelVoiceRecognition();
         if (speechRecognizer != null) {
             speechRecognizer.destroy();
             speechRecognizer = null;
@@ -475,7 +476,7 @@ public class FloatOverlayService extends Service {
     
             sendButton.setOnClickListener(v -> {
                 if (isListening) {
-                    stopVoiceRecognition();
+                    cancelVoiceRecognition();
                     return;
                 }
                 if (isProcessing) {
@@ -1027,7 +1028,7 @@ public class FloatOverlayService extends Service {
             currentCall = null;
         }
         isProcessing = false;
-        stopVoiceRecognition();
+        cancelVoiceRecognition();
         updateAvatarAnimation();
         updateSendButton();
         currentResponseBubble = null;
@@ -1265,12 +1266,13 @@ public class FloatOverlayService extends Service {
             Toast.makeText(this, t("Microphone permission is required", "マイク権限が必要です"), Toast.LENGTH_SHORT).show();
             return;
         }
-        if (speechRecognizer != null) {
-            speechRecognizer.destroy();
-            speechRecognizer = null;
+        if (speechRecognizer == null) {
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
+        } else {
+            speechRecognizer.cancel();
         }
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
         isListening = true;
+        final int sessionToken = ++voiceSessionToken;
         updateSendButton();
         speechRecognizer.setRecognitionListener(new RecognitionListener() {
             @Override public void onReadyForSpeech(Bundle params) {}
@@ -1280,6 +1282,7 @@ public class FloatOverlayService extends Service {
             @Override public void onEndOfSpeech() {}
             @Override
             public void onError(int error) {
+                if (sessionToken != voiceSessionToken) return;
                 stopVoiceRecognition();
                 if (error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT
                         && error != SpeechRecognizer.ERROR_NO_MATCH) {
@@ -1288,12 +1291,11 @@ public class FloatOverlayService extends Service {
             }
             @Override
             public void onResults(Bundle results) {
+                if (sessionToken != voiceSessionToken) return;
                 stopVoiceRecognition();
                 ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                 String best = (matches != null && !matches.isEmpty()) ? matches.get(0).trim() : "";
                 if (!best.isEmpty()) {
-                    // 音声認識結果をパネルに確実に表示するため、バブルパネルが非表示なら開く。
-                    // その後 mainHandler.post でUIスレッドのキューに積み、View操作を安全に行う。
                     if (bubblePanel != null && bubblePanel.getVisibility() != View.VISIBLE) {
                         showBubble(true);
                     }
@@ -1309,9 +1311,13 @@ public class FloatOverlayService extends Service {
 
     private void stopVoiceRecognition() {
         isListening = false;
+        updateSendButton();
+    }
+
+    private void cancelVoiceRecognition() {
+        voiceSessionToken++;
+        isListening = false;
         if (speechRecognizer != null) {
-            // cancel() はコールバック内からでも安全。destroy() はコールバック内から呼ぶと不安定になる。
-            // 次の startVoiceRecognition() で destroy() → 再生成する。
             speechRecognizer.cancel();
         }
         updateSendButton();
