@@ -700,6 +700,31 @@ public class FloatOverlayService extends Service {
         logNotificationState("ensureForegroundNotification:end");
     }
 
+    /**
+     * 音声認識中だけ前景サービス種別に microphone を追加し、終了時は dataSync のみへ戻す。
+     *
+     * Android 11+ では前景サービスからマイクを使うのに microphone 種別が必須で、無いと
+     * フロート（他アプリ上＝アプリ非前景）でのマイク入力が無音になり ~8秒後に NO_MATCH となる
+     * （MainActivity は Activity が前景なので種別に依らずマイクが通り、問題が出ない）。
+     * 常時 microphone を付けると RECORD_AUDIO 未許可やバックグラウンド起動時に Android 14 で
+     * 例外になり得るため、ユーザー操作で認識を開始する瞬間にだけ昇格させる。
+     */
+    private void setMicrophoneForegroundType(boolean micActive) {
+        if (!foregroundStarted) return;                       // 基盤の前景化前は ensureForegroundNotification に委ねる
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return;  // API28-: FGS 種別の概念が無い
+        try {
+            int type = ServiceInfo.FOREGROUND_SERVICE_TYPE_DATA_SYNC;
+            if (micActive) {
+                type |= ServiceInfo.FOREGROUND_SERVICE_TYPE_MICROPHONE;
+            }
+            ServiceCompat.startForeground(this, NOTIFICATION_ID, buildNotification(), type);
+            DebugLogger.log(this, "FGS type updated micActive=" + micActive);
+        } catch (Exception e) {
+            // RECORD_AUDIO 未許可や状態的に昇格不可な場合など。認識自体は続行する（無音の可能性あり）。
+            DebugLogger.log(this, "setMicrophoneForegroundType failed micActive=" + micActive + ": " + e.getMessage());
+        }
+    }
+
     private void logNotificationState(String stage) {
         try {
             NotificationManager manager = (NotificationManager) getSystemService(NOTIFICATION_SERVICE);
@@ -1274,6 +1299,10 @@ public class FloatOverlayService extends Service {
             @Override
             public void onListeningChanged(boolean listening) {
                 isListening = listening;
+                // 認識開始の瞬間に microphone 種別へ昇格し、終了で dataSync のみへ戻す。
+                // start() は onListeningChanged(true)→startListeningInternal の順で呼ぶため、
+                // レコグナイザがマイクを開く直前に種別が有効化される。
+                setMicrophoneForegroundType(listening);
                 updateSendButton();
             }
 
