@@ -190,7 +190,26 @@ public class FloatOverlayService extends Service {
     private final CalendarExpertHandler calendarExpertHandler = new CalendarExpertHandler();
     private boolean isProcessing = false;
     private boolean isListening = false;
-    private int voiceSessionToken = 0;
+    // 音声認識は MainActivity と共有する VoiceInputController に委譲（完全同一仕様）。
+    private VoiceInputController voiceController;
+    // 会話ログ共有ストア（MainActivity と同一プロセスで共有）。
+    private ConversationStore conversationStore;
+    private int storeRenderedCount = 0;
+    private final ConversationStore.Listener storeListener = new ConversationStore.Listener() {
+        @Override
+        public void onEntryAppended(int newSize) {
+            mainHandler.post(() -> renderStoreDelta());
+        }
+
+        @Override
+        public void onCleared() {
+            mainHandler.post(() -> {
+                clearOverlayMessages();
+                initConversationHistory();
+                storeRenderedCount = 0;
+            });
+        }
+    };
     private boolean isStreamingResponse = false;
     private int messageMaxHeightPx = 0;
     private int avatarPosX = 0;
@@ -227,7 +246,6 @@ public class FloatOverlayService extends Service {
     private boolean dragging = false;
     private boolean draggingBubble = false;
     private int touchSlop = 0;
-    private SpeechRecognizer speechRecognizer;
     private TextToSpeech tts;
     private boolean ttsReady = false;
     private final AtomicBoolean ttsSpeaking = new AtomicBoolean(false);
@@ -267,6 +285,7 @@ public class FloatOverlayService extends Service {
             loadSettings();
             DebugLogger.log(this, "Settings loaded. floatDisplayMode=" + floatDisplayMode);
             calendarViewModel = new CalendarViewModel(new CalendarRepository(this));
+            conversationStore = ConversationStore.get(this);
             
             DebugLogger.log(this, "Loading avatar bitmaps");
             loadAvatarBitmaps();
@@ -313,10 +332,12 @@ public class FloatOverlayService extends Service {
             currentCall.cancel();
             currentCall = null;
         }
-        cancelVoiceRecognition();
-        if (speechRecognizer != null) {
-            speechRecognizer.destroy();
-            speechRecognizer = null;
+        if (voiceController != null) {
+            voiceController.destroy();
+            voiceController = null;
+        }
+        if (conversationStore != null) {
+            conversationStore.removeListener(storeListener);
         }
         if (tts != null) {
             tts.stop();
@@ -859,10 +880,12 @@ public class FloatOverlayService extends Service {
         if (inputView != null) {
             inputView.setText("");
         }
-        clearOverlayMessages();
+        // 共有ログを残すため、従来の clearOverlayMessages() は行わない。
         appendUserMessageBubble(userMessage);
-        appendSharedConversationLog("user", userMessage);
         addToHistory("user", userMessage);
+        // 共有ストアへ発行（MainActivity と同期）。自分は描画済みのため renderedCount を進める。
+        conversationStore.append("user", userMessage);
+        storeRenderedCount = conversationStore.size();
         isProcessing = true;
         startThinkingIndicator(t("Thinking", "思考中"), requestToken);
         updateNotificationResponse(t("Generating response...", "応答を生成中..."));
@@ -1243,117 +1266,63 @@ public class FloatOverlayService extends Service {
         return sb.toString();
     }
 
-    private Intent buildRecognizerIntent(boolean preferOffline) {
-        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        String lang = (speechLang != null && !speechLang.isEmpty())
-                ? speechLang
-                : Locale.getDefault().toLanguageTag();
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang);
-        intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
-        intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, preferOffline);
-        return intent;
-    }
+    private void ensureVoiceController() {
+        if (voiceController != null) {
+            return;
+        }
+        voiceController = new VoiceInputController(this, new VoiceInputController.Callback() {
+            @Override
+            public void onListeningChanged(boolean listening) {
+                isListening = listening;
+                updateSendButton();
+            }
 
-    private void startVoiceRecognition(boolean preferOffline) {
-        DebugLogger.log(this, "startVoiceRecognition: voiceInputEnabled=" + voiceInputEnabled
-                + " isProcessing=" + isProcessing + " isListening=" + isListening
-                + " sessionToken=" + voiceSessionToken);
-        if (!voiceInputEnabled || isProcessing || isListening) {
-            DebugLogger.log(this, "startVoiceRecognition: blocked");
-            return;
-        }
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            DebugLogger.log(this, "startVoiceRecognition: recognition unavailable");
-            Toast.makeText(this, t("Voice recognition unavailable", "音声認識が利用できません"), Toast.LENGTH_SHORT).show();
-            return;
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
-                && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            DebugLogger.log(this, "startVoiceRecognition: RECORD_AUDIO permission missing");
-            Toast.makeText(this, t("Microphone permission is required", "マイク権限が必要です"), Toast.LENGTH_SHORT).show();
-            return;
-        }
-        if (speechRecognizer != null) {
-            speechRecognizer.destroy();
-            speechRecognizer = null;
-            DebugLogger.log(this, "startVoiceRecognition: old recognizer destroyed");
-        }
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
-        DebugLogger.log(this, "startVoiceRecognition: new recognizer created");
-        final int sessionToken = ++voiceSessionToken;
-        isListening = true;
-        updateSendButton();
-        DebugLogger.log(this, "startVoiceRecognition: started session=" + sessionToken);
-        speechRecognizer.setRecognitionListener(new RecognitionListener() {
-            @Override public void onReadyForSpeech(Bundle params) {
-                DebugLogger.log(FloatOverlayService.this, "voice onReadyForSpeech session=" + sessionToken);
-                if (sessionToken == voiceSessionToken) {
-                    isListening = true;
-                    updateSendButton();
-                }
-            }
-            @Override public void onBeginningOfSpeech() {}
-            @Override public void onRmsChanged(float rmsdB) {}
-            @Override public void onBufferReceived(byte[] buffer) {}
-            @Override public void onEndOfSpeech() {
-                DebugLogger.log(FloatOverlayService.this, "voice onEndOfSpeech session=" + sessionToken);
-            }
             @Override
-            public void onError(int error) {
-                DebugLogger.log(FloatOverlayService.this, "voice onError error=" + error
-                        + " session=" + sessionToken + " current=" + voiceSessionToken);
-                // ERROR_RECOGNIZER_BUSY(11): 自己回復する場合は onReadyForSpeech が直後に来る。
-                // リトライで destroy すると回復中のセッションを破壊するため行わない。
-                // isListening だけリセットし、onReadyForSpeech で再 true にして状態を正確に保つ。
-                if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
-                    DebugLogger.log(FloatOverlayService.this, "voice RECOGNIZER_BUSY: reset state, waiting for self-recovery session=" + sessionToken);
-                    stopVoiceRecognition();
-                    if (sessionToken != voiceSessionToken) return;
-                    return;
-                }
-                stopVoiceRecognition();
-                if (sessionToken != voiceSessionToken) return;
-                if (error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT
-                        && error != SpeechRecognizer.ERROR_NO_MATCH) {
-                    Toast.makeText(FloatOverlayService.this, t("Voice recognition failed", "音声認識に失敗しました"), Toast.LENGTH_SHORT).show();
-                }
-            }
-            @Override
-            public void onResults(Bundle results) {
-                DebugLogger.log(FloatOverlayService.this, "voice onResults session=" + sessionToken
-                        + " current=" + voiceSessionToken);
-                stopVoiceRecognition();
-                if (sessionToken != voiceSessionToken) {
-                    DebugLogger.log(FloatOverlayService.this, "voice onResults: stale session, dropping");
-                    return;
-                }
-                ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
-                String best = (matches != null && !matches.isEmpty()) ? matches.get(0).trim() : "";
-                DebugLogger.log(FloatOverlayService.this, "voice onResults: best=\"" + best + "\"");
-                if (best.isEmpty()) return;
+            public void onResult(String text) {
                 if (bubblePanel != null && bubblePanel.getVisibility() != View.VISIBLE) {
                     showBubble(true);
                 }
-                submitUserMessage(best);
+                submitUserMessage(text);
             }
-            @Override public void onPartialResults(Bundle partialResults) {}
-            @Override public void onEvent(int eventType, Bundle params) {}
+
+            @Override
+            public boolean ensureRecordPermission() {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M
+                        && checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                    Toast.makeText(FloatOverlayService.this,
+                            t("Microphone permission is required", "マイク権限が必要です"),
+                            Toast.LENGTH_SHORT).show();
+                    return false;
+                }
+                return true;
+            }
+
+            @Override
+            public void toast(String enText, String jaText) {
+                Toast.makeText(FloatOverlayService.this, t(enText, jaText), Toast.LENGTH_SHORT).show();
+            }
+
+            @Override
+            public void onIdle() {
+                // フロートには auto-chatter が無いため何もしない。
+            }
         });
-        speechRecognizer.startListening(buildRecognizerIntent(preferOffline));
     }
 
-    private void stopVoiceRecognition() {
-        isListening = false;
-        updateSendButton();
+    private void startVoiceRecognition(boolean preferOffline) {
+        if (!voiceInputEnabled || isProcessing || isListening) {
+            return;
+        }
+        ensureVoiceController();
+        voiceController.setLanguage(speechLang);
+        voiceController.start(preferOffline);
     }
 
     private void cancelVoiceRecognition() {
-        voiceSessionToken++;
-        isListening = false;
-        if (speechRecognizer != null) {
-            speechRecognizer.cancel();
+        if (voiceController != null) {
+            voiceController.cancel();
         }
+        isListening = false;
         updateSendButton();
     }
 
@@ -1513,7 +1482,9 @@ public class FloatOverlayService extends Service {
         boolean hasAssistantContent = !TextUtils.isEmpty(responseText) && !responseText.startsWith(t("Error: ", "エラー: "));
         if (hasAssistantContent) {
             addToHistory("assistant", responseText);
-            appendSharedConversationLog("assistant", responseText);
+            // 共有ストアへ発行（MainActivity と同期）。バブルは setResponseText で描画済みのため renderedCount を進める。
+            conversationStore.append("assistant", responseText);
+            storeRenderedCount = conversationStore.size();
         }
         isProcessing = false;
         updateAvatarAnimation();
@@ -1622,6 +1593,8 @@ public class FloatOverlayService extends Service {
             if (isListening) {
                 cancelVoiceRecognition();
             }
+            // 非表示中に MainActivity 側で追記された差分を取り込む。
+            renderStoreDelta();
             updateBubbleHeader();
             updateSendButton();
             updateFloatVisual();
@@ -1633,11 +1606,51 @@ public class FloatOverlayService extends Service {
         }
         initOverlay();
         overlayInitialized = true;
+        // 共有ログ全体を再構築して表示し、ストアの更新を購読する。
+        rebuildFromStore();
+        if (conversationStore == null) {
+            conversationStore = ConversationStore.get(this);
+        }
+        conversationStore.addListener(storeListener);
         DebugLogger.log(this, "Overlay initialized successfully");
+    }
+
+    /** 共有ストアの内容で会話履歴とバブルを丸ごと再構築する（オーバーレイ生成時）。 */
+    private void rebuildFromStore() {
+        if (conversationStore == null) {
+            conversationStore = ConversationStore.get(this);
+        }
+        clearOverlayMessages();
+        initConversationHistory();
+        storeRenderedCount = 0;
+        renderStoreDelta();
+    }
+
+    /** 共有ストアの未描画分（storeRenderedCount 以降）だけをバブル化し会話履歴へ追記する。 */
+    private void renderStoreDelta() {
+        if (conversationStore == null || messageContainer == null) {
+            return;
+        }
+        java.util.List<ConversationStore.Entry> snap = conversationStore.snapshot();
+        for (int i = storeRenderedCount; i < snap.size(); i++) {
+            ConversationStore.Entry e = snap.get(i);
+            if ("user".equals(e.role)) {
+                appendUserMessageBubble(e.content);
+                addToHistory("user", e.content);
+            } else {
+                appendAssistantMessageBubble(e.content);
+                addToHistory("assistant", e.content);
+            }
+        }
+        storeRenderedCount = snap.size();
+        scrollMessagesToBottom();
     }
 
     private void teardownOverlay() {
         hideKeyboard();
+        if (conversationStore != null) {
+            conversationStore.removeListener(storeListener);
+        }
         if (windowManager != null && overlayView != null) {
             try {
                 windowManager.removeView(overlayView);
@@ -1766,25 +1779,6 @@ public class FloatOverlayService extends Service {
         }, delay);
     }
 
-    private void appendSharedConversationLog(String role, String content) {
-        if (TextUtils.isEmpty(role) || TextUtils.isEmpty(content)) return;
-        try {
-            JSONObject item = new JSONObject();
-            item.put("role", role);
-            item.put("content", content);
-            try (FileOutputStream fos = openFileOutput(OVERLAY_SYNC_LOG_FILE, MODE_APPEND)) {
-                fos.write((item.toString() + "\n").getBytes(StandardCharsets.UTF_8));
-                fos.flush();
-            }
-            trimOverlaySyncLog();
-            Intent syncIntent = new Intent(ACTION_OVERLAY_SYNC_UPDATED);
-            syncIntent.setPackage(getPackageName());
-            sendBroadcast(syncIntent);
-        } catch (Exception e) {
-            DebugLogger.log(this, "appendSharedConversationLog failed: " + e.getMessage());
-        }
-    }
-
     private void initConversationHistory() {
         synchronized (historyLock) {
             conversationHistory.clear();
@@ -1826,34 +1820,6 @@ public class FloatOverlayService extends Service {
         int maxRows = Math.max(24, historyLimit * 4);
         while (messageContainer.getChildCount() > maxRows) {
             messageContainer.removeViewAt(0);
-        }
-    }
-
-    private void trimOverlaySyncLog() {
-        try {
-            List<String> retained = new ArrayList<>();
-            try (FileInputStream fis = openFileInput(OVERLAY_SYNC_LOG_FILE);
-                 BufferedReader reader = new BufferedReader(new InputStreamReader(fis, StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    String trimmed = line.trim();
-                    if (trimmed.isEmpty()) {
-                        continue;
-                    }
-                    retained.add(trimmed);
-                    if (retained.size() > MAX_SYNC_LOG_LINES) {
-                        retained.remove(0);
-                    }
-                }
-            }
-            try (FileOutputStream fos = openFileOutput(OVERLAY_SYNC_LOG_FILE, MODE_PRIVATE)) {
-                for (String line : retained) {
-                    fos.write((line + "\n").getBytes(StandardCharsets.UTF_8));
-                }
-                fos.flush();
-            }
-        } catch (Exception e) {
-            DebugLogger.log(this, "trimOverlaySyncLog failed: " + e.getMessage());
         }
     }
 

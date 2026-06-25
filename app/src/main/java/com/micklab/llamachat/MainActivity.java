@@ -353,10 +353,27 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     // --- Avatar ---
     private final Handler avatarHandler = new Handler(Looper.getMainLooper());
     private final Handler autoHandler = new Handler(Looper.getMainLooper());
-    private final BroadcastReceiver overlaySyncReceiver = new BroadcastReceiver() {
+    // 会話ログ共有ストア（FloatOverlayService と同一プロセスで共有）。
+    private ConversationStore conversationStore;
+    private int storeRenderedCount = 0;
+    private final ConversationStore.Listener storeListener = new ConversationStore.Listener() {
         @Override
-        public void onReceive(Context context, Intent intent) {
-            importOverlaySyncLog();
+        public void onEntryAppended(int newSize) {
+            runOnUiThread(MainActivity.this::importOverlaySyncLog);
+        }
+
+        @Override
+        public void onCleared() {
+            runOnUiThread(() -> {
+                if (messageContainer != null) {
+                    messageContainer.removeAllViews();
+                }
+                currentStreamingBubble = null;
+                currentThinkingBubble = null;
+                initConversationHistory();
+                storeRenderedCount = 0;
+                requestChatLayoutUpdate();
+            });
         }
     };
     private final Random avatarRandom = new Random();
@@ -484,10 +501,9 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     };
 
     // --- Voice Recognition ---
-    private SpeechRecognizer speechRecognizer;
+    // 音声認識は FloatOverlayService と共有する VoiceInputController に委譲する（完全同一仕様）。
+    private VoiceInputController voiceController;
     private boolean pendingVoiceStart = false;
-    private boolean triedOnlineFallback = false;
-    private boolean currentPreferOffline = true;
 
     // --- Help/Privacy/Rights Content ---
     private static final String HELP_TEXT_EN =
@@ -670,6 +686,7 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         setContentView(R.layout.activity_main);
         calendarSignInHelper = new CalendarSignInHelper(this);
         calendarViewModel = new CalendarViewModel(new CalendarRepository(this));
+        conversationStore = ConversationStore.get(this);
 
         // Request necessary permissions on first launch
         requestPermissionsOnFirstLaunch();
@@ -1308,12 +1325,10 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (overlaySyncReceiverRegistered) {
             return;
         }
-        IntentFilter filter = new IntentFilter(FloatOverlayService.ACTION_OVERLAY_SYNC_UPDATED);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            registerReceiver(overlaySyncReceiver, filter, Context.RECEIVER_NOT_EXPORTED);
-        } else {
-            registerReceiver(overlaySyncReceiver, filter);
+        if (conversationStore == null) {
+            conversationStore = ConversationStore.get(this);
         }
+        conversationStore.addListener(storeListener);
         overlaySyncReceiverRegistered = true;
     }
 
@@ -1321,7 +1336,9 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (!overlaySyncReceiverRegistered) {
             return;
         }
-        unregisterReceiver(overlaySyncReceiver);
+        if (conversationStore != null) {
+            conversationStore.removeListener(storeListener);
+        }
         overlaySyncReceiverRegistered = false;
     }
 
@@ -2472,6 +2489,12 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
 
     private void handleAssistantResponseComplete(ChatSpeaker speaker, String responseText) {
         runOnUiThread(() -> {
+            // BASE のアシスタント確定ターンを共有ストアへ発行（Float と同期）。
+            // バブルは既に描画済みのため renderedCount を進めて二重描画を防ぐ。
+            if (speaker == ChatSpeaker.BASE && responseText != null && !responseText.trim().isEmpty()) {
+                conversationStore.append("assistant", responseText);
+                storeRenderedCount = conversationStore.size();
+            }
             if (autoChatterEnabled) {
                 if (responseText != null && !responseText.trim().isEmpty()) {
                     if (speaker == ChatSpeaker.BASE) {
@@ -3329,40 +3352,37 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     }
 
     private void clearOverlaySyncLog() {
-        File file = new File(getFilesDir(), OVERLAY_SYNC_LOG_FILE);
-        if (file.exists() && !file.delete()) {
-            Log.w(TAG, "Failed to clear overlay sync log");
+        if (conversationStore == null) {
+            conversationStore = ConversationStore.get(this);
         }
+        conversationStore.clear();
     }
 
+    /**
+     * 共有ストア（{@link ConversationStore}）から未描画分の差分のみを取り込んで描画する。
+     * FloatOverlayService 側で追記された会話を MainActivity 側へ反映する経路でもある。
+     * 自分が追記したターンは append 直後に storeRenderedCount を進めてあるため二重描画されない。
+     */
     private void importOverlaySyncLog() {
-        File file = new File(getFilesDir(), OVERLAY_SYNC_LOG_FILE);
-        if (!file.exists()) return;
+        if (conversationStore == null) {
+            conversationStore = ConversationStore.get(this);
+        }
+        List<ConversationStore.Entry> snap = conversationStore.snapshot();
         boolean imported = false;
-        try {
-            for (String line : readRecentLogLines(file, MAX_OVERLAY_SYNC_IMPORT_LINES)) {
-                JSONObject item = new JSONObject(line);
-                String role = item.optString("role", "").trim();
-                String content = item.optString("content", "").trim();
-                if (content.isEmpty()) continue;
-                if ("user".equals(role)) {
-                    appendUserMessage(content);
-                    addToHistory(conversationHistory, "user", content);
-                    imported = true;
-                } else if ("assistant".equals(role)) {
-                    appendAssistantMessage(ChatSpeaker.BASE, content);
-                    addToHistory(conversationHistory, "assistant", content);
-                    lastBaseResponse = content;
-                    imported = true;
-                }
-            }
-        } catch (Exception e) {
-            Log.w(TAG, "importOverlaySyncLog failed", e);
-        } finally {
-            if (file.exists() && !file.delete()) {
-                Log.w(TAG, "Failed to delete overlay sync log");
+        for (int i = storeRenderedCount; i < snap.size(); i++) {
+            ConversationStore.Entry e = snap.get(i);
+            if ("user".equals(e.role)) {
+                appendUserMessage(e.content);
+                addToHistory(conversationHistory, "user", e.content);
+                imported = true;
+            } else if ("assistant".equals(e.role)) {
+                appendAssistantMessage(ChatSpeaker.BASE, e.content);
+                addToHistory(conversationHistory, "assistant", e.content);
+                lastBaseResponse = e.content;
+                imported = true;
             }
         }
+        storeRenderedCount = snap.size();
         if (imported) {
             requestChatLayoutUpdate();
             maybeScrollToBottom(true);
@@ -3557,6 +3577,9 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         etInput.setText("");
         appendUserMessage(userMsg);
         addToHistory(conversationHistory, "user", userMsg);
+        // 共有ストアへ発行（Float と同期）。自分は描画済みのため renderedCount を進めて二重描画を防ぐ。
+        conversationStore.append("user", userMsg);
+        storeRenderedCount = conversationStore.size();
         boolean webAvailable = isWebSearchExpertAvailable();
         // SEMANTIC_ONLY: skip keyword matching entirely and go straight to embedding routing.
         if ("SEMANTIC_ONLY".equals(routingMode) && shouldUseSemanticRouting(webAvailable)) {
@@ -4507,99 +4530,52 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         return sb.toString();
     }
 
-    private Intent buildRecognizerIntent(boolean preferOffline) {
-        Intent intent = new Intent(RecognizerIntent.ACTION_RECOGNIZE_SPEECH);
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE_MODEL, RecognizerIntent.LANGUAGE_MODEL_FREE_FORM);
-        String lang = (speechLang != null && !speechLang.isEmpty())
-                ? speechLang
-                : Locale.getDefault().toLanguageTag();
-        intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang);
-        intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
-        intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, preferOffline);
-        return intent;
+    private void ensureVoiceController() {
+        if (voiceController != null) {
+            return;
+        }
+        voiceController = new VoiceInputController(this, new VoiceInputController.Callback() {
+            @Override
+            public void onListeningChanged(boolean listening) {
+                isListening = listening;
+                runOnUiThread(MainActivity.this::updateSendButton);
+            }
+
+            @Override
+            public void onResult(String text) {
+                submitUserMessage(text);
+            }
+
+            @Override
+            public boolean ensureRecordPermission() {
+                if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
+                    pendingVoiceStart = true;
+                    requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_RECORD_AUDIO);
+                    return false;
+                }
+                return true;
+            }
+
+            @Override
+            public void toast(String enText, String jaText) {
+                runOnUiThread(() -> Toast.makeText(MainActivity.this, t(enText, jaText), Toast.LENGTH_SHORT).show());
+            }
+
+            @Override
+            public void onIdle() {
+                if (autoChatterEnabled) {
+                    scheduleAutoChatter();
+                }
+            }
+        });
     }
 
     private void startVoiceRecognition(boolean preferOffline) {
         if (isProcessing || isListening) return;
         cancelAutoChatter();
-        if (!SpeechRecognizer.isRecognitionAvailable(this)) {
-            Toast.makeText(this, "Voice recognition unavailable", Toast.LENGTH_SHORT).show();
-            return;
-        }
-        if (checkSelfPermission(Manifest.permission.RECORD_AUDIO) != PackageManager.PERMISSION_GRANTED) {
-            pendingVoiceStart = true;
-            requestPermissions(new String[]{Manifest.permission.RECORD_AUDIO}, REQ_RECORD_AUDIO);
-            return;
-        }
-
-        isListening = true;
-        updateSendButton();
-        currentPreferOffline = preferOffline;
-        triedOnlineFallback = !preferOffline;
-
-        if (speechRecognizer == null) {
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
-        } else {
-            speechRecognizer.cancel();
-        }
-
-        speechRecognizer.setRecognitionListener(new RecognitionListener() {
-            @Override public void onReadyForSpeech(Bundle params) {}
-            @Override public void onBeginningOfSpeech() {}
-            @Override public void onRmsChanged(float rmsdB) {}
-            @Override public void onBufferReceived(byte[] buffer) {}
-            @Override public void onEndOfSpeech() {}
-
-            @Override
-            public void onError(int error) {
-                boolean shouldFallback = currentPreferOffline && !triedOnlineFallback
-                        && (error == SpeechRecognizer.ERROR_NETWORK
-                        || error == SpeechRecognizer.ERROR_SERVER
-                        || error == SpeechRecognizer.ERROR_LANGUAGE_NOT_SUPPORTED
-                        || error == SpeechRecognizer.ERROR_LANGUAGE_UNAVAILABLE);
-                if (shouldFallback) {
-                    triedOnlineFallback = true;
-                    isListening = false;
-                    updateSendButton();
-                    Toast.makeText(MainActivity.this,
-                            "Offline recognition failed, switching to online",
-                            Toast.LENGTH_SHORT).show();
-                    startVoiceRecognition(false);
-                    return;
-                }
-                if (error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT
-                        && error != SpeechRecognizer.ERROR_NO_MATCH) {
-                    Toast.makeText(MainActivity.this, "Voice recognition failed", Toast.LENGTH_SHORT).show();
-                }
-                handleVoiceRecognitionFinished();
-            }
-
-            @Override
-            public void onResults(Bundle results) {
-                ArrayList<String> matches = results.getStringArrayList(
-                        SpeechRecognizer.RESULTS_RECOGNITION);
-                String best = (matches != null && !matches.isEmpty()) ? matches.get(0).trim() : "";
-                if (best.isEmpty()) {
-                    handleVoiceRecognitionFinished();
-                    return;
-                }
-                handleVoiceRecognitionFinished();
-                submitUserMessage(best);
-            }
-
-            @Override public void onPartialResults(Bundle partialResults) {}
-            @Override public void onEvent(int eventType, Bundle params) {}
-        });
-
-        speechRecognizer.startListening(buildRecognizerIntent(preferOffline));
-    }
-
-    private void handleVoiceRecognitionFinished() {
-        isListening = false;
-        updateSendButton();
-        if (autoChatterEnabled) {
-            scheduleAutoChatter();
-        }
+        ensureVoiceController();
+        voiceController.setLanguage(speechLang);
+        voiceController.start(preferOffline);
     }
 
     private void sendChat(String transientUserMessage) {
@@ -5565,8 +5541,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     protected void onPause() {
         super.onPause();
         unregisterOverlaySyncReceiver();
-        if (speechRecognizer != null) {
-            speechRecognizer.cancel();
+        if (voiceController != null) {
+            voiceController.cancel();
         }
         isListening = false;
         updateSendButton();
@@ -5584,9 +5560,9 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             tts.stop();
             tts.shutdown();
         }
-        if (speechRecognizer != null) {
-            speechRecognizer.destroy();
-            speechRecognizer = null;
+        if (voiceController != null) {
+            voiceController.destroy();
+            voiceController = null;
         }
         super.onDestroy();
     }
