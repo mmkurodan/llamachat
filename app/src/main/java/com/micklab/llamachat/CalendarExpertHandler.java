@@ -24,6 +24,10 @@ public final class CalendarExpertHandler {
     private static final Pattern RELATIVE_DURATION_PATTERN = Pattern.compile(
             "今から\\s*(\\d{1,2})時間(半)?"
     );
+    // 「N時から」「N時に」など終了時刻・時間指定なしの時刻表現（「N時間」は除外）
+    private static final Pattern TIME_ONLY_PATTERN = Pattern.compile(
+            "(?:(今日|本日|明日|あした|明後日|あさって)(?:の)?\\s*)?(午前|午後)?\\s*(\\d{1,2})時(?!\\s*間)(?:\\s*(\\d{1,2})分)?\\s*(?:から|に|ごろ|頃)?"
+    );
     private static final Pattern TITLE_BEFORE_SCHEDULE_PATTERN = Pattern.compile(
             "(.+?)(?:の)?(?:予定|イベント|日程|スケジュール)"
     );
@@ -106,6 +110,18 @@ public final class CalendarExpertHandler {
             int durationMinutes = Integer.parseInt(relativeMatcher.group(1)) * 60
                     + (relativeMatcher.group(2) == null ? 0 : 30);
             return new TimeRange(relativeMatcher.group(0), now, now.plusMinutes(durationMinutes));
+        }
+
+        Matcher timeOnlyMatcher = TIME_ONLY_PATTERN.matcher(source);
+        if (timeOnlyMatcher.find()) {
+            OffsetDateTime start = createDateTime(
+                    now,
+                    timeOnlyMatcher.group(1),
+                    timeOnlyMatcher.group(2),
+                    timeOnlyMatcher.group(3),
+                    timeOnlyMatcher.group(4)
+            );
+            return new TimeRange(timeOnlyMatcher.group(0), start, start.plusHours(1));
         }
 
         return null;

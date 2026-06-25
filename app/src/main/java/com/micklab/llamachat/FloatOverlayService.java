@@ -126,9 +126,6 @@ public class FloatOverlayService extends Service {
     private static final int CHAT_NUM_CTX = 8192;
     private static final int CHAT_NUM_PREDICT = 2048;
     private static final String CHAT_KEEP_ALIVE = "30m";
-    // 発話後の無音検知タイムアウト（Google Speech のみ有効。他エンジンは無視する場合あり）
-    private static final int VOICE_SILENCE_COMPLETE_MS = 3000;
-    private static final int VOICE_SILENCE_POSSIBLY_COMPLETE_MS = 2000;
 
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
     private final Object historyLock = new Object();
@@ -911,7 +908,8 @@ public class FloatOverlayService extends Service {
     private void performCalendarExpertFlow(String userMsg, ExpertType expertType, int requestToken) {
         new Thread(() -> {
             try {
-                CalendarActionJson action = extractCalendarAction(userMsg, expertType);
+                CalendarActionJson action = calendarExpertHandler.resolveAction(
+                        userMsg, expertType, this::extractCalendarAction);
                 if (action == null || !action.getAction().requiresCalendarOperation()) {
                     mainHandler.post(() -> sendChat(null, false, requestToken));
                     return;
@@ -1253,8 +1251,6 @@ public class FloatOverlayService extends Service {
         intent.putExtra(RecognizerIntent.EXTRA_LANGUAGE, lang);
         intent.putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, false);
         intent.putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, preferOffline);
-        intent.putExtra("android.speech.extras.SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS", VOICE_SILENCE_COMPLETE_MS);
-        intent.putExtra("android.speech.extras.SPEECH_INPUT_POSSIBLY_COMPLETE_SILENCE_LENGTH_MILLIS", VOICE_SILENCE_POSSIBLY_COMPLETE_MS);
         return intent;
     }
 
