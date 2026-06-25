@@ -1266,11 +1266,11 @@ public class FloatOverlayService extends Service {
             Toast.makeText(this, t("Microphone permission is required", "マイク権限が必要です"), Toast.LENGTH_SHORT).show();
             return;
         }
-        if (speechRecognizer == null) {
-            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
-        } else {
-            speechRecognizer.cancel();
+        if (speechRecognizer != null) {
+            speechRecognizer.destroy();
+            speechRecognizer = null;
         }
+        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
         isListening = true;
         final int sessionToken = ++voiceSessionToken;
         updateSendButton();
