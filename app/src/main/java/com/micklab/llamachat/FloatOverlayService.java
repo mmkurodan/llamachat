@@ -1288,6 +1288,10 @@ public class FloatOverlayService extends Service {
         speechRecognizer.setRecognitionListener(new RecognitionListener() {
             @Override public void onReadyForSpeech(Bundle params) {
                 DebugLogger.log(FloatOverlayService.this, "voice onReadyForSpeech session=" + sessionToken);
+                if (sessionToken == voiceSessionToken) {
+                    isListening = true;
+                    updateSendButton();
+                }
             }
             @Override public void onBeginningOfSpeech() {}
             @Override public void onRmsChanged(float rmsdB) {}
@@ -1299,21 +1303,13 @@ public class FloatOverlayService extends Service {
             public void onError(int error) {
                 DebugLogger.log(FloatOverlayService.this, "voice onError error=" + error
                         + " session=" + sessionToken + " current=" + voiceSessionToken);
-                // ERROR_RECOGNIZER_BUSY(11): 前セッションのサービス解放待ち → 再生成して再試行
-                if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY
-                        && sessionToken == voiceSessionToken) {
-                    DebugLogger.log(FloatOverlayService.this, "voice RECOGNIZER_BUSY: retry after 700ms session=" + sessionToken);
-                    mainHandler.postDelayed(() -> {
-                        if (sessionToken != voiceSessionToken) return;
-                        if (speechRecognizer != null) {
-                            speechRecognizer.destroy();
-                            speechRecognizer = null;
-                        }
-                        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(FloatOverlayService.this);
-                        speechRecognizer.setRecognitionListener(this);
-                        speechRecognizer.startListening(buildRecognizerIntent(preferOffline));
-                        DebugLogger.log(FloatOverlayService.this, "voice RECOGNIZER_BUSY: retried session=" + sessionToken);
-                    }, 700);
+                // ERROR_RECOGNIZER_BUSY(11): 自己回復する場合は onReadyForSpeech が直後に来る。
+                // リトライで destroy すると回復中のセッションを破壊するため行わない。
+                // isListening だけリセットし、onReadyForSpeech で再 true にして状態を正確に保つ。
+                if (error == SpeechRecognizer.ERROR_RECOGNIZER_BUSY) {
+                    DebugLogger.log(FloatOverlayService.this, "voice RECOGNIZER_BUSY: reset state, waiting for self-recovery session=" + sessionToken);
+                    stopVoiceRecognition();
+                    if (sessionToken != voiceSessionToken) return;
                     return;
                 }
                 stopVoiceRecognition();
