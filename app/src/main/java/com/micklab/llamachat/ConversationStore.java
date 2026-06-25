@@ -1,6 +1,8 @@
 package com.micklab.llamachat;
 
 import android.content.Context;
+import android.os.Handler;
+import android.os.Looper;
 
 import org.json.JSONObject;
 
@@ -55,6 +57,9 @@ public final class ConversationStore {
     private final Context appContext;
     private final List<Entry> entries = new ArrayList<>();
     private final List<Listener> listeners = new CopyOnWriteArrayList<>();
+    // 通知は必ずメインスレッドへ post（非同期）する。これにより append 呼び出し元が
+    // storeRenderedCount を更新し終えた後にリスナーが走り、発信元の二重描画を防ぐ。
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
 
     private ConversationStore(Context appContext) {
         this.appContext = appContext;
@@ -88,9 +93,12 @@ public final class ConversationStore {
                 persistAppend(role, trimmed);
             }
         }
-        for (Listener l : listeners) {
-            l.onEntryAppended(newSize);
-        }
+        final int sz = newSize;
+        mainHandler.post(() -> {
+            for (Listener l : listeners) {
+                l.onEntryAppended(sz);
+            }
+        });
     }
 
     public void clear() {
@@ -105,9 +113,11 @@ public final class ConversationStore {
                 }
             }
         }
-        for (Listener l : listeners) {
-            l.onCleared();
-        }
+        mainHandler.post(() -> {
+            for (Listener l : listeners) {
+                l.onCleared();
+            }
+        });
     }
 
     public void addListener(Listener l) {
