@@ -76,6 +76,8 @@ public final class CalendarJsonValidator {
             reasons.add("時刻が指定されているのに start が null です。start を ISO8601 で出力してください（end が不明なら null でよい）。");
         }
 
+        validateIso8601Format(start, "start", reasons);
+        validateIso8601Format(end, "end", reasons);
         validateTimeRange(start, end, reasons);
         validateAbsoluteTimeRule(rawText, start, end, reasons);
         validateIsoTimezoneRule(rawText, start, reasons);
@@ -126,6 +128,15 @@ public final class CalendarJsonValidator {
             if (title.contains(forbidden)) {
                 reasons.add("title に禁止語「" + forbidden + "」が含まれています");
             }
+        }
+    }
+
+    private static void validateIso8601Format(String value, String fieldName, List<String> reasons) {
+        if (value == null) return;
+        try {
+            CalendarRepository.parseOffsetDateTimeValue(value);
+        } catch (DateTimeParseException e) {
+            reasons.add(fieldName + " が ISO8601 形式ではありません（\"" + value + "\"）。現在日時を起点に正しい ISO8601 で出力してください。");
         }
     }
 
