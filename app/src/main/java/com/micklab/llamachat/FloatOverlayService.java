@@ -1282,8 +1282,8 @@ public class FloatOverlayService extends Service {
             @Override public void onEndOfSpeech() {}
             @Override
             public void onError(int error) {
+                stopVoiceRecognition();  // 常にリセット（stale でも isListening を戻す）
                 if (sessionToken != voiceSessionToken) return;
-                stopVoiceRecognition();
                 if (error != SpeechRecognizer.ERROR_SPEECH_TIMEOUT
                         && error != SpeechRecognizer.ERROR_NO_MATCH) {
                     Toast.makeText(FloatOverlayService.this, t("Voice recognition failed", "音声認識に失敗しました"), Toast.LENGTH_SHORT).show();
@@ -1291,17 +1291,15 @@ public class FloatOverlayService extends Service {
             }
             @Override
             public void onResults(Bundle results) {
+                stopVoiceRecognition();  // 常にリセット（stale でも isListening を戻す）
                 if (sessionToken != voiceSessionToken) return;
-                stopVoiceRecognition();
                 ArrayList<String> matches = results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
                 String best = (matches != null && !matches.isEmpty()) ? matches.get(0).trim() : "";
-                if (!best.isEmpty()) {
-                    if (bubblePanel != null && bubblePanel.getVisibility() != View.VISIBLE) {
-                        showBubble(true);
-                    }
-                    final String recognized = best;
-                    mainHandler.post(() -> submitUserMessage(recognized));
+                if (best.isEmpty()) return;
+                if (bubblePanel != null && bubblePanel.getVisibility() != View.VISIBLE) {
+                    showBubble(true);
                 }
+                submitUserMessage(best);  // mainActivity と同様に直接呼び出し（post 遅延を排除）
             }
             @Override public void onPartialResults(Bundle partialResults) {}
             @Override public void onEvent(int eventType, Bundle params) {}
@@ -1581,6 +1579,13 @@ public class FloatOverlayService extends Service {
     private void ensureOverlayInitialized() {
         loadSettings();
         if (overlayInitialized) {
+            // 再表示時に残留した処理・認識状態をリセット
+            if (isProcessing && currentCall == null) {
+                isProcessing = false;
+            }
+            if (isListening) {
+                cancelVoiceRecognition();
+            }
             updateBubbleHeader();
             updateSendButton();
             updateFloatVisual();
