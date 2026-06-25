@@ -1266,13 +1266,13 @@ public class FloatOverlayService extends Service {
             Toast.makeText(this, t("Microphone permission is required", "マイク権限が必要です"), Toast.LENGTH_SHORT).show();
             return;
         }
-        if (speechRecognizer != null) {
-            speechRecognizer.destroy();
-            speechRecognizer = null;
+        if (speechRecognizer == null) {
+            speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
         }
-        speechRecognizer = SpeechRecognizer.createSpeechRecognizer(this);
-        isListening = true;
+        // onResults/onError 後は認識器が idle 状態のため cancel() 不要。
+        // cancel() を呼ぶと stale な onError が新リスナーに届き次セッションを即終了させる。
         final int sessionToken = ++voiceSessionToken;
+        isListening = true;
         updateSendButton();
         speechRecognizer.setRecognitionListener(new RecognitionListener() {
             @Override public void onReadyForSpeech(Bundle params) {}
