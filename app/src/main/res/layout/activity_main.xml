@@ -966,9 +966,42 @@
                          android:textColor="#444444"
                          android:textSize="12sp" />
 
+                     <TextView
+                         android:id="@+id/tvLabelNotifications"
+                         android:layout_width="wrap_content" android:layout_height="wrap_content"
+                         android:text="Notifications"
+                         android:textStyle="bold"
+                         android:layout_marginTop="16dp"/>
+
+                     <Switch android:id="@+id/switchProactiveNotify"
+                         android:layout_width="match_parent" android:layout_height="wrap_content"
+                         android:text="Schedule Notifications" android:layout_marginTop="4dp"/>
+
+                     <TextView
+                         android:id="@+id/tvLabelMorningBriefingTime"
+                         android:layout_width="wrap_content" android:layout_height="wrap_content"
+                         android:text="Morning briefing time (HH:mm)" android:layout_marginTop="4dp"/>
+                     <EditText android:id="@+id/etMorningBriefingTime"
+                         android:layout_width="match_parent" android:layout_height="wrap_content"
+                         android:inputType="time" android:singleLine="true"
+                         android:hint="07:00"/>
+
+                     <Switch android:id="@+id/switchNewsMode"
+                         android:layout_width="match_parent" android:layout_height="wrap_content"
+                         android:text="News Mode" android:layout_marginTop="8dp"/>
+
+                     <TextView
+                         android:id="@+id/tvLabelNewsBriefingTimes"
+                         android:layout_width="wrap_content" android:layout_height="wrap_content"
+                         android:text="News times (HH:mm, comma-separated)" android:layout_marginTop="4dp"/>
+                     <EditText android:id="@+id/etNewsBriefingTimes"
+                         android:layout_width="match_parent" android:layout_height="wrap_content"
+                         android:inputType="text" android:singleLine="true"
+                         android:hint="08:00,12:00,18:00"/>
+
                      <Switch android:id="@+id/switchDebug"
                          android:layout_width="match_parent" android:layout_height="wrap_content"
-                         android:text="Debug Mode" android:layout_marginTop="8dp"/>
+                         android:text="Debug Mode" android:layout_marginTop="16dp"/>
 
                     </LinearLayout>
 

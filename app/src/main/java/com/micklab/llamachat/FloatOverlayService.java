@@ -7,6 +7,10 @@ import com.micklab.llamachat.calendar.CalendarResultForChat;
 import com.micklab.llamachat.calendar.CalendarRetryHandler;
 import com.micklab.llamachat.calendar.CalendarUiState;
 import com.micklab.llamachat.calendar.CalendarViewModel;
+import com.google.api.services.calendar.model.Event;
+import com.google.api.services.calendar.model.EventDateTime;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
 import java.time.OffsetDateTime;
 import java.time.ZoneId;
 import java.util.concurrent.CountDownLatch;
@@ -19,6 +23,7 @@ import android.app.RemoteInput;
 import android.app.Service;
 import android.Manifest;
 import android.content.Intent;
+import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
@@ -67,6 +72,8 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.Collections;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.List;
 import java.util.Locale;
 import java.util.Random;
@@ -185,8 +192,30 @@ public class FloatOverlayService extends Service {
     private boolean autoVoiceInputEnabled = false;
     private boolean webSearchEnabled = false;
     private boolean calendarExpertModeEnabled = false;
+    // お知らせ機能（予定/ニュースのポップアップ通知）。
+    private boolean proactiveNotifyEnabled = false;
+    private String morningBriefingTime = "07:00";
+    private boolean newsModeEnabled = false;
+    private String newsBriefingTimes = "08:00,12:00,18:00";
     private String structuredOutputMode = "OFF";
     private CalendarViewModel calendarViewModel;
+    private CalendarRepository calendarRepository;
+    // お知らせスケジューラ（サービス内で毎分時刻を評価）。
+    private static final long PROACTIVE_TICK_MS = 60_000L;
+    private static final String PROACTIVE_PREFS = "proactive_state";
+    private boolean proactiveStarted = false;
+    private final AtomicBoolean proactiveBusy = new AtomicBoolean(false);
+    private final Runnable proactiveTickRunnable = new Runnable() {
+        @Override
+        public void run() {
+            try {
+                onProactiveTick();
+            } catch (Exception e) {
+                DebugLogger.log(FloatOverlayService.this, "proactiveTick error: " + e.getMessage());
+            }
+            mainHandler.postDelayed(this, PROACTIVE_TICK_MS);
+        }
+    };
     private final CalendarExpertHandler calendarExpertHandler = new CalendarExpertHandler();
     private boolean isProcessing = false;
     private boolean isListening = false;
@@ -204,9 +233,24 @@ public class FloatOverlayService extends Service {
         @Override
         public void onCleared() {
             mainHandler.post(() -> {
+                // 読み上げを即中断し、進行中の応答が消去直後のストアへ再追記しないよう停止する。
+                if (tts != null) {
+                    tts.stop();
+                }
+                ttsSpeaking.set(false);
+                activeResponseToken++;
+                if (currentCall != null) {
+                    currentCall.cancel();
+                    currentCall = null;
+                }
+                isProcessing = false;
+                isStreamingResponse = false;
+                stopThinkingIndicator(activeResponseToken);
+                updateAvatarAnimation();
                 clearOverlayMessages();
                 initConversationHistory();
                 storeRenderedCount = 0;
+                updateSendButton();
             });
         }
     };
@@ -284,7 +328,8 @@ public class FloatOverlayService extends Service {
             DebugLogger.log(this, "Loading settings");
             loadSettings();
             DebugLogger.log(this, "Settings loaded. floatDisplayMode=" + floatDisplayMode);
-            calendarViewModel = new CalendarViewModel(new CalendarRepository(this));
+            calendarRepository = new CalendarRepository(this);
+            calendarViewModel = new CalendarViewModel(calendarRepository);
             conversationStore = ConversationStore.get(this);
             
             DebugLogger.log(this, "Loading avatar bitmaps");
@@ -299,7 +344,9 @@ public class FloatOverlayService extends Service {
             
             DebugLogger.log(this, "Preparing notification service");
             ensureForegroundNotification();
-            
+
+            startProactiveScheduler();
+
             DebugLogger.log(this, "=== FloatOverlayService onCreate SUCCESS ===");
         } catch (Exception e) {
             DebugLogger.log(this, "=== FloatOverlayService onCreate FAILED ===");
@@ -328,6 +375,7 @@ public class FloatOverlayService extends Service {
 
     @Override
     public void onDestroy() {
+        stopProactiveScheduler();
         if (currentCall != null) {
             currentCall.cancel();
             currentCall = null;
@@ -1379,7 +1427,8 @@ public class FloatOverlayService extends Service {
 
     private void speakText(String text) {
         if (!ttsEnabled || !ttsReady || tts == null || TextUtils.isEmpty(text)) return;
-        String source = text.replaceAll("<think>[\\s\\S]*?</think>", " ");
+        // Markdown / HTML の装飾はタグ名ごと先に除去（句読点正規化で語として残さない）。
+        String source = TtsTextSanitizer.sanitize(text.replaceAll("<think>[\\s\\S]*?</think>", " "));
         String clean = source
                 .replaceAll("[\\n\\r\\t]", "、")
                 .replaceAll("[!@#$%^&*()_+={}\\[\\]|\\\\:;<>.?/]", "、")
@@ -1948,6 +1997,10 @@ public class FloatOverlayService extends Service {
         webSearchApiKey = settings.optString("webSearchApiKey", webSearchApiKey);
         expertModel = settings.optString("expertModel", settings.optString("webSearchModel", expertModel));
         calendarExpertModeEnabled = settings.optBoolean("calendarExpertModeEnabled", calendarExpertModeEnabled);
+        proactiveNotifyEnabled = settings.optBoolean("proactiveNotifyEnabled", proactiveNotifyEnabled);
+        morningBriefingTime = settings.optString("morningBriefingTime", morningBriefingTime);
+        newsModeEnabled = settings.optBoolean("newsModeEnabled", newsModeEnabled);
+        newsBriefingTimes = settings.optString("newsBriefingTimes", newsBriefingTimes);
         structuredOutputMode = StructuredOutput.Mode.fromString(
                 settings.optString("structuredOutputMode", structuredOutputMode)).name();
         systemPromptText = settings.optString("systemPrompt", systemPromptText);
@@ -1976,6 +2029,300 @@ public class FloatOverlayService extends Service {
             speechLang = "ja-JP";
         }
         applyTtsSettings();
+    }
+
+    // ========== お知らせ（予定 / ニュース）スケジューラ ==========
+
+    private void startProactiveScheduler() {
+        if (proactiveStarted) return;
+        proactiveStarted = true;
+        mainHandler.postDelayed(proactiveTickRunnable, 5_000L);
+    }
+
+    private void stopProactiveScheduler() {
+        proactiveStarted = false;
+        mainHandler.removeCallbacks(proactiveTickRunnable);
+    }
+
+    /** MainActivity 側で更新され得るお知らせ設定をファイルから読み直す（毎tick）。 */
+    private void refreshProactiveSettingsFromFile() {
+        try (FileInputStream fis = openFileInput(SETTINGS_FILE);
+             BufferedReader reader = new BufferedReader(new InputStreamReader(fis, StandardCharsets.UTF_8))) {
+            StringBuilder sb = new StringBuilder();
+            String line;
+            while ((line = reader.readLine()) != null) {
+                sb.append(line);
+            }
+            if (sb.length() == 0) return;
+            JSONObject s = new JSONObject(sb.toString());
+            proactiveNotifyEnabled = s.optBoolean("proactiveNotifyEnabled", proactiveNotifyEnabled);
+            morningBriefingTime = s.optString("morningBriefingTime", morningBriefingTime);
+            newsModeEnabled = s.optBoolean("newsModeEnabled", newsModeEnabled);
+            newsBriefingTimes = s.optString("newsBriefingTimes", newsBriefingTimes);
+            ttsEnabled = s.optBoolean("ttsEnabled", ttsEnabled);
+        } catch (Exception ignored) {
+        }
+    }
+
+    private void onProactiveTick() {
+        refreshProactiveSettingsFromFile();
+        if (!proactiveNotifyEnabled && !newsModeEnabled) return;
+        // ユーザ操作中・読み上げ中・別のお知らせ生成中は次tickへ見送る（マーカー未更新で再試行）。
+        if (isProcessing || ttsSpeaking.get() || proactiveBusy.get()) return;
+
+        LocalDateTime now = LocalDateTime.now();
+        String today = now.toLocalDate().toString();
+        SharedPreferences st = getSharedPreferences(PROACTIVE_PREFS, MODE_PRIVATE);
+
+        // 朝のブリーフィング（指定時刻から2時間以内、1日1回）。
+        if (proactiveNotifyEnabled) {
+            LocalTime morning = parseLocalTime(morningBriefingTime, LocalTime.of(7, 0));
+            LocalTime nowT = now.toLocalTime();
+            boolean inWindow = !nowT.isBefore(morning) && nowT.isBefore(morning.plusHours(2));
+            if (inWindow && !today.equals(st.getString("lastMorningDate", ""))) {
+                st.edit().putString("lastMorningDate", today).apply();
+                fireMorningBriefing();
+                return;
+            }
+        }
+
+        // 毎時の直近予定（時スロットごとに1回チェック）。
+        if (proactiveNotifyEnabled) {
+            String hourSlot = today + "-" + String.format(Locale.US, "%02d", now.getHour());
+            if (!hourSlot.equals(st.getString("lastUpcomingHour", ""))) {
+                st.edit().putString("lastUpcomingHour", hourSlot).apply();
+                fireUpcomingReminder();
+                return;
+            }
+        }
+
+        // ニュース（指定時刻ごとに1日1回）。
+        if (newsModeEnabled) {
+            String slot = matchNewsSlot(now.toLocalTime(), newsBriefingTimes);
+            if (slot != null && !today.equals(st.getString("lastNewsSlot:" + slot, ""))) {
+                st.edit().putString("lastNewsSlot:" + slot, today).apply();
+                fireNewsBriefing();
+                return;
+            }
+        }
+    }
+
+    private LocalTime parseLocalTime(String hhmm, LocalTime fallback) {
+        try {
+            if (hhmm != null && hhmm.matches("\\d{1,2}:\\d{2}")) {
+                String[] p = hhmm.split(":");
+                int h = Integer.parseInt(p[0]);
+                int m = Integer.parseInt(p[1]);
+                if (h >= 0 && h < 24 && m >= 0 && m < 60) return LocalTime.of(h, m);
+            }
+        } catch (Exception ignored) {
+        }
+        return fallback;
+    }
+
+    /** now が設定ニュース時刻のいずれか（±2分）に該当すれば "HH:mm" を返す。 */
+    private String matchNewsSlot(LocalTime now, String csv) {
+        if (csv == null) return null;
+        for (String raw : csv.split(",")) {
+            LocalTime tt = parseLocalTime(raw.trim(), null);
+            if (tt == null) continue;
+            if (!now.isBefore(tt) && now.isBefore(tt.plusMinutes(2))) {
+                return String.format(Locale.US, "%02d:%02d", tt.getHour(), tt.getMinute());
+            }
+        }
+        return null;
+    }
+
+    private void fireMorningBriefing() {
+        proactiveBusy.set(true);
+        new Thread(() -> {
+            try {
+                if (calendarRepository == null || !calendarRepository.hasReadAccess()) {
+                    finishProactive(null);
+                    return;
+                }
+                OffsetDateTime start = OffsetDateTime.now(ZoneId.systemDefault())
+                        .toLocalDate().atStartOfDay(ZoneId.systemDefault()).toOffsetDateTime();
+                OffsetDateTime end = start.plusDays(1);
+                List<Event> events = calendarRepository.queryEvents(null, start.toString(), end.toString(), 20);
+                String facts = formatEventsForBriefing(events);
+                String instruction = "ja".equals(appLanguage)
+                        ? ("次の本日の予定を、あなたの口調で朝の挨拶とともにユーザへ知らせてください。事実は変えないでください。\n" + facts)
+                        : ("Tell the user today's schedule in your own voice with a morning greeting. Do not change the facts.\n" + facts);
+                finishProactive(generatePersonaText(instruction, facts));
+            } catch (Exception e) {
+                DebugLogger.log(this, "fireMorningBriefing error: " + e.getMessage());
+                finishProactive(null);
+            }
+        }).start();
+    }
+
+    private void fireUpcomingReminder() {
+        proactiveBusy.set(true);
+        new Thread(() -> {
+            try {
+                if (calendarRepository == null || !calendarRepository.hasReadAccess()) {
+                    finishProactive(null);
+                    return;
+                }
+                OffsetDateTime now = OffsetDateTime.now(ZoneId.systemDefault());
+                OffsetDateTime end = now.plusMinutes(60);
+                List<Event> events = calendarRepository.queryEvents(null, now.toString(), end.toString(), 10);
+                if (events == null || events.isEmpty()) {
+                    finishProactive(null);
+                    return;
+                }
+                String facts = formatEventsForBriefing(events);
+                String instruction = "ja".equals(appLanguage)
+                        ? ("次の1時間以内に迫った予定を、あなたの口調でユーザへリマインドしてください。事実は変えないでください。\n" + facts)
+                        : ("Remind the user of these events coming up within the next hour, in your own voice. Do not change the facts.\n" + facts);
+                finishProactive(generatePersonaText(instruction, facts));
+            } catch (Exception e) {
+                DebugLogger.log(this, "fireUpcomingReminder error: " + e.getMessage());
+                finishProactive(null);
+            }
+        }).start();
+    }
+
+    private void fireNewsBriefing() {
+        proactiveBusy.set(true);
+        new Thread(() -> {
+            try {
+                if (!isWebSearchExpertAvailable()) {
+                    finishProactive(null);
+                    return;
+                }
+                String query = "ja".equals(appLanguage)
+                        ? "最新ニュース 今日 主要 ヘッドライン"
+                        : "today's top news headlines";
+                String results = callWebSearchApi(query);
+                if (TextUtils.isEmpty(results)) {
+                    finishProactive(null);
+                    return;
+                }
+                String instruction = "ja".equals(appLanguage)
+                        ? ("次の検索結果から最新ニュースの要点を3つほど、あなたの口調でユーザへ簡潔に知らせてください。憶測は避け、検索結果に基づいてください。\n" + results)
+                        : ("From the following search results, tell the user about three key latest news items, concisely and in your own voice. Stay grounded in the results.\n" + results);
+                String headlines = formatNewsHeadlines(results);
+                String fallback = ("ja".equals(appLanguage)
+                        ? "最新ニュースをお伝えします。\n"
+                        : "Here are the latest headlines.\n") + headlines;
+                finishProactive(generatePersonaText(instruction, fallback.trim()));
+            } catch (Exception e) {
+                DebugLogger.log(this, "fireNewsBriefing error: " + e.getMessage());
+                finishProactive(null);
+            }
+        }).start();
+    }
+
+    /** ペルソナ（システムプロンプト＋名前）で指示文を会話調に言い換える。失敗時は fallback を返す。 */
+    private String generatePersonaText(String instruction, String fallback) {
+        try {
+            JSONArray messages = new JSONArray();
+            JSONObject sys = new JSONObject();
+            sys.put("role", "system");
+            sys.put("content", buildSystemPromptWithName(systemPromptText, baseName));
+            messages.put(sys);
+            JSONObject user = new JSONObject();
+            user.put("role", "user");
+            user.put("content", instruction);
+            messages.put(user);
+            JSONObject body = new JSONObject();
+            body.put("model", TextUtils.isEmpty(selectedModel) ? "default" : selectedModel);
+            body.put("messages", messages);
+            body.put("stream", false);
+            applyOllamaOptions(body);
+            Request request = new Request.Builder()
+                    .url(ollamaBaseUrl + "/api/chat")
+                    .post(RequestBody.create(body.toString(), JSON_MEDIA))
+                    .build();
+            Response response = client.newCall(request).execute();
+            String respBody = response.body() != null ? response.body().string() : "";
+            if (!response.isSuccessful()) return fallback;
+            JSONObject json = new JSONObject(respBody);
+            String content = json.has("message")
+                    ? json.getJSONObject("message").optString("content", "")
+                    : "";
+            content = content.replaceAll("<think>[\\s\\S]*?</think>", " ").trim();
+            return TextUtils.isEmpty(content) ? fallback : content;
+        } catch (Exception e) {
+            DebugLogger.log(this, "generatePersonaText error: " + e.getMessage());
+            return fallback;
+        }
+    }
+
+    private String formatEventsForBriefing(List<Event> events) {
+        if (events == null || events.isEmpty()) {
+            return "ja".equals(appLanguage) ? "本日の予定はありません。" : "No events.";
+        }
+        StringBuilder sb = new StringBuilder();
+        int n = 0;
+        for (Event e : events) {
+            if (e == null) continue;
+            String when = formatEventClock(e.getStart());
+            String title = TextUtils.isEmpty(e.getSummary())
+                    ? ("ja".equals(appLanguage) ? "（無題）" : "(no title)")
+                    : e.getSummary();
+            sb.append("- ").append(when).append(" ").append(title).append("\n");
+            if (++n >= 20) break;
+        }
+        return sb.toString().trim();
+    }
+
+    private String formatEventClock(EventDateTime edt) {
+        try {
+            if (edt != null && edt.getDateTime() != null) {
+                Date d = new Date(edt.getDateTime().getValue());
+                return new SimpleDateFormat("HH:mm", Locale.US).format(d);
+            }
+        } catch (Exception ignored) {
+        }
+        return "ja".equals(appLanguage) ? "終日" : "all-day";
+    }
+
+    private String formatNewsHeadlines(String searchResults) {
+        if (searchResults == null) return "";
+        StringBuilder sb = new StringBuilder();
+        int n = 0;
+        for (String line : searchResults.split("\n")) {
+            String s = line.trim();
+            if (s.matches("\\[\\d+\\].*")) {
+                String title = s.replaceFirst("^\\[\\d+\\]\\s*", "").trim();
+                if (!title.isEmpty()) {
+                    sb.append("- ").append(title).append("\n");
+                    if (++n >= 3) break;
+                }
+            }
+        }
+        return sb.toString().trim();
+    }
+
+    private void finishProactive(String text) {
+        mainHandler.post(() -> {
+            try {
+                if (!TextUtils.isEmpty(text)) {
+                    pushProactiveMessage(text);
+                }
+            } finally {
+                proactiveBusy.set(false);
+            }
+        });
+    }
+
+    /** お知らせをポップアップチャットへ表示し（吹き出しを自動オープン）、読み上げ有効なら音声でも知らせる。 */
+    private void pushProactiveMessage(String text) {
+        if (TextUtils.isEmpty(text)) return;
+        ensureOverlayInitialized();
+        showBubble(true);
+        currentResponseBubble = null;
+        appendAssistantMessageBubble(text);
+        addToHistory("assistant", text);
+        conversationStore.append("assistant", text);
+        storeRenderedCount = conversationStore.size();
+        updateNotificationResponse(text);
+        speakText(text);
+        adjustMessageAreaHeight();
+        scrollMessagesToBottom();
     }
 
     private String resolveExpertModel() {

@@ -223,17 +223,20 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private TextView tvLabelLanguage, tvLabelConfigProfile, tvLabelOllamaUrl, tvLabelUserName, tvOllamaStatus;
     private TextView tvLabelMode, tvLabelFloatDisplay, tvFloatModeUnavailable, tvLabelHistoryLimit, tvLabelChatterInterval;
     private TextView tvLabelWebSearchUrl, tvLabelWebSearchApiKey, tvLabelWebSearchModel, tvLabelEmbeddingModel, tvLabelStructuredOutput, tvLabelRoutingMode;
+    private TextView tvLabelNotifications, tvLabelMorningBriefingTime, tvLabelNewsBriefingTimes;
     private TextView tvBaseSettingsTitle, tvBaseNameLabel, tvBaseModelLabel;
     private TextView tvBaseSpeechLangLabel, tvBaseSpeechRateLabel, tvBaseSpeechPitchLabel, tvBaseSystemPromptLabel, tvBaseAvatarTitle;
     private TextView tvChatterSettingsTitle, tvChatterNameLabel, tvChatterModelLabel;
     private TextView tvChatterSpeechLangLabel, tvChatterSpeechRateLabel, tvChatterSpeechPitchLabel, tvChatterSystemPromptLabel, tvChatterAvatarTitle;
     private View sectionGeneralHeader, sectionChatHeader, sectionExpertHeader;
     private Switch switchStreaming, switchTts, switchVoiceInput, switchAutoVoiceInput, switchWebSearch, switchCalendarExpertMode, switchDebug, switchJsonMode;
+    private Switch switchProactiveNotify, switchNewsMode;
     private EditText etOllamaUrl, etSpeechLang, etSpeechRate, etSpeechPitch, etSystemPrompt;
     private EditText etChatterSpeechLang, etChatterSpeechRate, etChatterSpeechPitch, etChatterSystemPrompt;
     private EditText etBaseName, etChatterName;
     private EditText etHistoryLimit, etAutoChatterSeconds;
     private EditText etWebSearchUrl, etWebSearchApiKey, etProfileName, etUserName;
+    private EditText etMorningBriefingTime, etNewsBriefingTimes;
     private EditText etSemanticThreshold, etSemanticRelMargin;
     private ImageView ivAvatarBackground;
     private ImageView ivAvatar;
@@ -252,6 +255,11 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
     private boolean autoVoiceInputEnabled = false;
     private boolean webSearchEnabled = false;
     private boolean calendarExpertModeEnabled = false;
+    // お知らせ機能（フロート常駐時に予定/ニュースをポップアップ通知）。
+    private boolean proactiveNotifyEnabled = false;
+    private String morningBriefingTime = "07:00";
+    private boolean newsModeEnabled = false;
+    private String newsBriefingTimes = "08:00,12:00,18:00";
     private String pendingFloatCalendarMsg = null;
     // Routing mode: KEYWORD_ONLY / KEYWORD_THEN_SEMANTIC / SEMANTIC_ONLY
     private String routingMode = "KEYWORD_ONLY";
@@ -365,6 +373,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         @Override
         public void onCleared() {
             runOnUiThread(() -> {
+                // どちら側から消去されても読み上げを即中断する（途中でも止める）。
+                stopTts();
                 if (messageContainer != null) {
                     messageContainer.removeAllViews();
                 }
@@ -862,6 +872,13 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         etHistoryLimit = findViewById(R.id.etHistoryLimit);
         etAutoChatterSeconds = findViewById(R.id.etAutoChatterSeconds);
         switchWebSearch = findViewById(R.id.switchWebSearch);
+        switchProactiveNotify = findViewById(R.id.switchProactiveNotify);
+        switchNewsMode = findViewById(R.id.switchNewsMode);
+        etMorningBriefingTime = findViewById(R.id.etMorningBriefingTime);
+        etNewsBriefingTimes = findViewById(R.id.etNewsBriefingTimes);
+        tvLabelNotifications = findViewById(R.id.tvLabelNotifications);
+        tvLabelMorningBriefingTime = findViewById(R.id.tvLabelMorningBriefingTime);
+        tvLabelNewsBriefingTimes = findViewById(R.id.tvLabelNewsBriefingTimes);
         switchDebug = findViewById(R.id.switchDebug);
         spinnerRoutingMode = findViewById(R.id.spinnerRoutingMode);
         etSemanticThreshold = findViewById(R.id.etSemanticThreshold);
@@ -1474,6 +1491,11 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (switchVoiceInput != null) switchVoiceInput.setText(t("Voice Input (on empty send)", "音声入力（空送信）"));
         if (switchAutoVoiceInput != null) switchAutoVoiceInput.setText(t("Auto Voice Input (after response)", "自動音声入力（応答後）"));
         if (switchWebSearch != null) switchWebSearch.setText(t("Web Search", "Web検索"));
+        if (tvLabelNotifications != null) tvLabelNotifications.setText(t("Notifications", "お知らせ"));
+        if (switchProactiveNotify != null) switchProactiveNotify.setText(t("Schedule Notifications", "予定のお知らせ"));
+        if (tvLabelMorningBriefingTime != null) tvLabelMorningBriefingTime.setText(t("Morning briefing time (HH:mm)", "朝のお知らせ時刻 (HH:mm)"));
+        if (switchNewsMode != null) switchNewsMode.setText(t("News Mode", "ニュースモード"));
+        if (tvLabelNewsBriefingTimes != null) tvLabelNewsBriefingTimes.setText(t("News times (HH:mm, comma-separated)", "ニュース時刻 (HH:mm, カンマ区切り)"));
         if (switchCalendarExpertMode != null) switchCalendarExpertMode.setText(t("Calendar Expert Mode", "Calendar Expert Mode"));
         if (tvLabelRoutingMode != null) tvLabelRoutingMode.setText(t("Expert Routing", "エキスパートルーティング"));
         if (switchJsonMode != null) switchJsonMode.setText(t("JSON Mode", "JSONモード"));
@@ -2499,10 +2521,10 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                 if (responseText != null && !responseText.trim().isEmpty()) {
                     if (speaker == ChatSpeaker.BASE) {
                         lastBaseResponse = responseText;
-                        addToHistory(chatterHistory, "user", responseText);
+                        addToHistory(chatterHistory, "user", attributeUtterance(baseName, responseText));
                     } else {
                         lastChatterResponse = responseText;
-                        addToHistory(conversationHistory, "user", responseText);
+                        addToHistory(conversationHistory, "user", attributeUtterance(chatterName, responseText));
                     }
                 }
                 nextChatterSpeaker = speaker == ChatSpeaker.BASE ? ChatSpeaker.CHATTER : ChatSpeaker.BASE;
@@ -2608,6 +2630,10 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         s.put("floatDisplayMode", floatDisplayMode);
         s.put("webSearchEnabled", webSearchEnabled);
         s.put("calendarExpertModeEnabled", calendarExpertModeEnabled);
+        s.put("proactiveNotifyEnabled", proactiveNotifyEnabled);
+        s.put("morningBriefingTime", morningBriefingTime);
+        s.put("newsModeEnabled", newsModeEnabled);
+        s.put("newsBriefingTimes", newsBriefingTimes);
         s.put("debugEnabled", debugEnabled);
         s.put("webSearchUrl", webSearchUrl);
         s.put("webSearchApiKey", webSearchApiKey);
@@ -2656,6 +2682,10 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         floatDisplayMode = normalizeFloatDisplayMode(s.optString("floatDisplayMode", floatDisplayMode));
         webSearchEnabled = s.optBoolean("webSearchEnabled", webSearchEnabled);
         calendarExpertModeEnabled = s.optBoolean("calendarExpertModeEnabled", calendarExpertModeEnabled);
+        proactiveNotifyEnabled = s.optBoolean("proactiveNotifyEnabled", proactiveNotifyEnabled);
+        morningBriefingTime = s.optString("morningBriefingTime", morningBriefingTime);
+        newsModeEnabled = s.optBoolean("newsModeEnabled", newsModeEnabled);
+        newsBriefingTimes = s.optString("newsBriefingTimes", newsBriefingTimes);
         debugEnabled = s.optBoolean("debugEnabled", debugEnabled);
         webSearchUrl = s.optString("webSearchUrl", webSearchUrl);
         webSearchApiKey = s.optString("webSearchApiKey", webSearchApiKey);
@@ -2995,6 +3025,14 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                     ? modes[pos] : StructuredOutput.Mode.OFF).name();
         }
         debugEnabled = switchDebug.isChecked();
+        if (switchProactiveNotify != null) proactiveNotifyEnabled = switchProactiveNotify.isChecked();
+        if (switchNewsMode != null) newsModeEnabled = switchNewsMode.isChecked();
+        if (etMorningBriefingTime != null) {
+            morningBriefingTime = normalizeTimeOfDay(etMorningBriefingTime.getText().toString(), "07:00");
+        }
+        if (etNewsBriefingTimes != null) {
+            newsBriefingTimes = normalizeTimeList(etNewsBriefingTimes.getText().toString(), "08:00,12:00,18:00");
+        }
         webSearchUrl = etWebSearchUrl.getText().toString().trim();
         if (webSearchUrl.isEmpty()) webSearchUrl = "https://api.search.brave.com/res/v1/web/search";
         webSearchApiKey = etWebSearchApiKey.getText().toString().trim();
@@ -3022,6 +3060,36 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
         if (spinnerChatterModel.getSelectedItem() != null) {
             chatterModel = spinnerChatterModel.getSelectedItem().toString();
         }
+    }
+
+    /** "H:mm"/"HH:mm" を検証して "HH:mm" へ正規化。不正なら fallback。 */
+    private String normalizeTimeOfDay(String input, String fallback) {
+        if (input == null) return fallback;
+        String s = input.trim();
+        if (!s.matches("\\d{1,2}:\\d{2}")) return fallback;
+        try {
+            String[] parts = s.split(":");
+            int h = Integer.parseInt(parts[0]);
+            int m = Integer.parseInt(parts[1]);
+            if (h < 0 || h > 23 || m < 0 || m > 59) return fallback;
+            return String.format(Locale.US, "%02d:%02d", h, m);
+        } catch (Exception e) {
+            return fallback;
+        }
+    }
+
+    /** カンマ区切りの "HH:mm" 一覧を正規化（不正な要素は除外）。全て不正なら fallback。 */
+    private String normalizeTimeList(String input, String fallback) {
+        if (input == null) return fallback;
+        StringBuilder sb = new StringBuilder();
+        for (String raw : input.split(",")) {
+            String norm = normalizeTimeOfDay(raw, null);
+            if (norm != null) {
+                if (sb.length() > 0) sb.append(",");
+                sb.append(norm);
+            }
+        }
+        return sb.length() == 0 ? fallback : sb.toString();
     }
 
     private void applySettingsToUi() {
@@ -3061,6 +3129,10 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             spinnerStructuredOutput.setSelection(structuredMode().ordinal());
         }
         switchDebug.setChecked(debugEnabled);
+        if (switchProactiveNotify != null) switchProactiveNotify.setChecked(proactiveNotifyEnabled);
+        if (switchNewsMode != null) switchNewsMode.setChecked(newsModeEnabled);
+        if (etMorningBriefingTime != null) etMorningBriefingTime.setText(morningBriefingTime);
+        if (etNewsBriefingTimes != null) etNewsBriefingTimes.setText(newsBriefingTimes);
         etWebSearchUrl.setText(webSearchUrl);
         etWebSearchApiKey.setText(webSearchApiKey);
         if (groupFloatDisplay != null) {
@@ -3259,7 +3331,8 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
             return;
         }
         // Text normalization (similar to ollama-chat speak())
-        String source = stripReasoningSegments(text);
+        // Markdown / HTML の装飾はタグ名ごと先に除去（句読点正規化で語として残さない）。
+        String source = TtsTextSanitizer.sanitize(stripReasoningSegments(text));
         String clean = source
                 .replaceAll("[\\n\\r\\t]", "、")
                 .replaceAll("[!@#$%^&*()_+={}\\[\\]|\\\\:;<>.?/]", "、")
@@ -3450,6 +3523,20 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                 result.append("相手の名前は").append(trimmedCounterpartName).append("です。");
             } else {
                 result.append("The other speaker's name is ").append(trimmedCounterpartName).append(".");
+            }
+            // 主体の入れ替わり防止: 常に自分として話し、相手や他者になりきらない。
+            if (isJapanese) {
+                result.append("\nあなたは常に")
+                        .append(trimmedName.isEmpty() ? "あなた自身" : trimmedName)
+                        .append("として一人称で話します。")
+                        .append(trimmedCounterpartName)
+                        .append("や他の人物になりきって発言したり、相手のセリフを代弁したりしないでください。発言の先頭に自分や相手の名前・コロンを付けないでください。");
+            } else {
+                result.append("\nAlways speak in the first person as ")
+                        .append(trimmedName.isEmpty() ? "yourself" : trimmedName)
+                        .append(". Never role-play as ")
+                        .append(trimmedCounterpartName)
+                        .append(" or anyone else, and never write the other speaker's lines. Do not prefix your reply with your name or a colon.");
             }
         }
         if (!trimmedUserName.isEmpty()) {
@@ -4800,6 +4887,12 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                     }
                     setThinkingIndicator(false, speaker, token);
                     String text = visibleResponse;
+                    if (autoChatterEnabled) {
+                        // モデルが付けた自名/相手名ラベルを除去し、表示・履歴・相互供給を整える。
+                        text = stripSpeakerPrefix(text,
+                                getSpeakerName(speaker), getSpeakerName(counterpartOf(speaker)));
+                        visibleResponse = text;
+                    }
                     flushStreamingBuffer(token);
                     finishStreamingMessage(text, token);
 
@@ -4887,6 +4980,11 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
                     if (content.trim().isEmpty()) {
                         // 可視テキストが空でも生の出力があれば（推論のみ／未閉じタグ）中身を見せる。
                         content = recoverVisibleText(rawContent);
+                    }
+                    if (autoChatterEnabled) {
+                        // モデルが付けた自名/相手名ラベルを除去（表示・履歴・読み上げ・相互供給に反映）。
+                        content = stripSpeakerPrefix(content,
+                                getSpeakerName(speaker), getSpeakerName(counterpartOf(speaker)));
                     }
                     if (!content.trim().isEmpty()) {
                         appendAssistantMessage(speaker, content);
@@ -5389,6 +5487,43 @@ public class MainActivity extends ComponentActivity implements TextToSpeech.OnIn
 
     private String getSpeakerName(ChatSpeaker speaker) {
         return speaker == ChatSpeaker.CHATTER ? chatterName : baseName;
+    }
+
+    private ChatSpeaker counterpartOf(ChatSpeaker speaker) {
+        return speaker == ChatSpeaker.CHATTER ? ChatSpeaker.BASE : ChatSpeaker.CHATTER;
+    }
+
+    /**
+     * モデル出力の先頭に付いた話者名ラベル（「リサ：」「リサ「…」」等）を取り除く。
+     * チャッターモードで履歴・相互供給・表示へ反映させ、ラベルが次ターンへ伝播して
+     * 発言の主体が入れ替わる事象を防ぐ。
+     */
+    private String stripSpeakerPrefix(String text, String... names) {
+        if (text == null) return "";
+        String t = text.trim();
+        if (t.isEmpty()) return t;
+        for (String name : names) {
+            if (name == null) continue;
+            String n = name.trim();
+            if (n.isEmpty()) continue;
+            if (t.startsWith(n + "「") && t.endsWith("」")) {
+                return t.substring((n + "「").length(), t.length() - 1).trim();
+            }
+            if (t.startsWith(n + "：")) {
+                return t.substring((n + "：").length()).trim();
+            }
+            if (t.startsWith(n + ":")) {
+                return t.substring((n + ":").length()).trim();
+            }
+        }
+        return t;
+    }
+
+    /** 相手へ供給する発話に話者名を付け、誰の発言かをモデルに明示する。 */
+    private String attributeUtterance(String name, String text) {
+        String n = name == null ? "" : name.trim();
+        if (n.isEmpty()) return text;
+        return "ja".equals(appLanguage) ? (n + "「" + text + "」") : (n + ": " + text);
     }
 
     private boolean isUserSideForSpeaker(ChatSpeaker speaker) {
